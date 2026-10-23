@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Idle Screen Wireframe</title>
+<!--
+  HA at a Glance: idle screen wireframe.
+  Structure and proportion only. No styling decisions are implied by the
+  greys, fonts, or outlines used here.
+
+  Content is dummy data in its final form (values, units, labels).
+  Graphics are neutral blocks:
+    small square     icon slot
+    coloured square  HVAC status icon (cooling / heating; neutral when idle)
+    outlined rounded square  person (occupancy: on a floor, or away);
+                     an empty breathing frame when nobody is away
+    hatched area     weather background (current condition)
+
+  Geometry:
+  - The split is a line through the screen center at angle α from
+    horizontal (45° = diagonal, 90° = left/right). The background uses a
+    CSS linear-gradient at (180° − α); a hard stop at 50% puts the boundary
+    exactly on that line at any aspect ratio.
+  - Content is grouped into clusters (date with time, conditions, people
+    away with appointments; one cluster per floor). Clusters stack outward from the
+    centered alert row, most important nearest the center.
+  - Each cluster is justified to the split line: its corner nearest the line
+    sits a fixed perpendicular distance from it. Because that position is
+    computed from α, clusters re-position (and animate) whenever the line
+    moves. See layout() in the script.
+  - All sizes use container query units (cqmin = 1% of the stage's shorter
+    side), so the layout scales from 1080p to 4K without fixed pixels.
+-->
+<style>
+  :root {
+    --ink: #222;
+    --ink-soft: #777;
+    --line: #999;
+    --page: #f4f4f4;
+    --out: #d6d6d6;   /* outdoor half, wireframe only */
+    --in: #ececec;    /* indoor half, wireframe only */
+    --guide: rgba(200, 0, 120, .55);
+    --move: 700ms ease-in-out;   /* shared timing for line and cluster motion */
+  }
+
+  /* Registering the split angle as an <angle> lets the browser animate it. */
+  @property --split {
+    syntax: '<angle>';
+    inherits: true;
+    initial-value: 135deg;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--page);
+    color: var(--ink);
+    font: 14px/1.3 system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px 24px;
+  }
+
+  /* ---------- Review controls (not part of the design) ---------- */
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    align-items: center;
+    justify-content: center;
+  }
+  .controls fieldset { border: 0; padding: 0; margin: 0; display: flex; gap: 6px; align-items: center; }
+  .controls legend { float: left; margin-right: 6px; color: var(--ink-soft); }
+  .controls button {
+    font: inherit;
+    padding: 4px 10px;
+    border: 1px solid var(--line);
+    background: #fff;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .controls button[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .controls output { min-width: 3ch; color: var(--ink-soft); }
+
+  /* ---------- Stage: the display surface ---------- */
+  .stage {
+    --ar: 1;                                   /* set by the shape switcher */
+    --split: 135deg;                           /* set by layout(): 180° − α */
+    --gap: 2.5cqmin;                           /* perpendicular distance from line to clusters */
+    --alert-pad: 1.2cqmin;                     /* vertical padding of the centered alert row */
+    --cluster-gap: 2.7cqmin;                   /* visible vertical space between clusters (see opticalEdges) */
+    position: relative;
+    aspect-ratio: var(--ar);
+    width: min(100%, calc((100vh - 110px) * var(--ar)));
+    container-type: size;
+    overflow: hidden;
+    border: 1px solid var(--ink);
+    /* The split: indoor colour everywhere, outdoor colour on the NW side. */
+    background: linear-gradient(var(--split), var(--out) 50%, var(--in) 50%);
+  }
+  .stage.animate { transition: --split var(--move); }
+
+  /* Weather background layer (hatched): fades across the split. */
+  .weather-bg {
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(45deg, transparent 0 1.2cqmin, rgba(0,0,0,.09) 1.2cqmin 1.6cqmin);
+    -webkit-mask-image: linear-gradient(var(--split), #000 38%, transparent 56%);
+            mask-image: linear-gradient(var(--split), #000 38%, transparent 56%);
+  }
+
+  /* ---------- Clusters: positioned by layout() ---------- */
+  .side { display: contents; }               /* grouping only; no box */
+  .cluster {
+    position: absolute;
+    left: 0;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    gap: .4cqmin;
+    line-height: 1.05;
+    white-space: nowrap;
+  }
+  .stage.animate .cluster { transition: transform var(--move); }
+  /* Content inside every cluster is left-aligned; the cluster as a whole
+     is what gets justified toward the line (see layout()). */
+  .cluster { align-items: flex-start; text-align: left; }
+
+  /* Alert row: full width, vertically centered, across both halves. */
+  .alert-row {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    padding: var(--alert-pad) 0;
+    translate: 0 -50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, .55);
+    white-space: nowrap;
+  }
+  .stage.animate .alert-row { transition: opacity var(--move), visibility var(--move); }
+  .stage.no-alert .alert-row { opacity: 0; visibility: hidden; }
+
+  /* ---------- Content ---------- */
+  /* Size tiers: placeholders for hierarchy, to be decided together. */
+  .t1 { font-size: 14cqmin; }
+  .t2 { font-size: 4.5cqmin; }
+  .t3 { font-size: 2.8cqmin; }
+
+  .line { display: flex; gap: 1.2cqmin; align-items: baseline; }
+
+  /* 12-hour period label beside the clock. */
+  /* Clock: tight line box so the cluster hugs the numerals. AM/PM is
+     top-aligned and positioned outside the numerals' box (an "overhang"),
+     so layout() can tuck it toward the line, where there is more room
+     above the numerals' nearest corner. */
+  .time { position: relative; line-height: .8; }
+  .ampm {
+    position: absolute;
+    left: 100%;
+    top: 0;                /* set by alignAmPm() so cap tops line up */
+    margin-left: .7cqmin;
+    font-size: 4.5cqmin;   /* same as the t2 (medium) step */
+    line-height: 1;
+  }
+
+  /* Icon slot: sized to the text it sits beside. */
+  .ico {
+    display: inline-block;
+    width: .8em;
+    height: .8em;
+    margin-right: .2em;
+    background: var(--line);
+    vertical-align: -.05em;
+  }
+
+  /* HVAC status icon (e.g., snowflake cooling, flame heating), colour-coded.
+     Placeholder hues only; palette not decided. Idle stays neutral. */
+  .ico.cool { background: #7fa6c8; }
+  .ico.heat { background: #d29a68; }
+
+  /* Floor cluster: label / HVAC icon + temperature + presence / air quality. */
+  .status-line { display: flex; align-items: center; }
+  .status-line .people { margin-left: 2.4cqmin; }   /* slight break before presence */
+  .aq { display: flex; gap: 1cqmin; }
+
+  /* People away beside the appointments list. */
+  /* Icon bottoms sit on the baseline of the last appointment line. */
+  .agenda { display: flex; align-items: last baseline; gap: 1.6cqmin; }
+  .appointments { display: flex; flex-direction: column; gap: .4cqmin; align-items: flex-start; }
+
+  /* More than 24 hours away: the day is shown, plus a visual cue.
+     Placeholder cue only (reduced emphasis); styling not decided. */
+  .appt.later { opacity: .55; }
+
+  /* No upcoming appointments, or calendars unavailable: the list is replaced
+     by an error line (D65). Appointments are otherwise always shown. */
+  .appointments .appt-error { display: none; }
+  .stage.no-appts .appointments .appt { display: none; }
+  .stage.no-appts .appointments .appt-error { display: block; }
+
+  /* Occupancy: one person icon per person detected (on a floor, or away). */
+  /* Same size everywhere (floors and away), matching the medium (t2) step.
+     Rounded square. */
+  .people { display: flex; gap: .8cqmin; align-items: center; }
+  .person {
+    width: 4.5cqmin;
+    aspect-ratio: 1;
+    border: .35cqmin solid var(--line);
+    border-radius: 30%;
+    flex: none;
+  }
+
+  /* Nobody away: one empty frame that slowly "breathes" (a gentle nudge to
+     go outside). Opacity only, so it's cheap on a Pi; static when the
+     viewer prefers reduced motion. */
+  .person.empty { display: none; }
+  .stage.nobody-away .away .person:not(.empty) { display: none; }
+  .stage.nobody-away .away .person.empty {
+    display: block;
+    animation: breathe 6s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%, 100% { opacity: .25; }
+    50%      { opacity: .8; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .stage.nobody-away .away .person.empty { animation: none; opacity: .5; }
+  }
+
+  /* Optional outlines to check element bounds and spacing. */
+  .stage.show-bounds .cluster { outline: 1px solid rgba(0, 90, 200, .6); }
+  .stage.show-bounds .cluster > *,
+  .stage.show-bounds .alert-row,
+  .stage.show-bounds .status-line > *,
+  .stage.show-bounds .aq > *,
+  .stage.show-bounds .line > * { outline: 1px dotted rgba(0, 90, 200, .5); }
+
+  /* ---------- Review guides ---------- */
+  .guides { position: absolute; inset: 0; pointer-events: none; display: none; }
+  .stage.show-guides .guides { display: block; }
+  .guides i { position: absolute; background: var(--guide); }
+  .g-v  { left: 50%; top: 0; bottom: 0; width: 1px; }
+  .g-h  { top: 50%; left: 0; right: 0; height: 1px; }
+  .g-v1 { left: 33.333%; top: 0; bottom: 0; width: 1px; opacity: .45; }
+  .g-v2 { left: 66.667%; top: 0; bottom: 0; width: 1px; opacity: .45; }
+  .g-h1 { top: 33.333%; left: 0; right: 0; height: 1px; opacity: .45; }
+  .g-h2 { top: 66.667%; left: 0; right: 0; height: 1px; opacity: .45; }
+  /* Round-screen safe area: the inscribed circle. */
+  .g-round {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 100cqmin; height: 100cqmin;
+    translate: -50% -50%;
+    border: 1px dashed var(--guide);
+    border-radius: 50%;
+  }
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <fieldset id="shape">
+    <legend>Shape</legend>
+    <button data-ar="1" aria-pressed="true">Square 1:1</button>
+    <button data-ar="0.5625" aria-pressed="false">Portrait 9:16</button>
+    <button data-ar="1.7778" aria-pressed="false">Landscape 16:9</button>
+  </fieldset>
+  <fieldset id="split">
+    <legend>Split</legend>
+    <button data-angle="45" aria-pressed="true">Diagonal 45°</button>
+    <button data-angle="90" aria-pressed="false">Left / right</button>
+    <input id="angle" type="range" min="30" max="90" step="1" value="45" aria-label="Split angle">
+    <output id="angle-out">45°</output>
+  </fieldset>
+  <fieldset>
+    <legend>Show</legend>
+    <button id="guides" aria-pressed="false">Guides</button>
+    <button id="bounds" aria-pressed="false">Bounds</button>
+    <button id="alert-toggle" aria-pressed="true">Alert</button>
+  </fieldset>
+  <fieldset>
+    <legend>States</legend>
+    <button id="appts-toggle" aria-pressed="false">Calendar error</button>
+    <button id="err-toggle" aria-pressed="false">Missing data</button>
+    <button id="away-toggle" aria-pressed="false">Nobody away</button>
+  </fieldset>
+</div>
+
+<div class="stage" id="stage">
+  <div class="weather-bg"></div>
+
+  <!-- Outdoor (NW). Clusters listed center to edge: date above time (one
+       cluster), conditions, then people away with appointments.
+       Three text sizes only: t1 (time), t2 (date, temperature, AM/PM), t3
+       (everything else). -->
+  <section class="side outdoor" aria-label="Outdoor">
+    <!-- Date above the time, in one cluster, left-aligned with each other -->
+    <div class="cluster">
+      <div class="t2">Thursday, October 22</div>
+      <div class="t1 time">7:42<span class="ampm overhang">AM</span></div>
+    </div>
+    <div class="cluster">
+      <div class="line">
+        <span class="t2"><span class="ico"></span>72°</span>
+        <span class="t3" data-err><span class="ico"></span>35%</span>
+        <!-- Outdoor AQI: no data source yet -->
+        <span class="t3"><span class="ico"></span>AQI 42</span>
+      </div>
+    </div>
+    <!-- People away, to the left of the whole appointments list.
+         Appointments: dummy data until the calendar integration is repaired;
+         soonest sits nearest the center (bottom); anything more than 24 h
+         away shows its day and a visual cue. -->
+    <div class="cluster">
+      <div class="agenda">
+        <div class="people away"><span class="person"></span><span class="person empty"></span></div>
+        <div class="appointments">
+          <div class="t3 appt later"><span class="ico"></span>Sat 10:00 AM Soccer</div>
+          <div class="t3 appt"><span class="ico"></span>2:00 PM School pickup</div>
+          <div class="t3 appt"><span class="ico"></span>9:30 AM Dentist</div>
+          <div class="t3 appt-error"><span class="ico"></span>Err</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Indoor (SE). One cluster per floor, listed center to edge. -->
+  <section class="side indoor" aria-label="Indoor">
+    <div class="cluster">
+      <div class="t3">First Floor</div>
+      <div class="status-line">
+        <span class="t2"><span class="ico heat"></span>73°</span>
+        <span class="people"><span class="person"></span><span class="person"></span></span>
+      </div>
+      <div class="aq t3">
+        <span><span class="ico"></span>48%</span>
+        <span data-err><span class="ico"></span>690 ppm</span>
+        <span><span class="ico"></span>21 µg/m³</span>
+      </div>
+    </div>
+    <div class="cluster">
+      <div class="t3">Second Floor</div>
+      <div class="status-line">
+        <span class="t2" data-err><span class="ico cool"></span>70°</span>
+        <span class="people"><span class="person"></span></span>
+      </div>
+      <div class="aq t3">
+        <span><span class="ico"></span>52%</span>
+        <span><span class="ico"></span>640 ppm</span>
+        <span><span class="ico"></span>9 µg/m³</span>
+      </div>
+    </div>
+    <!-- Partial: this floor's monitor reports no PM2.5. HVAC idle. -->
+    <div class="cluster">
+      <div class="t3">Basement</div>
+      <div class="status-line">
+        <span class="t2"><span class="ico"></span>74°</span>
+      </div>
+      <div class="aq t3">
+        <span><span class="ico"></span>43%</span>
+        <span><span class="ico"></span>610 ppm</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Alert row: full width, centered on the screen, spanning both halves.
+       v0.1 shows the build version as placeholder content (version format
+       not decided yet). -->
+  <div class="alert-row t2"><span class="ico"></span>HA at a Glance · v0.1.0 pre-alpha</div>
+
+  <div class="guides" aria-hidden="true">
+    <i class="g-v"></i><i class="g-h"></i>
+    <i class="g-v1"></i><i class="g-v2"></i><i class="g-h1"></i><i class="g-h2"></i>
+    <div class="g-round"></div>
+  </div>
+</div>
+
+<script>
+  const stage = document.getElementById('stage');
+  const alertRow = stage.querySelector('.alert-row');
+  const outClusters = [...stage.querySelectorAll('.outdoor .cluster')];
+  const inClusters  = [...stage.querySelectorAll('.indoor .cluster')];
+  let angle = 45;   // split line angle from horizontal, in degrees
+
+  // Read a length custom property (e.g. "2.5cqmin") as pixels.
+  function px(name) {
+    const probe = document.createElement('div');
+    probe.style.cssText = `position:absolute;visibility:hidden;width:var(${name})`;
+    stage.appendChild(probe);
+    const w = probe.getBoundingClientRect().width;
+    probe.remove();
+    return w;
+  }
+
+  /*
+    Justify every cluster to the split line.
+
+    The line passes through the center (cx, cy) at angle α. Its unit normal,
+    pointing to the indoor side, is n = (sin α, cos α) in screen coordinates.
+    A point's signed distance from the line is s = n · (p − c).
+
+    A cluster's shape is its visible pieces (text and graphics), including
+    overhangs such as AM/PM that sit outside the stack's boxes. See
+    shapeCorners().
+
+    - Outdoor clusters stack upward from the alert row. Their shape's corner
+      nearest the line (largest s) must sit at s = −gap.
+    - Indoor clusters stack downward. Their nearest corner (smallest s) must
+      sit at s = +gap.
+    Solving for x gives each cluster's horizontal position at its height, so
+    clusters step along the line. Positions are clamped to the screen.
+  */
+
+  // Corners of a cluster's shape, relative to the cluster's top-left.
+  // The shape is the visible pieces only: every element that directly holds
+  // text, plus graphics (icon slots, person circles). Row and cluster boxes
+  // are ignored, so a short line beneath a long one (e.g., "9:30 AM Dentist"
+  // under "2:00 PM School pickup") is justified by its own edge, and wider
+  // lines higher up can extend toward the line where there is more room.
+  function inkParts(el) {
+    return [...el.querySelectorAll('*')].filter(e =>
+      e.getClientRects().length &&           // skip hidden (display: none) pieces
+      (e.matches('.ico, .person') ||
+       [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())));
+  }
+
+  function shapeCorners(el) {
+    const base = el.getBoundingClientRect();
+    return inkParts(el).flatMap(p => {
+      const r = p.getBoundingClientRect();
+      const l = r.left - base.left, t = r.top - base.top;
+      const rr = r.right - base.left, b = r.bottom - base.top;
+      return [[l, t], [rr, t], [l, b], [rr, b]];
+    });
+  }
+
+  /*
+    Visible top and bottom of a cluster, relative to its box top.
+
+    Line boxes include leading and room for accents and descenders, so
+    equal box gaps don't look equal. Instead, text is measured from cap
+    height to baseline (descenders ignored, the usual typographic
+    convention), and graphics (icon slots, person circles) by their boxes.
+    Stacking clusters by these edges gives the same visible gap everywhere.
+  */
+  const measureCtx = document.createElement('canvas').getContext('2d');
+
+  function capHeight(el) {
+    const cs = getComputedStyle(el);
+    measureCtx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    return measureCtx.measureText('H').actualBoundingBoxAscent;
+  }
+
+  // Baseline position of an element's text, via a zero-size inline probe.
+  function baselineY(el) {
+    const probe = document.createElement('span');
+    probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
+    el.insertBefore(probe, el.firstChild);
+    const y = probe.getBoundingClientRect().bottom;
+    probe.remove();
+    return y;
+  }
+
+  function opticalEdges(cluster) {
+    const base = cluster.getBoundingClientRect().top;
+    let top = Infinity, bottom = -Infinity;
+    (function walk(node) {
+      for (const el of node.children) {
+        if (!el.getClientRects().length) continue;   // hidden (display: none)
+        if (el.matches('.ico, .person')) {
+          const r = el.getBoundingClientRect();
+          top = Math.min(top, r.top);
+          bottom = Math.max(bottom, r.bottom);
+          continue;
+        }
+        const hasText = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
+        if (hasText) {
+          const b = baselineY(el);
+          top = Math.min(top, b - capHeight(el));
+          bottom = Math.max(bottom, b);
+        }
+        walk(el);
+      }
+    })(cluster);
+    return { top: top - base, bottom: bottom - base };
+  }
+
+  // Top-align AM/PM with the clock numerals by their cap heights, measured
+  // from the actual font rather than a hand-tuned offset, so it stays
+  // aligned if sizes or fonts change.
+  function alignAmPm() {
+    for (const am of stage.querySelectorAll('.ampm')) {
+      const clock = am.parentElement;
+      const clockCapTop = baselineY(clock) - capHeight(clock);
+      const amCapTop = baselineY(am) - capHeight(am);
+      am.style.top = (am.offsetTop + clockCapTop - amCapTop) + 'px';
+    }
+  }
+
+  function layout() {
+    const W = stage.clientWidth, H = stage.clientHeight;
+    const cx = W / 2, cy = H / 2;
+    const a = angle * Math.PI / 180, sa = Math.sin(a), ca = Math.cos(a);
+    const gap = px('--gap'), cgap = px('--cluster-gap');
+    const edge = Math.min(W, H) * 0.02;
+    // With the alert shown, clusters clear it by one gap on each side.
+    // Hidden, the two sides are one gap apart across the center.
+    const alertOn = !stage.classList.contains('no-alert');
+    const half = alertOn ? alertRow.getBoundingClientRect().height / 2 : 0;   // unrounded, unlike offsetHeight
+    const first = alertOn ? cgap : cgap / 2;
+
+    stage.style.setProperty('--split', (180 - angle) + 'deg');
+    alignAmPm();
+
+    // Place one cluster: top edge at ty, nearest corner at signed distance target.
+    function place(el, ty, target, pick) {
+      const corners = shapeCorners(el);
+      // s for each corner with the cluster's x offset excluded.
+      const sNoX = corners.map(([px, py]) => sa * px + ca * (ty + py - cy));
+      let tx = cx + (target - pick(...sNoX)) / sa;
+      const minX = Math.min(...corners.map(c => c[0]));
+      const maxX = Math.max(...corners.map(c => c[0]));
+      tx = Math.min(Math.max(tx, edge - minX), W - edge - maxX);
+      el.style.transform = `translate(${tx}px, ${ty}px)`;
+    }
+
+    // Stack by visible edges: the gap from the alert row to the first
+    // cluster, and between clusters, is the same visible distance.
+    let y = cy - half - first;                       // visible bottom of next outdoor cluster
+    for (const el of outClusters) {
+      const o = opticalEdges(el);
+      const ty = y - o.bottom;
+      place(el, ty, -gap, Math.max);
+      y = ty + o.top - cgap;
+    }
+
+    y = cy + half + first;                           // visible top of next indoor cluster
+    for (const el of inClusters) {
+      const o = opticalEdges(el);
+      const ty = y - o.top;
+      place(el, ty, gap, Math.min);
+      y = ty + o.bottom + cgap;
+    }
+  }
+
+  // Lay out once without motion, then enable transitions.
+  layout();
+  requestAnimationFrame(() => requestAnimationFrame(() => stage.classList.add('animate')));
+  new ResizeObserver(layout).observe(stage);
+
+  // ---------- Review controls ----------
+  const slider = document.getElementById('angle');
+  const sliderOut = document.getElementById('angle-out');
+  const splitGroup = document.getElementById('split');
+
+  function pressOne(group, btn) {
+    group.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b === btn));
+  }
+
+  function setAngle(deg) {
+    angle = deg;
+    slider.value = deg;
+    sliderOut.textContent = deg + '°';
+    splitGroup.querySelectorAll('button').forEach(b =>
+      b.setAttribute('aria-pressed', Number(b.dataset.angle) === deg));
+    layout();
+  }
+
+  document.getElementById('shape').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-ar]');
+    if (!btn) return;
+    pressOne(e.currentTarget, btn);
+    stage.style.setProperty('--ar', btn.dataset.ar);
+    // ResizeObserver re-runs layout() when the stage changes size.
+  });
+
+  splitGroup.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-angle]');
+    if (btn) setAngle(Number(btn.dataset.angle));
+  });
+  slider.addEventListener('input', () => setAngle(Number(slider.value)));
+
+  document.getElementById('alert-toggle').addEventListener('click', e => {
+    const hidden = stage.classList.toggle('no-alert');
+    e.currentTarget.setAttribute('aria-pressed', !hidden);
+    layout();
+  });
+
+  document.getElementById('appts-toggle').addEventListener('click', e => {
+    const on = stage.classList.toggle('no-appts');
+    e.currentTarget.setAttribute('aria-pressed', on);
+    layout();
+  });
+
+  // Missing-data demo: swap a few values (marked data-err) for "Err".
+  document.getElementById('err-toggle').addEventListener('click', e => {
+    const on = e.currentTarget.getAttribute('aria-pressed') !== 'true';
+    for (const el of stage.querySelectorAll('[data-err]')) {
+      const text = [...el.childNodes].find(n => n.nodeType === 3 && n.textContent.trim());
+      if (on) { el.dataset.value = text.textContent; text.textContent = 'Err'; }
+      else    { text.textContent = el.dataset.value; }
+    }
+    e.currentTarget.setAttribute('aria-pressed', on);
+    layout();
+  });
+
+  document.getElementById('away-toggle').addEventListener('click', e => {
+    const on = stage.classList.toggle('nobody-away');
+    e.currentTarget.setAttribute('aria-pressed', on);
+    layout();
+  });
+
+  // Independent on/off toggles.
+  for (const [id, cls] of [['guides', 'show-guides'], ['bounds', 'show-bounds']]) {
+    document.getElementById(id).addEventListener('click', e => {
+      e.currentTarget.setAttribute('aria-pressed', stage.classList.toggle(cls));
+    });
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Day/Night Palette Study</title>
+<!--
+  Håg: day/night palette study (night beach vs vibrant spring).
+
+  How the blend works:
+  - Every color token has a night value and a day value.
+  - One number, --daylight (0 = night, 1 = day), mixes them with
+    color-mix() in the OKLab color space, which blends perceptually, so
+    midpoints don't go muddy. (OKLCH was tried first: near-grey colors have
+    an unstable hue there, and Chromium kept the night hue even at 100%
+    day. OKLab has no hue channel, so it doesn't have that problem.)
+  - --daylight is registered with @property, so the browser can animate it:
+    one transition moves every color at once.
+  - In the real card the themes switch at dawn and dusk with a quick
+    2–3 second transition (no gradual fade). The slider is for inspecting
+    in-between colors only.
+
+  Values are placeholders for discussion. Contrast ratios are measured live.
+-->
+<style>
+  @property --daylight {
+    syntax: '<number>';
+    inherits: true;
+    initial-value: 0;
+  }
+
+  :root {
+    /* Night: warm summer night at the beach */
+    --n-sky:       #10162A;   /* outdoor base: night sky */
+    --n-horizon:   #1D3442;   /* outdoor glow: water near the horizon */
+    --n-home:      #1E2433;   /* indoor base: dusk tide */
+    --n-band:      #FFFFFF14; /* alert row wash */
+    --n-text:      #F1EADC;   /* moonlit sand */
+    --n-text-2:    #A9B0C2;   /* sea mist */
+    --n-coral:     #FF7A68;   /* coral */
+    --n-seaglass:  #72D8C6;   /* sea glass */
+    --n-mist:      #8FA6C8;   /* drifting haze */
+
+    /* Day: vibrant spring (bright, saturated blues, greens, pinks; clear contrast) */
+    --d-sky:       #7CC8F2;   /* outdoor base: clear spring sky */
+    --d-horizon:   #FFD6E7;   /* outdoor glow: blossom pink */
+    --d-home:      #F6FAFF;   /* indoor base: crisp, blue-tinted white */
+    --d-band:      #FFFFFFB3;
+    --d-text:      #0E1F3A;   /* deep ink navy */
+    --d-text-2:    #34537A;   /* denim */
+    --d-coral:     #D6336C;   /* coral, shifted to blossom pink-red */
+    --d-seaglass:  #0B8A5E;   /* sea glass, shifted to spring emerald */
+    --d-mist:      #FFFFFF;
+
+    --daylight: 0;
+  }
+
+  /* Blended tokens: what components would actually use. */
+  .stage {
+    --p: calc(var(--daylight) * 100%);
+    --sky:      color-mix(in oklab, var(--d-sky) var(--p), var(--n-sky));
+    --horizon:  color-mix(in oklab, var(--d-horizon) var(--p), var(--n-horizon));
+    --home:     color-mix(in oklab, var(--d-home) var(--p), var(--n-home));
+    --band:     color-mix(in oklab, var(--d-band) var(--p), var(--n-band));
+    --text:     color-mix(in oklab, var(--d-text) var(--p), var(--n-text));
+    --text-2:   color-mix(in oklab, var(--d-text-2) var(--p), var(--n-text-2));
+    --coral:    color-mix(in oklab, var(--d-coral) var(--p), var(--n-coral));
+    --seaglass: color-mix(in oklab, var(--d-seaglass) var(--p), var(--n-seaglass));
+    --mist:     color-mix(in oklab, var(--d-mist) var(--p), var(--n-mist));
+  }
+  .stage.animate { transition: --daylight 2.5s ease-in-out; }   /* quick switch at dawn/dusk (D79) */
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 16px;
+    background: #f4f4f4;
+    color: #222;
+    font: 14px/1.4 system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: center; }
+  .controls button { font: inherit; padding: 4px 10px; border: 1px solid #999; background: #fff; border-radius: 3px; cursor: pointer; }
+  .controls output { min-width: 4ch; color: #666; }
+
+  /* ---------- Preview ---------- */
+  .stage {
+    position: relative;
+    width: min(100%, 560px);
+    aspect-ratio: 1;
+    container-type: size;
+    overflow: hidden;
+    background: var(--home);
+    color: var(--text);
+    border-radius: 6px;
+  }
+  /* Outdoor half: sky with a soft horizon glow, clipped on the diagonal. */
+  .outdoor {
+    position: absolute;
+    inset: 0;
+    clip-path: polygon(0 0, 100% 0, 0 100%);
+    background:
+      radial-gradient(120% 90% at 30% 85%, var(--horizon), transparent 60%),
+      var(--sky);
+  }
+  /* Drifting haze: blurred soft shapes, to test blur and blending. */
+  .haze {
+    position: absolute;
+    border-radius: 50%;
+    background: var(--mist);
+    filter: blur(6cqmin);
+    opacity: .28;
+    animation: drift 28s ease-in-out infinite alternate;
+  }
+  .haze.h1 { width: 60cqmin; height: 22cqmin; left: -10cqmin; top: 18cqmin; }
+  .haze.h2 { width: 45cqmin; height: 16cqmin; left: 20cqmin; top: 4cqmin; animation-duration: 36s; }
+  @keyframes drift { from { translate: 0 0; } to { translate: 14cqmin 3cqmin; } }
+
+  .band {
+    position: absolute; left: 0; right: 0; top: 50%; translate: 0 -50%;
+    padding: 1.2cqmin 0;
+    background: var(--band);
+    text-align: center;
+    font-size: 4.5cqmin;
+  }
+  .out-text { position: absolute; right: 50%; bottom: 57%; }
+  .in-text  { position: absolute; left: 53%; top: 58%; }
+  .t1 { font-size: 14cqmin; line-height: .8; }
+  .t2 { font-size: 4.5cqmin; }
+  .t3 { font-size: 2.8cqmin; color: var(--text-2); }
+  .ico { display: inline-block; width: .8em; height: .8em; border-radius: .15em; margin-right: .2em; vertical-align: -.05em; background: var(--text-2); }
+  .ico.coral { background: var(--coral); }
+  .ico.seaglass { background: var(--seaglass); }
+  .person { display: inline-block; width: 4.5cqmin; height: 4.5cqmin; border-radius: 30%; border: .35cqmin solid var(--text-2); vertical-align: middle; margin-left: 1.6cqmin; }
+  .floor { margin-bottom: 2.6cqmin; }
+
+  /* ---------- Token table ---------- */
+  table { border-collapse: collapse; font-size: 13px; width: min(100%, 560px); }
+  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #ddd; }
+  th { font-weight: 500; color: #666; }
+  .chip { display: inline-block; width: 16px; height: 16px; border-radius: 3px; border: 1px solid #0002; vertical-align: -3px; margin-right: 6px; }
+  .bad { color: #b00020; }
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <button data-d="0">Night</button>
+  <button data-d="1">Day</button>
+  <label>Daylight <input id="dl" type="range" min="0" max="1" step="0.01" value="0"></label>
+  <output id="dl-out">0%</output>
+</div>
+
+<div class="stage" id="stage">
+  <div class="outdoor">
+    <div class="haze h1"></div>
+    <div class="haze h2"></div>
+  </div>
+  <div class="out-text">
+    <div class="t2">Thursday, October 22</div>
+    <div class="t1">7:42</div>
+    <div class="t2" style="margin-top:2cqmin"><span class="ico"></span>72° <span class="t3"><span class="ico"></span>35% <span class="ico"></span>AQI 42</span></div>
+  </div>
+  <div class="band"><span class="ico coral"></span>Garage door open · 12 min</div>
+  <div class="in-text">
+    <div class="floor"><div class="t3">First Floor</div><div class="t2"><span class="ico coral"></span>73°<span class="person"></span></div><div class="t3">48% · 690 ppm · 21 µg/m³</div></div>
+    <div class="floor"><div class="t3">Second Floor</div><div class="t2"><span class="ico seaglass"></span>70°<span class="person"></span></div><div class="t3">52% · 640 ppm · 9 µg/m³</div></div>
+    <div class="floor"><div class="t3">Basement</div><div class="t2"><span class="ico"></span>74°</div><div class="t3">43% · 610 ppm</div></div>
+  </div>
+</div>
+
+<table>
+  <thead><tr><th>Token</th><th>Night</th><th>Day</th><th>Now</th><th>Contrast now</th></tr></thead>
+  <tbody id="tokens"></tbody>
+</table>
+<p style="max-width:560px;color:#666;margin:0;font-size:12px">Contrast is measured against the background each token sits on (outdoor sky or indoor base). WCAG: 4.5:1 for small text, 3:1 for large text and graphics.</p>
+
+<script>
+  const stage = document.getElementById('stage');
+  const slider = document.getElementById('dl');
+  const out = document.getElementById('dl-out');
+
+  // [token, label, background token it sits on]
+  const tokens = [
+    ['sky', 'Outdoor sky', null],
+    ['home', 'Indoor base', null],
+    ['text', 'Text (on indoor)', 'home'],
+    ['text-2', 'Secondary text (on indoor)', 'home'],
+    ['coral', 'Coral: heating, alerts (on indoor)', 'home'],
+    ['seaglass', 'Sea glass: cooling (on indoor)', 'home'],
+    ['text', 'Text (on outdoor sky)', 'sky'],
+  ];
+
+  // Resolve any CSS color (including color-mix) to sRGB via a 1px canvas.
+  const ctx = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true });
+  function rgb(cssColor) {
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = cssColor;
+    ctx.fillRect(0, 0, 1, 1);
+    return [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3);
+  }
+  function lum([r, g, b]) {
+    const f = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  }
+  function contrast(a, b) {
+    const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (l1 + 0.05) / (l2 + 0.05);
+  }
+  const hex = c => '#' + c.map(v => v.toString(16).padStart(2, '0')).join('').toUpperCase();
+
+  // Let the browser resolve the blended token (color-mix with var() and
+  // calc()) on a hidden probe, then read back the final color.
+  const probe = document.createElement('div');
+  probe.style.display = 'none';
+  stage.appendChild(probe);
+  function tokenValue(name) {
+    probe.style.backgroundColor = `var(--${name})`;
+    return getComputedStyle(probe).backgroundColor;
+  }
+  const rootValue = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  function render() {
+    const rows = tokens.map(([t, label, on]) => {
+      const now = rgb(tokenValue(t));
+      let c = '';
+      if (on) {
+        const r = contrast(now, rgb(tokenValue(on)));
+        c = `<span class="${r < 4.5 ? 'bad' : ''}">${r.toFixed(1)}:1</span>`;
+      }
+      const chip = v => `<span class="chip" style="background:${v}"></span>`;
+      return `<tr><td>${label}</td>
+        <td>${chip(rootValue('--n-' + t))}<code>${rootValue('--n-' + t)}</code></td>
+        <td>${chip(rootValue('--d-' + t))}<code>${rootValue('--d-' + t)}</code></td>
+        <td>${chip(hex(now))}<code>${hex(now)}</code></td>
+        <td>${c}</td></tr>`;
+    });
+    document.getElementById('tokens').innerHTML = rows.join('');
+  }
+
+  function setDaylight(v, animate) {
+    stage.classList.toggle('animate', !!animate);
+    stage.style.setProperty('--daylight', v);
+    slider.value = v;
+    out.textContent = Math.round(v * 100) + '%';
+    if (animate) {
+      // Refresh the table during and after the transition.
+      const t0 = performance.now();
+      (function tick() { render(); if (performance.now() - t0 < 2700) requestAnimationFrame(tick); })();
+    } else {
+      render();
+    }
+  }
+
+  document.querySelectorAll('button[data-d]').forEach(b =>
+    b.addEventListener('click', () => setDaylight(Number(b.dataset.d), true)));
+  slider.addEventListener('input', () => setDaylight(Number(slider.value), false));
+  setDaylight(0, false);
+</script>
+</body>
+</html>
