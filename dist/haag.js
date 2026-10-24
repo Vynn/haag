@@ -358,6 +358,11 @@ const initials = name => (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).
    calendar when unset.
    ------------------------------------------------------------------------ */
 
+// With no alert, the clock keeps at least this much room on its left
+// (fraction of the card's shorter side), so wide times (10:00–12:59) don't
+// press against the edge (D58).
+const PAIR_LEFT_MARGIN = 0.105;
+
 const APPT_COUNT = 4;                 // appointments shown
 const APPT_REFRESH = 5 * 60 * 1000;   // refetch every 5 minutes
 const APPT_DAYS = 30;                 // look-ahead window
@@ -416,6 +421,11 @@ async function fetchEvents(hass, calendars) {
 
 const STYLE = `
   :host {
+    /* One size unit for everything: 1% of the card's shorter side, times a
+       global scale. Lowering --haag-scale shrinks every size and gap
+       together, so all proportions stay the same. */
+    --haag-scale: 0.9;
+    --u: calc(1cqmin * var(--haag-scale));
     display: block;
     width: 100%;
     height: var(--haag-height, 100vh);
@@ -429,13 +439,13 @@ const STYLE = `
     --out: #d6d6d6;
     --in: #ececec;
     --line: #999;
-    --gap: 2.5cqmin;          /* perpendicular distance from the split line to clusters */
-    --alert-pad: 1.2cqmin;    /* vertical padding of the alert row */
-    --cluster-gap: 2.7cqmin;  /* visible gap between clusters (see opticalEdges) */
+    --gap: calc(2.5 * var(--u));          /* perpendicular distance from the split line to clusters */
+    --alert-pad: calc(1.2 * var(--u));    /* vertical padding of the alert row */
+    --cluster-gap: calc(2.7 * var(--u));  /* visible gap between clusters (see opticalEdges) */
     /* Medium text step (D54). Also sizes AM/PM, person icons (D49) and the
        appointment stagger, which are all defined as "the medium line". 5.5
        makes date + conditions as tall as a floor block (D96). */
-    --t2: 5.5cqmin;
+    --t2: calc(5.5 * var(--u));
     --move: 700ms ease-in-out;
     position: relative;
     width: 100%;
@@ -449,7 +459,7 @@ const STYLE = `
   .weather-bg {
     position: absolute;
     inset: 0;
-    background: repeating-linear-gradient(45deg, transparent 0 1.2cqmin, rgba(0,0,0,.09) 1.2cqmin 1.6cqmin);
+    background: repeating-linear-gradient(45deg, transparent 0 calc(1.2 * var(--u)), rgba(0,0,0,.09) calc(1.2 * var(--u)) calc(1.6 * var(--u)));
     -webkit-mask-image: linear-gradient(var(--haag-split), #000 38%, transparent 56%);
             mask-image: linear-gradient(var(--haag-split), #000 38%, transparent 56%);
   }
@@ -464,7 +474,7 @@ const STYLE = `
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: .4cqmin;
+    gap: calc(.4 * var(--u));
     line-height: 1.05;
     white-space: nowrap;
   }
@@ -490,11 +500,11 @@ const STYLE = `
   .stage.no-alert .alert-row { opacity: 0; visibility: hidden; }
 
   /* Three text sizes (D54). */
-  .t1 { font-size: 14cqmin; }
+  .t1 { font-size: calc(14 * var(--u)); }
   .t2 { font-size: var(--t2); }
-  .t3 { font-size: 2.8cqmin; }
+  .t3 { font-size: calc(2.8 * var(--u)); }
 
-  .line { display: flex; gap: 1.2cqmin; align-items: baseline; }
+  .line { display: flex; gap: calc(1.2 * var(--u)); align-items: baseline; }
 
   /* Clock: tight box around the numerals; AM/PM hangs outside it, top-aligned
      by alignAmPm(), so layout() can tuck it toward the line. */
@@ -506,7 +516,7 @@ const STYLE = `
     position: absolute;
     left: 100%;
     top: 0;
-    margin-left: .7cqmin;
+    margin-left: calc(.7 * var(--u));
     font-size: var(--t2);   /* AM/PM: medium step */
     line-height: 1;
   }
@@ -533,11 +543,12 @@ const STYLE = `
   [data-slot].err > .ico { background: #c0392b; }
 
   .status-line { display: flex; align-items: center; }
-  .status-line .people { margin-left: 2.4cqmin; }
-  .aq { display: flex; gap: 1cqmin; }
+  .status-line .people { margin-left: calc(2.4 * var(--u)); }
+  /* People away sit before the outdoor temperature, mirroring the floor rows. */
+  .status-line .people.away { margin-left: 0; margin-right: calc(2.4 * var(--u)); }
+  .aq { display: flex; gap: calc(1 * var(--u)); }
 
-  .agenda { display: flex; align-items: flex-end; gap: 1.6cqmin; }   /* icons pinned by _alignAway() */
-  .appointments { display: flex; flex-direction: column; gap: .4cqmin; align-items: flex-start; }
+  .appointments { display: flex; flex-direction: column; gap: calc(.4 * var(--u)); align-items: flex-start; }
   /* More than 24 hours away: day shown, plus a visual cue (placeholder). */
   .appt.later { opacity: .55; }
   /* Ongoing or within the hour: "breathes in", brightening on each breath
@@ -570,18 +581,18 @@ const STYLE = `
     line-clamp: 2;
   }
 
-  .people { display: flex; gap: .8cqmin; align-items: center; }
+  .people { display: flex; gap: calc(.8 * var(--u)); align-items: center; }
   /* One rounded square per person: their HA picture, or initials (D86). */
   .person {
     width: var(--t2);
     aspect-ratio: 1;
-    border: .35cqmin solid var(--line);
+    border: calc(.35 * var(--u)) solid var(--line);
     border-radius: 30%;
     flex: none;
     overflow: hidden;
     display: grid;
     place-items: center;
-    font-size: 1.9cqmin;
+    font-size: calc(1.9 * var(--u));
     line-height: 1;
     box-sizing: border-box;
   }
@@ -589,13 +600,13 @@ const STYLE = `
   /* Linked people together: one outline around the group (D90). */
   /* The outline floats around the icons: it takes no layout space, so it
      never changes a row's height or any spacing. */
-  .person-group { position: relative; display: flex; gap: .8cqmin; }
+  .person-group { position: relative; display: flex; gap: calc(.8 * var(--u)); }
   .person-group::before {
     content: '';
     position: absolute;
-    inset: -.5cqmin;       /* .25 gap + .25 outline */
-    border: .25cqmin solid var(--line);
-    border-radius: 1.6cqmin;
+    inset: calc(-.5 * var(--u));   /* .25 gap + .25 outline */
+    border: calc(.25 * var(--u)) solid var(--line);
+    border-radius: calc(1.6 * var(--u));
     pointer-events: none;
   }
   /* Nobody away: one empty frame that slowly "breathes" (D65). */
@@ -622,17 +633,17 @@ const TEMPLATE = `
         <div class="t2" data-live="date" data-descender="0.5"></div>
       </div>
       <div class="cluster">
-        <div class="line">
-          <span class="t2" data-slot="out-temp"><span class="ico"></span><span data-live="out-temp"></span></span>
-          <span class="t3" data-slot="out-hum"><span class="ico"></span><span data-live="out-hum"></span></span>
-          <span class="t3" data-slot="out-aqi"><span class="ico"></span><span data-live="out-aqi"></span></span>
+        <div class="status-line">
+          <div class="people away"></div>
+          <div class="line">
+            <span class="t2" data-slot="out-temp"><span class="ico"></span><span data-live="out-temp"></span></span>
+            <span class="t3" data-slot="out-hum"><span class="ico"></span><span data-live="out-hum"></span></span>
+            <span class="t3" data-slot="out-aqi"><span class="ico"></span><span data-live="out-aqi"></span></span>
+          </div>
         </div>
       </div>
       <div class="cluster">
-        <div class="agenda">
-          <div class="people away"></div>
-          <div class="appointments"></div>
-        </div>
+        <div class="appointments"></div>
       </div>
     </section>
 
@@ -900,8 +911,8 @@ class HaagIdleCard extends HTMLElement {
     if (changed) this._layout();
   }
 
-  // Put each person's icon on their floor's row or beside the appointments
-  // (away). Rebuilds a spot only when who's in it changes.
+  // Put each person's icon on their floor's row or before the outdoor
+  // temperature (away). Rebuilds a spot only when who's in it changes.
   _renderPeople() {
     if (!this._people || !this._reg) return false;
     const hass = this._hass;
@@ -1076,18 +1087,6 @@ class HaagIdleCard extends HTMLElement {
     });
   }
 
-  // Sit the people-away icons on the baseline of the last appointment line,
-  // including when that appointment wraps to two lines.
-  _alignAway() {
-    const agenda = this.shadowRoot.querySelector('.agenda');
-    const people = agenda?.querySelector('.people');
-    const lastText = [...(agenda?.querySelectorAll('.appointments > div .text') || [])].pop();
-    if (!people || !lastText) return;
-    people.style.marginBottom = '0px';
-    const gap = agenda.getBoundingClientRect().bottom - this._baselineY(lastText, true);
-    people.style.marginBottom = `${Math.max(0, gap)}px`;
-  }
-
   // Size the clock so its numerals are exactly as tall as the top floor block
   // (cap top to baseline), so the two line up across the divide (D58). The
   // clock is a unique element, so it doesn't have to follow the size steps.
@@ -1149,27 +1148,58 @@ class HaagIdleCard extends HTMLElement {
     this._fitTime();
     this._alignAmPm();
     this._fitAppointments();
-    this._alignAway();
 
-    const place = (el, ty, target, pick) => {
+    // Horizontal position for a cluster at height ty, with its nearest
+    // visible corner at signed distance `target` from the line. `clamped` is
+    // true when the card's edge stops it short, i.e. it would cross the line.
+    const solveX = (el, ty, target, pick) => {
       const corners = this._shapeCorners(el);
       const sNoX = corners.map(([x, y]) => sa * x + ca * (ty + y - cy));
-      let tx = cx + (target - pick(...sNoX)) / sa;
+      const want = cx + (target - pick(...sNoX)) / sa;
       const minX = Math.min(...corners.map(c => c[0]));
       const maxX = Math.max(...corners.map(c => c[0]));
-      tx = Math.min(Math.max(tx, edge - minX), W - edge - maxX);
-      el.style.transform = `translate(${tx}px, ${ty}px)`;
+      const tx = Math.min(Math.max(want, edge - minX), W - edge - maxX);
+      return { tx, left: tx + minX, clamped: Math.abs(tx - want) > 0.5 };
+    };
+    const place = (el, ty, target, pick) => {
+      el.style.transform = `translate(${solveX(el, ty, target, pick).tx}px, ${ty}px)`;
     };
 
     // Visible bottom of the first outdoor cluster, and visible top of the
     // first indoor cluster.
     let outStart = cy - half - cgap;
     let inStart = cy + half + cgap;
-    if (!alertOn) {
-      const ot = this._out[0] && this._opticalEdges(this._out[0]);
+    if (!alertOn && this._out[0] && this._in[0]) {
+      // No alert: the time and the top floor sit side by side at the same
+      // height (D58), centered on the middle if they fit there. If the
+      // clock is too wide to clear the line that low, or to keep at least
+      // PAIR_LEFT_MARGIN from the card's left edge, the pair slides up only
+      // as far as needed. If no height works, fall back to stacking from
+      // the center.
+      const ot = this._opticalEdges(this._out[0]);
       const it = this._in[0] && this._opticalEdges(this._in[0]);
-      if (ot) outStart = cy + (ot.bottom - ot.top) / 2;
-      if (it) inStart = cy - (it.bottom - it.top) / 2;
+      const tH = ot.bottom - ot.top, fH = it.bottom - it.top;
+      const step = Math.min(W, H) * 0.005;
+      // Slide the pair up the line until the clock clears the left margin.
+      // The margin is a preference: if the top floor would hit the right edge
+      // first, keep the furthest slide where both still sit on the line
+      // (D58: side by side wins over the margin, for square displays).
+      let best = null;
+      for (let shift = 0; shift <= H / 2; shift += step) {
+        const tBottom = cy + tH / 2 - shift, fTop = cy - fH / 2 - shift;
+        const t = solveX(this._out[0], tBottom - ot.bottom, -gap, Math.max);
+        const f = solveX(this._in[0], fTop - it.top, gap, Math.min);
+        if (t.clamped || f.clamped) continue;
+        if (!best || t.left > best.left) best = { left: t.left, tBottom, fTop };
+        if (t.left >= PAIR_LEFT_MARGIN * Math.min(W, H)) break;
+      }
+      if (best) {
+        outStart = best.tBottom;
+        inStart = best.fTop;
+      } else {                                 // nothing fits on the line: stack
+        outStart = cy - cgap / 2;
+        inStart = cy + cgap / 2;
+      }
     }
 
     let y = outStart;                          // visible bottom of next outdoor cluster
