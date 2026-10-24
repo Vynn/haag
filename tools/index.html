@@ -72,6 +72,7 @@
 
 <script type="module">
   import { connectHass } from './hass-shim.js';
+  import './ha-icon-standin.js';   // HA's ha-icon isn't here outside HA
   import '../dist/haag.js';   // the Håg plugin itself (registers its elements)
 
   const KEY = 'haag-dev-connection';

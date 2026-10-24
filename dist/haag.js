@@ -248,6 +248,47 @@ function hvacStatus(hass, climate) {
 }
 
 /* ------------------------------------------------------------------------
+   Icons
+   Material Design Icons, drawn by HA's own `ha-icon` (D17), so the plugin
+   ships no icon data. Names per D83–D88.
+------------------------------------------------------------------------ */
+
+const ERR_ICON = 'mdi:alert';
+const HVAC_ICONS = {
+  heat: 'mdi:fire', cool: 'mdi:snowflake', fan: 'mdi:fan',
+  idle: 'mdi:thermostat', off: 'mdi:power-off', err: ERR_ICON,
+};
+const READING_ICONS = {
+  hum: 'mdi:water-percent', co2: 'mdi:sprout', pm25: 'mdi:molecule',
+  radon: 'mdi:radioactive', co: 'mdi:molecule-co', aqi: 'mdi:leaf',
+};
+const APPT_ICONS = {
+  soon: 'mdi:calendar-clock', later: 'mdi:calendar-arrow-right',
+  err: 'mdi:calendar-alert', empty: 'mdi:party-popper',
+};
+
+// Temperature icon (D84): low at or below freezing, high at or above
+// 85 °F / 29 °C, in the reading's own unit.
+function thermometerIcon(value, unit) {
+  if (typeof value !== 'number') return 'mdi:thermometer';
+  const [low, high] = /C/i.test(unit) ? [0, 29] : [32, 85];
+  return value <= low ? 'mdi:thermometer-low'
+       : value >= high ? 'mdi:thermometer-high'
+       : 'mdi:thermometer';
+}
+
+// Show an icon in an icon box. The ha-icon inside is created once and only
+// touched when the name changes; the box keeps its size either way, so
+// icons never move the layout.
+function setIcon(box, name) {
+  if (!box) return;
+  const icon = box.firstElementChild || box.appendChild(document.createElement('ha-icon'));
+  if ((icon.getAttribute('icon') || '') === name) return;
+  if (name) icon.setAttribute('icon', name);
+  else icon.removeAttribute('icon');
+}
+
+/* ------------------------------------------------------------------------
    People
    Who's on which floor, and who's away (D49). People are HA `person`
    entities; settings `providers.people`:
@@ -524,26 +565,40 @@ const STYLE = `
     line-height: 1;
   }
 
-  /* Icon slot placeholder (MDI icons come later, D83–D88). */
+  /* Icon box: a fixed .8em square holding HA's ha-icon (D17). The box sets
+     the spacing, so icons never change the layout; motion runs on the icon
+     inside, never on the box. */
   .ico {
     display: inline-block;
     width: .8em;
     height: .8em;
     margin-right: .2em;
-    background: var(--line);
     vertical-align: -.05em;
   }
+  .ico > ha-icon { display: flex; width: 100%; height: 100%; --mdc-icon-size: 100%; }
   /* HVAC status on the floor's temperature icon (D83). Placeholder colours
-     until real icons and the palette arrive. */
-  .ico.heat { background: #d29a68; }
-  .ico.cool { background: #7fa6c8; }
-  .ico.fan  { background: #9aa; }
+     until the palette arrives (D77). */
+  .ico.heat { color: #d29a68; }
+  .ico.cool { color: #7fa6c8; }
+  .ico.fan  { color: #9aa; }
   .ico.off  { opacity: .35; }
-  .ico.err  { background: #c0392b; }
+  .ico.err  { color: #c0392b; }
+  /* HVAC motion (D83): slow and gentle. Heat flickers from its base, cool
+     turns very slowly, fan spins slowly. */
+  .ico.heat > ha-icon { transform-origin: 50% 90%; animation: flicker 4s ease-in-out infinite; }
+  .ico.cool > ha-icon { animation: turn 40s linear infinite; }
+  .ico.fan  > ha-icon { animation: turn 12s linear infinite; }
+  @keyframes flicker {
+    0%, 100% { transform: scale(1, 1);     opacity: 1; }
+    35%      { transform: scale(.97, .92); opacity: .85; }
+    60%      { transform: scale(1, .97);   opacity: .95; }
+  }
+  @keyframes turn { to { transform: rotate(1turn); } }
+  @media (prefers-reduced-motion: reduce) { .ico > ha-icon { animation: none; } }
   /* Slot with no entity on this install: hidden, not labelled (D7). */
   [data-slot][hidden] { display: none; }
   /* Bad or missing value: "Err", icon becomes an alert (D88). */
-  [data-slot].err > .ico { background: #c0392b; }
+  [data-slot].err > .ico { color: #c0392b; }
 
   .status-line { display: flex; align-items: center; }
   .status-line .people { margin-left: calc(2.4 * var(--u)); }
@@ -562,7 +617,7 @@ const STYLE = `
     50%      { opacity: 1; }
   }
   @media (prefers-reduced-motion: reduce) { .appt.soon { animation: none; opacity: 1; } }
-  .appt-error .ico { background: #c0392b; }   /* calendar error (D85: calendar-alert icon) */
+  .appt-error .ico { color: #c0392b; }   /* calendar error (D85: calendar-alert icon) */
 
   /* Each appointment: icon, then text. Each later day steps in by one
      indent, following the diagonal. */
@@ -653,7 +708,7 @@ const TEMPLATE = `
     <!-- One cluster per indoor floor, built by the card from discovery. -->
     <section class="side indoor" aria-label="Indoor"></section>
 
-    <div class="alert-row t2"><span class="ico"></span><span data-live="version"></span></div>
+    <div class="alert-row t2"><span class="ico"><ha-icon icon="mdi:information"></ha-icon></span><span data-live="version"></span></div>
   </div>
 `;
 
@@ -807,9 +862,9 @@ class HaagIdleCard extends HTMLElement {
     let rows;
     const upcoming = this._events === 'Err' ? [] : this._events.filter(e => e.endAt > now).slice(0, this._apptLimit ?? APPT_COUNT);
     if (this._events === 'Err') {
-      rows = [{ cls: 'appt-error err', text: 'Err' }];          // calendars failed (D88)
+      rows = [{ cls: 'appt-error err', icon: APPT_ICONS.err, text: 'Err' }];          // calendars failed (D88)
     } else if (!upcoming.length) {
-      rows = [{ cls: 'appt-empty', text: APPT_EMPTY[isNight(hass, now) ? 'night' : 'day'] }];   // nothing in the window
+      rows = [{ cls: 'appt-empty', icon: APPT_ICONS.empty, text: APPT_EMPTY[isNight(hass, now) ? 'night' : 'day'] }];   // nothing in the window
     } else {
       // Indent level = how many distinct days come before this one's day.
       const days = [...new Set(upcoming.map(e => dateKey(e.startAt)))];
@@ -821,6 +876,7 @@ class HaagIdleCard extends HTMLElement {
         else when = later ? `${day(e.startAt)} ${time(e.startAt)}` : time(e.startAt);
         return {
           cls: `appt${later ? ' later' : ''}${soon && !later ? ' soon' : ''}${e === upcoming[0] ? ' wrap' : ''}`,
+          icon: later ? APPT_ICONS.later : APPT_ICONS.soon,
           text: `${when} ${e.summary}`,
           indent: days.indexOf(dateKey(e.startAt)),
         };
@@ -838,6 +894,7 @@ class HaagIdleCard extends HTMLElement {
       text.className = 'text';
       text.textContent = r.text;   // event titles are never parsed as HTML
       div.innerHTML = '<span class="ico"></span>';
+      setIcon(div.firstElementChild, r.icon);
       div.append(text);
       return div;
     }));
@@ -880,11 +937,22 @@ class HaagIdleCard extends HTMLElement {
     const q = name => root.querySelector(`[data-slot="${name}"]`);
     let changed = force;
 
+    // A slot's icon: its own, or the alert icon when its value is bad (D88).
+    // Icons don't change any size, so they never need a re-layout.
+    const icon = (slot, value, name) => setIcon(slot.querySelector('.ico'), value === 'Err' ? ERR_ICON : name);
+    const tempUnit = ref => unitOf(hass, ref) || hass.config?.unit_system?.temperature || '';
+
     // Outdoor
     const { temperature, humidity, aqi } = this._slots;
-    changed = this._fill(q('out-temp'), numericValue(hass, temperature), v => `${v}°`) || changed;
-    changed = this._fill(q('out-hum'),  numericValue(hass, humidity),    v => `${v}%`) || changed;
-    changed = this._fill(q('out-aqi'),  numericValue(hass, aqi),         v => `AQI ${v}`) || changed;
+    const outTemp = numericValue(hass, temperature);
+    const outHum = numericValue(hass, humidity);
+    const outAqi = numericValue(hass, aqi);
+    changed = this._fill(q('out-temp'), outTemp, v => `${v}°`) || changed;
+    changed = this._fill(q('out-hum'),  outHum,  v => `${v}%`) || changed;
+    changed = this._fill(q('out-aqi'),  outAqi,  v => `AQI ${v}`) || changed;
+    icon(q('out-temp'), outTemp, thermometerIcon(outTemp, tempUnit(temperature)));
+    icon(q('out-hum'),  outHum,  READING_ICONS.hum);
+    icon(q('out-aqi'),  outAqi,  READING_ICONS.aqi);
 
     // Floors
     this._in.forEach((el, i) => {
@@ -894,19 +962,22 @@ class HaagIdleCard extends HTMLElement {
       changed = this._fill(fs('temp'), temp, v => `${v}°`) || changed;
       for (const k of f.aq) {
         const ref = f.slots[k];
+        const value = numericValue(hass, ref);
         const fmt = k === 'hum' ? v => `${v}%` : v => `${v} ${unitOf(hass, ref)}`.trim();
-        changed = this._fill(fs(k), numericValue(hass, ref), fmt) || changed;
+        changed = this._fill(fs(k), value, fmt) || changed;
+        icon(fs(k), value, READING_ICONS[k]);
       }
 
       // The temperature's icon shows the HVAC status (D47, D83), or the
-      // error icon when the temperature itself is bad (D88).
-      const icon = fs('temp').querySelector('.ico');
+      // error icon when the temperature itself is bad (D88). A floor with
+      // no thermostat shows a thermometer (D84).
+      const box = fs('temp').querySelector('.ico');
       const status = temp === 'Err' ? 'err' : (hvacStatus(hass, f.climate) || '');
-      if (icon.dataset.status !== status) {
-        icon.className = `ico ${status}`;
-        icon.dataset.status = status;
-        changed = true;
+      if (box.dataset.status !== status) {
+        box.className = `ico ${status}`;
+        box.dataset.status = status;
       }
+      setIcon(box, status ? HVAC_ICONS[status] : thermometerIcon(temp, tempUnit(f.slots.temp)));
     });
 
     changed = this._renderPeople() || changed;
