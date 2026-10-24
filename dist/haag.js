@@ -8,8 +8,7 @@
 
   Status: v0.1.0 in development. Live so far: date, time, build version,
   outdoor conditions, and one row per indoor floor (HVAC status,
-  temperature, air quality), next appointments. People icons are still
-  placeholders.
+  temperature, air quality, people), next appointments, people away.
   Everything else shows wireframe placeholder values until it's wired to
   discovery.
 
@@ -86,7 +85,7 @@ async function loadRegistries(hass) {
   const manifests = await hass.callWS({ type: 'manifest/list', integrations: platforms }).catch(() => []);
   const iot = Object.fromEntries(manifests.map(m => [m.domain, m.iot_class]));
   const deviceName = Object.fromEntries(devices.map(d => [d.id, d.name_by_user || d.name || '']));
-  return { entities, floors, iot, deviceName };
+  return { entities, floors, areas, iot, deviceName };
 }
 
 /**
@@ -249,6 +248,109 @@ function hvacStatus(hass, climate) {
 }
 
 /* ------------------------------------------------------------------------
+   People
+   Who's on which floor, and who's away (D49). People are HA `person`
+   entities; settings `providers.people`:
+     exclude: [person_id, ...]   people not counted (D61), e.g. visitors
+     include: [person_id, ...]   only these (optional)
+     links:   { person_id: person_id }   follow someone else's location
+                                         when you have none of your own (D90)
+   ------------------------------------------------------------------------ */
+
+function discoverPeople(hass, overrides = {}) {
+  const all = Object.keys(hass.states).filter(id => id.startsWith('person.'));
+  const ids = (overrides.include || all).filter(id => !(overrides.exclude || []).includes(id) && hass.states[id]);
+  return { ids, links: overrides.links || {} };
+}
+
+/**
+ * Floor for a tracker's reported location: a floor name, an area name (on
+ * that floor), or a room name that starts with or contains a floor name
+ * (ESPresense reports e.g. "Basement Bathroom"). Returns floor_id or null.
+ */
+function floorForPlace(place, reg) {
+  if (!place) return null;
+  const p = place.trim().toLowerCase();
+  const indoor = reg.floors.filter(f => !isExterior(f));
+  const byFloor = indoor.find(f => f.name.toLowerCase() === p || f.floor_id === p);
+  if (byFloor) return byFloor.floor_id;
+  const byArea = reg.areas.find(a => a.name.toLowerCase() === p || a.area_id === p);
+  if (byArea?.floor_id && indoor.some(f => f.floor_id === byArea.floor_id)) return byArea.floor_id;
+  const inName = indoor.find(f => new RegExp(`\\b${f.name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(p));
+  return inName?.floor_id ?? null;
+}
+
+// A person's own location: { floor }, { home } (floor unknown), { away },
+// or null when HA doesn't know.
+function ownLocation(hass, id, reg) {
+  const st = hass.states[id];
+  if (!st || st.state === 'unknown' || st.state === 'unavailable') return null;
+  if (st.state !== 'home') return { away: true };
+  for (const t of st.attributes.device_trackers || []) {
+    const floor = floorForPlace(hass.states[t]?.state, reg);
+    if (floor) return { floor };
+  }
+  return { home: true };
+}
+
+/**
+ * Where each person shows: { person_id: { floor } | { away } }, with
+ * `linked: true` when the location came from a link. People
+ * without a location of their own follow their link (through the group);
+ * home-but-unknown-floor takes a linked person's floor if there is one.
+ * People with no usable location aren't shown.
+ */
+function locatePeople(hass, people, reg) {
+  const own = Object.fromEntries(people.ids.map(id => [id, ownLocation(hass, id, reg)]));
+  const follow = id => {
+    const seen = new Set([id]);
+    let next = people.links[id];
+    while (next && !seen.has(next)) {
+      seen.add(next);
+      const loc = own[next] ?? ownLocation(hass, next, reg);
+      if (loc && (loc.away || loc.floor)) return loc;
+      next = people.links[next];
+    }
+    return null;
+  };
+  const where = {};
+  for (const id of people.ids) {
+    let loc = own[id];
+    if (!loc || loc.home) {
+      const linked = follow(id);
+      // No location at all: take the linked one. Home but floor unknown:
+      // take a linked person's floor (not their "away").
+      if (linked && (!loc || linked.floor)) loc = { ...linked, linked: true };
+    }
+    if (loc?.floor || loc?.away) where[id] = loc;
+  }
+  return where;
+}
+
+// Linked people form groups (connected through links in either direction).
+function linkGroups(people) {
+  const group = {};
+  const ids = new Set([...people.ids, ...Object.keys(people.links), ...Object.values(people.links)]);
+  let n = 0;
+  for (const start of ids) {
+    if (group[start] !== undefined) continue;
+    const stack = [start];
+    while (stack.length) {
+      const id = stack.pop();
+      if (group[id] !== undefined) continue;
+      group[id] = n;
+      if (people.links[id]) stack.push(people.links[id]);
+      for (const [a, b] of Object.entries(people.links)) if (b === id) stack.push(a);
+    }
+    n++;
+  }
+  return group;
+}
+
+// Initials from a display name (D86 fallback when there's no picture).
+const initials = name => (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
+
+/* ------------------------------------------------------------------------
    Calendar
    Appointments come from HA calendar entities through the calendar.get_events
    action (any logged-in user can call it). Which calendars: settings
@@ -330,6 +432,10 @@ const STYLE = `
     --gap: 2.5cqmin;          /* perpendicular distance from the split line to clusters */
     --alert-pad: 1.2cqmin;    /* vertical padding of the alert row */
     --cluster-gap: 2.7cqmin;  /* visible gap between clusters (see opticalEdges) */
+    /* Medium text step (D54). Also sizes AM/PM, person icons (D49) and the
+       appointment stagger, which are all defined as "the medium line". 5.5
+       makes date + conditions as tall as a floor block (D96). */
+    --t2: 5.5cqmin;
     --move: 700ms ease-in-out;
     position: relative;
     width: 100%;
@@ -385,7 +491,7 @@ const STYLE = `
 
   /* Three text sizes (D54). */
   .t1 { font-size: 14cqmin; }
-  .t2 { font-size: 4.5cqmin; }
+  .t2 { font-size: var(--t2); }
   .t3 { font-size: 2.8cqmin; }
 
   .line { display: flex; gap: 1.2cqmin; align-items: baseline; }
@@ -401,7 +507,7 @@ const STYLE = `
     left: 100%;
     top: 0;
     margin-left: .7cqmin;
-    font-size: 4.5cqmin;
+    font-size: var(--t2);   /* AM/PM: medium step */
     line-height: 1;
   }
 
@@ -446,7 +552,7 @@ const STYLE = `
 
   /* Each appointment: icon, then text. Each later day steps in by one
      indent, following the diagonal. */
-  .appt { display: flex; align-items: baseline; margin-left: calc(var(--indent, 0) * 2.8cqmin); }
+  .appt { display: flex; align-items: baseline; margin-left: calc(var(--indent, 0) * var(--t2)); }   /* one step = a person icon's width */
   /* Width is set per line by _fitAppointments(): no line reaches past the
      second-longest by more than a small tolerance. Lines are cut off with
      "…"; only the soonest appointment may wrap to a second line first. */
@@ -465,17 +571,43 @@ const STYLE = `
   }
 
   .people { display: flex; gap: .8cqmin; align-items: center; }
+  /* One rounded square per person: their HA picture, or initials (D86). */
   .person {
-    width: 4.5cqmin;
+    width: var(--t2);
     aspect-ratio: 1;
     border: .35cqmin solid var(--line);
     border-radius: 30%;
     flex: none;
+    overflow: hidden;
+    display: grid;
+    place-items: center;
+    font-size: 1.9cqmin;
+    line-height: 1;
+    box-sizing: border-box;
   }
+  .person img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* Linked people together: one outline around the group (D90). */
+  /* The outline floats around the icons: it takes no layout space, so it
+     never changes a row's height or any spacing. */
+  .person-group { position: relative; display: flex; gap: .8cqmin; }
+  .person-group::before {
+    content: '';
+    position: absolute;
+    inset: -.5cqmin;       /* .25 gap + .25 outline */
+    border: .25cqmin solid var(--line);
+    border-radius: 1.6cqmin;
+    pointer-events: none;
+  }
+  /* Nobody away: one empty frame that slowly "breathes" (D65). */
+  .person.empty { animation: breathe 6s ease-in-out infinite; }
+  @keyframes breathe {
+    0%, 100% { opacity: .25; }
+    50%      { opacity: .8; }
+  }
+  @media (prefers-reduced-motion: reduce) { .person.empty { animation: none; opacity: .5; } }
 `;
 
-// Markup. Values marked data-live are filled in by the card; the people
-// icons are still wireframe placeholders.
+// Markup. Values marked data-live are filled in by the card.
 const TEMPLATE = `
   <div class="stage">
     <div class="weather-bg"></div>
@@ -492,13 +624,13 @@ const TEMPLATE = `
       <div class="cluster">
         <div class="line">
           <span class="t2" data-slot="out-temp"><span class="ico"></span><span data-live="out-temp"></span></span>
-          <span class="t2" data-slot="out-hum"><span class="ico"></span><span data-live="out-hum"></span></span>
-          <span class="t2" data-slot="out-aqi"><span class="ico"></span><span data-live="out-aqi"></span></span>
+          <span class="t3" data-slot="out-hum"><span class="ico"></span><span data-live="out-hum"></span></span>
+          <span class="t3" data-slot="out-aqi"><span class="ico"></span><span data-live="out-aqi"></span></span>
         </div>
       </div>
       <div class="cluster">
         <div class="agenda">
-          <div class="people"><span class="person"></span></div>
+          <div class="people away"></div>
           <div class="appointments"></div>
         </div>
       </div>
@@ -545,6 +677,8 @@ class HaagIdleCard extends HTMLElement {
       this._slots = discoverOutdoor(this._hass, this._reg, providers.outdoor || {});
       this._floors = discoverFloors(this._hass, this._reg, providers.floors || {});
       this._calendars = discoverCalendars(this._hass, this._reg, providers.calendar || {});
+      this._people = discoverPeople(this._hass, providers.people || {});
+      this._groups = linkGroups(this._people);
       this._buildFloors();
       this._render(true);
       this._refreshEvents();
@@ -559,6 +693,7 @@ class HaagIdleCard extends HTMLElement {
     clearTimeout(this._eventsTimer);
     try {
       this._events = await fetchEvents(this._hass, this._calendars);
+      this._apptLimit = APPT_COUNT;   // new events: start from the full count
     } catch (err) {
       console.error('Håg: calendar fetch failed', err);
       this._events = 'Err';
@@ -572,11 +707,21 @@ class HaagIdleCard extends HTMLElement {
     return (this._calendars || []).map(id => this._hass.states[id]?.last_changed).join('|');
   }
 
-    // Show or hide the alert row. In v0.1 the row always shows the build
+  // Show or hide the alert row. In v0.1 the row always shows the build
   // version (D64); real alerts will drive this later.
   setAlertVisible(visible) {
     this._stage?.classList.toggle('no-alert', !visible);
+    this._resetApptLimit();
     this._layout();
+  }
+
+  // Space may have grown (alert hidden, bigger screen, new events): go back to
+  // the full appointment count; _layout() trims it again if it doesn't fit.
+  _resetApptLimit() {
+    if ((this._apptLimit ?? APPT_COUNT) === APPT_COUNT) return;
+    this._apptLimit = APPT_COUNT;
+    this._apptKey = null;
+    this._renderAppointments();
   }
 
   getCardSize() { return 12; }
@@ -594,7 +739,7 @@ class HaagIdleCard extends HTMLElement {
     this._live.version.textContent = `Håg · v${VERSION}`;
     this._tick();
 
-    this._resize = new ResizeObserver(() => this._layout());
+    this._resize = new ResizeObserver(() => { this._resetApptLimit(); this._layout(); });
     this._resize.observe(this._stage);
     // Enable motion only after the first layout, so nothing slides in on load.
     requestAnimationFrame(() => requestAnimationFrame(() => this._stage.classList.add('animate')));
@@ -646,7 +791,7 @@ class HaagIdleCard extends HTMLElement {
     const now = new Date();
 
     let rows;
-    const upcoming = this._events === 'Err' ? [] : this._events.filter(e => e.endAt > now).slice(0, APPT_COUNT);
+    const upcoming = this._events === 'Err' ? [] : this._events.filter(e => e.endAt > now).slice(0, this._apptLimit ?? APPT_COUNT);
     if (this._events === 'Err') {
       rows = [{ cls: 'appt-error err', text: 'Err' }];          // calendars failed (D88)
     } else if (!upcoming.length) {
@@ -693,7 +838,7 @@ class HaagIdleCard extends HTMLElement {
     indoor.innerHTML = this._floors.map(f => `
       <div class="cluster" data-floor="${f.id}">
         <div class="t3"></div>
-        <div class="status-line">${slot('temp', 't2')}</div>
+        <div class="status-line">${slot('temp', 't2')}<span class="people"></span></div>
         <div class="aq t3">${f.aq.map(k => slot(k)).join('')}</div>
       </div>`).join('');
     this._in = [...indoor.querySelectorAll('.cluster')];
@@ -750,7 +895,75 @@ class HaagIdleCard extends HTMLElement {
       }
     });
 
+    changed = this._renderPeople() || changed;
+
     if (changed) this._layout();
+  }
+
+  // Put each person's icon on their floor's row or beside the appointments
+  // (away). Rebuilds a spot only when who's in it changes.
+  _renderPeople() {
+    if (!this._people || !this._reg) return false;
+    const hass = this._hass;
+    const where = locatePeople(hass, this._people, this._reg);
+    const spots = new Map(this._in.map((el, i) => [this._floors[i].id, el.querySelector('.people')]));
+    const away = this.shadowRoot.querySelector('.people.away');
+    const at = {};
+    for (const [id, loc] of Object.entries(where)) {
+      const key = loc.away ? '__away' : loc.floor;
+      (at[key] ||= []).push(id);
+    }
+    let changed = false;
+    const fill = (spot, ids, emptyFrame) => {
+      if (!spot) return;
+      // Same group together; within a group, people with their own location
+      // first, then those following a link; then by person. Groups of 2+ get
+      // one outline.
+      ids.sort((a, b) =>
+        (this._groups[a] - this._groups[b]) ||
+        (Number(!!where[a].linked) - Number(!!where[b].linked)) ||
+        a.localeCompare(b));
+      const key = JSON.stringify(ids.map(id => [id, hass.states[id]?.attributes?.entity_picture || ''])) + emptyFrame;
+      if (spot.dataset.key === key) return;
+      spot.dataset.key = key;
+      changed = true;
+      const icon = id => {
+        const st = hass.states[id];
+        const el = document.createElement('span');
+        el.className = 'person';
+        const pic = st?.attributes?.entity_picture;
+        if (pic) {
+          const img = document.createElement('img');
+          img.src = hass.hassUrl ? hass.hassUrl(pic) : pic;
+          img.alt = st.attributes.friendly_name || '';
+          el.append(img);
+        } else {
+          el.textContent = initials(st?.attributes?.friendly_name);
+        }
+        return el;
+      };
+      const nodes = [];
+      for (let i = 0; i < ids.length;) {
+        let j = i;
+        while (j < ids.length && this._groups[ids[j]] === this._groups[ids[i]]) j++;
+        if (j - i > 1) {
+          const g = document.createElement('span');
+          g.className = 'person-group';
+          g.append(...ids.slice(i, j).map(icon));
+          nodes.push(g);
+        } else nodes.push(icon(ids[i]));
+        i = j;
+      }
+      if (!ids.length && emptyFrame) {
+        const e = document.createElement('span');
+        e.className = 'person empty';
+        nodes.push(e);
+      }
+      spot.replaceChildren(...nodes);
+    };
+    for (const [floor, spot] of spots) fill(spot, at[floor] || [], false);
+    fill(away, at.__away || [], true);   // nobody away: the breathing frame
+    return changed;
   }
 
   // ----- Layout engine (ported from design/wireframe-idle.html) -----
@@ -834,9 +1047,10 @@ class HaagIdleCard extends HTMLElement {
   }
 
   // Keep the appointment block's right edge even: measure each line at full
-  // length, then cap every line at the second-longest line's right edge plus
-  // a small tolerance (and never more than APPT_MAX_CH). Lines past the cap
-  // are cut off; the soonest wraps to a second line first.
+  // length (minus its day indent), then cap every line at the second-longest
+  // plus a small tolerance, shifted back by its own indent (and never more
+  // than APPT_MAX_CH). Lines past the cap are cut off; the soonest wraps to
+  // a second line first.
   _fitAppointments() {
     const rows = [...this.shadowRoot.querySelectorAll('.appointments > .appt')];
     if (!rows.length) return;
@@ -850,11 +1064,15 @@ class HaagIdleCard extends HTMLElement {
     const cs = getComputedStyle(texts[0]);
     this._measure.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
     const ch = this._measure.measureText('0').width;
-    const sorted = [...right].sort((a, b) => b - a);
+    // Stagger-aware: compare lines with their day indent taken out, so the
+    // right edges step down the diagonal the same way the left edges do.
+    const indent = rows.map(r => parseFloat(getComputedStyle(r).marginLeft) || 0);
+    const unstaggered = right.map((r, i) => r - indent[i]);
+    const sorted = [...unstaggered].sort((a, b) => b - a);
     const cap = rows.length > 1 ? sorted[1] + APPT_TOLERANCE_CH * ch : Infinity;
 
     texts.forEach((t, i) => {
-      t.style.maxWidth = `${Math.min(cap - lefts[i], APPT_MAX_CH * ch)}px`;
+      t.style.maxWidth = `${Math.min(cap + indent[i] - lefts[i], APPT_MAX_CH * ch)}px`;
     });
   }
 
@@ -955,10 +1173,15 @@ class HaagIdleCard extends HTMLElement {
     }
 
     let y = outStart;                          // visible bottom of next outdoor cluster
+    let outTop = Infinity;                     // final top of the outdoor stack's ink
     for (const el of this._out) {
       const o = this._opticalEdges(el);
       const ty = y - o.bottom;
       place(el, ty, -gap, Math.max);
+      // Measured relative to the cluster, so a running transition doesn't skew it.
+      const base = el.getBoundingClientRect().top;
+      const inkTop = Math.min(...this._inkParts(el).map(p => p.getBoundingClientRect().top - base));
+      outTop = Math.min(outTop, ty + inkTop);
       y = ty + o.top - cgap;
     }
 
@@ -968,6 +1191,15 @@ class HaagIdleCard extends HTMLElement {
       const ty = y - o.top;
       place(el, ty, gap, Math.min);
       y = ty + o.bottom + cgap;
+    }
+
+    // Not enough room above the outdoor stack: drop the furthest appointment
+    // and lay out again (D94).
+    const shown = this.shadowRoot.querySelectorAll('.appointments > .appt').length;
+    if (outTop < edge && shown > 1) {
+      this._apptLimit = shown - 1;
+      this._apptKey = null;
+      this._renderAppointments();   // re-renders and calls _layout() again
     }
   }
 }

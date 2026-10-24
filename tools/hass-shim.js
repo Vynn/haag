@@ -13,6 +13,7 @@
     hass.config      HA core config (units, time zone, location, version)
     hass.user        the logged-in user (name, is_admin)
     hass.callWS()    send a WebSocket command, get a promise of the result
+    hass.hassUrl()   turn an HA-relative path into a full URL
     hass.connection  the underlying connection
 
   Not part of the plugin install.
@@ -35,7 +36,8 @@ import {
  * @returns {Promise<{hass: object, close: () => void}>}
  */
 export async function connectHass(url, token, onUpdate) {
-  const auth = createLongLivedTokenAuth(url.replace(/\/+$/, ''), token);
+  const base = url.replace(/\/+$/, '');
+  const auth = createLongLivedTokenAuth(base, token);
   const connection = await createConnection({ auth });
   const user = await getUser(connection);
 
@@ -50,6 +52,7 @@ export async function connectHass(url, token, onUpdate) {
     user,
     connection,
     callWS: msg => connection.sendMessagePromise(msg),
+    hassUrl: (path = '') => `${base}${path}`,   // absolute URL for HA-relative paths (e.g. pictures)
   });
 
   // Wait for the first states and config before handing hass out.
