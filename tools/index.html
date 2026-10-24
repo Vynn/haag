@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Håg Test Page</title>
+<!--
+  Håg dev test page. Connects to a live Home Assistant over WebSocket and
+  shows what Håg will see. Later it will also render the Håg card itself.
+
+  Run tools/dev-server.py, then open http://127.0.0.1:8117/tools/
+  The HA URL and token are kept only in this browser (localStorage) and are
+  never written to a file. "Forget" removes them.
+
+  Not part of the plugin install.
+-->
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font: 14px/1.45 system-ui, sans-serif; color: #222; background: #f4f4f4; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 12px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 18px 0 6px; }
+  form { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+  label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: #555; }
+  input { font: inherit; padding: 5px 8px; border: 1px solid #aaa; border-radius: 3px; min-width: 260px; }
+  button { font: inherit; padding: 5px 12px; border: 1px solid #888; background: #fff; border-radius: 3px; cursor: pointer; }
+  #status { margin: 10px 0; padding: 6px 10px; border-radius: 3px; background: #e8e8e8; }
+  #status.ok { background: #dff0e4; }
+  #status.err { background: #f6dede; }
+  table { border-collapse: collapse; font-size: 13px; }
+  td, th { text-align: left; padding: 3px 10px 3px 0; vertical-align: top; }
+  th { color: #666; font-weight: 500; }
+  .muted { color: #777; }
+  ul { margin: 4px 0; padding-left: 18px; }
+</style>
+</head>
+<body>
+
+<h1>Håg test page</h1>
+
+<form id="login">
+  <label>Home Assistant URL
+    <input id="url" type="url" placeholder="http://homeassistant.local:8123" required>
+  </label>
+  <label>Long-lived access token
+    <input id="token" type="password" autocomplete="off" required>
+  </label>
+  <button type="submit">Connect</button>
+  <button type="button" id="forget">Forget</button>
+</form>
+
+<div id="status">Not connected.</div>
+<div id="inspector"></div>
+
+<script type="module">
+  import { connectHass } from './hass-shim.js';
+
+  const KEY = 'haag-dev-connection';
+  const $ = id => document.getElementById(id);
+  const status = (text, kind = '') => { $('status').textContent = text; $('status').className = kind; };
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  // Browser storage can be unavailable (private windows, blocked storage).
+  const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; } };
+  const save = v => { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch {} };
+  const forget = () => { try { localStorage.removeItem(KEY); } catch {} };
+
+  let session = null;
+
+  async function connect(url, token) {
+    session?.close();
+    status('Connecting…');
+    try {
+      session = await connectHass(url, token, hass => { window.hass = hass; });
+      save({ url, token });
+      const { hass } = session;
+      status(`Connected to Home Assistant ${hass.config.version} as ${hass.user.name}${hass.user.is_admin ? ' (admin)' : ''}.`, 'ok');
+      await inspect(hass);
+    } catch (err) {
+      // The client library rejects with numeric codes (e.g. 1 = can't
+      // connect, 2 = invalid auth); show both forms.
+      const codes = { 1: 'cannot connect', 2: 'invalid auth', 3: 'connection lost', 4: 'HA URL required', 5: 'invalid HTTPS to HTTP' };
+      status(`Connection failed: ${codes[err] || err?.message || err}`, 'err');
+    }
+  }
+
+  // Show what Håg's discovery will have to work with.
+  async function inspect(hass) {
+    const [entities, devices, areas, floors] = await Promise.all([
+      hass.callWS({ type: 'config/entity_registry/list' }),
+      hass.callWS({ type: 'config/device_registry/list' }),
+      hass.callWS({ type: 'config/area_registry/list' }),
+      hass.callWS({ type: 'config/floor_registry/list' }),
+    ]);
+
+    // An entity's area is its own, or its device's.
+    const deviceArea = Object.fromEntries(devices.map(d => [d.id, d.area_id]));
+    const perArea = {};
+    for (const e of entities) {
+      const area = e.area_id || deviceArea[e.device_id];
+      if (area) perArea[area] = (perArea[area] || 0) + 1;
+    }
+
+    const floorRows = floors
+      .slice().sort((a, b) => (b.level ?? 0) - (a.level ?? 0))
+      .map(f => {
+        const inFloor = areas.filter(a => a.floor_id === f.floor_id);
+        const items = inFloor.map(a => `<li>${esc(a.name)} <span class="muted">(${perArea[a.area_id] || 0} entities)</span></li>`).join('');
+        return `<tr><td><b>${esc(f.name)}</b><br><span class="muted">level ${esc(f.level ?? '–')}</span></td><td><ul>${items || '<li class="muted">no areas</li>'}</ul></td></tr>`;
+      }).join('');
+    const unfloored = areas.filter(a => !a.floor_id).map(a => esc(a.name)).join(', ');
+
+    $('inspector').innerHTML = `
+      <h2>Summary</h2>
+      <table>
+        <tr><th>States</th><td>${Object.keys(hass.states).length}</td></tr>
+        <tr><th>Entity registry</th><td>${entities.length}</td></tr>
+        <tr><th>Devices</th><td>${devices.length}</td></tr>
+        <tr><th>Areas</th><td>${areas.length}</td></tr>
+        <tr><th>Floors</th><td>${floors.length}</td></tr>
+        <tr><th>Units</th><td>${esc(hass.config.unit_system?.temperature)} · ${esc(hass.config.time_zone)}</td></tr>
+      </table>
+      <h2>Floors and areas</h2>
+      <table>${floorRows}</table>
+      ${unfloored ? `<p class="muted">Areas without a floor: ${unfloored}</p>` : ''}`;
+  }
+
+  $('login').addEventListener('submit', e => {
+    e.preventDefault();
+    connect($('url').value.trim(), $('token').value.trim());
+  });
+  $('forget').addEventListener('click', () => {
+    forget();
+    session?.close();
+    session = null;
+    $('token').value = '';
+    $('inspector').innerHTML = '';
+    status('Forgotten. Not connected.');
+  });
+
+  // Reconnect automatically if this browser remembers a connection.
+  const saved = load();
+  if (saved) {
+    $('url').value = saved.url;
+    $('token').value = saved.token;
+    connect(saved.url, saved.token);
+  }
+</script>
+</body>
+</html>
