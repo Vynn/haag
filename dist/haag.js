@@ -6,7 +6,8 @@
     - the dashboard strategy  `custom:haag`  (ll-strategy-dashboard-haag)
     - the idle-screen card    `custom:haag-idle-card`
 
-  Status: v0.1.0 in development. Live so far: date, time, build version.
+  Status: v0.1.0 in development. Live so far: date, time, build version,
+  outdoor temperature, humidity and AQI.
   Everything else shows wireframe placeholder values until it's wired to
   discovery.
 
@@ -47,6 +48,83 @@ class HaagStrategy extends HTMLElement {
       }],
     };
   }
+}
+
+/* ------------------------------------------------------------------------
+   Discovery
+   Finds entities from HA's registries instead of hardcoded IDs (D4).
+   Anything found can be overridden in settings (D5), under
+   `providers.outdoor.<slot>: <entity_id>`.
+   ------------------------------------------------------------------------ */
+
+// Readings that share a device class but aren't the plain measurement (D92).
+const DERIVED = /dew.?point|feels.?like|wet.?bulb|apparent|heat.?index|wind.?chill/i;
+
+// Integration iot_class ranking: local before internet, push before polling (D92).
+const IOT_RANK = { local_push: 0, local_polling: 1, cloud_push: 2, cloud_polling: 3 };
+
+// Number of decimal places in a numeric state: a stand-in for precision.
+const decimals = state => (/^-?\d+\.(\d+)$/.exec(state)?.[1].length) ?? 0;
+
+/**
+ * Read the registries once and index what discovery needs.
+ * Registry reads work for any logged-in user (D19).
+ */
+async function loadRegistries(hass) {
+  const [entities, devices, areas, floors] = await Promise.all(
+    ['entity', 'device', 'area', 'floor'].map(t => hass.callWS({ type: `config/${t}_registry/list` })));
+  const deviceArea = Object.fromEntries(devices.map(d => [d.id, d.area_id]));
+  const areaFloor = Object.fromEntries(areas.map(a => [a.area_id, a.floor_id]));
+  for (const e of entities) {
+    e.area = e.area_id || deviceArea[e.device_id] || null;   // own area, or its device's
+    e.floor = areaFloor[e.area] || null;
+  }
+  // Integration manifests, for local vs internet (iot_class). Any user can read these.
+  const platforms = [...new Set(entities.map(e => e.platform))];
+  const manifests = await hass.callWS({ type: 'manifest/list', integrations: platforms }).catch(() => []);
+  const iot = Object.fromEntries(manifests.map(m => [m.domain, m.iot_class]));
+  return { entities, floors, iot };
+}
+
+/**
+ * Outdoor slots from the Exterior floor (D62): temperature, humidity, AQI,
+ * weather condition. Returns { slot: entity_id | null }.
+ */
+function discoverOutdoor(hass, reg, overrides = {}) {
+  const exterior = reg.floors.find(f => /exterior|outdoor|outside/i.test(f.name));
+  const pool = reg.entities.filter(e =>
+    exterior && e.floor === exterior.floor_id && !e.disabled_by && !e.hidden_by && hass.states[e.entity_id]);
+
+  const best = match => {
+    const candidates = pool.filter(e => {
+      const st = hass.states[e.entity_id];
+      return match(e, st) && !DERIVED.test(`${e.translation_key || ''} ${e.original_name || ''} ${e.entity_id}`);
+    });
+    candidates.sort((a, b) =>
+      ((IOT_RANK[reg.iot[a.platform]] ?? 9) - (IOT_RANK[reg.iot[b.platform]] ?? 9)) ||   // local, push first
+      (Number(!!a.translation_key) - Number(!!b.translation_key)) ||                     // plain reading first
+      (decimals(hass.states[b.entity_id].state) - decimals(hass.states[a.entity_id].state)) ||  // more precise
+      a.entity_id.localeCompare(b.entity_id));
+    return candidates[0]?.entity_id ?? null;
+  };
+  const dc = cls => (e, st) => e.entity_id.startsWith('sensor.') && st.attributes.device_class === cls;
+
+  return {
+    temperature: overrides.temperature ?? best(dc('temperature')),
+    humidity:    overrides.humidity    ?? best(dc('humidity')),
+    aqi:         overrides.aqi         ?? best(dc('aqi')),
+    weather:     overrides.weather     ?? best(e => e.entity_id.startsWith('weather.')),
+  };
+}
+
+/**
+ * A slot's display value: null if there's no entity (hide the slot, D7),
+ * 'Err' if the entity exists but its value is bad or missing (D88).
+ */
+function numericValue(hass, entityId) {
+  if (!entityId) return null;
+  const n = Number(hass.states[entityId]?.state);
+  return Number.isFinite(n) ? Math.round(n) : 'Err';
 }
 
 /* ------------------------------------------------------------------------
@@ -152,6 +230,11 @@ const STYLE = `
     vertical-align: -.05em;
   }
   .ico.cool { background: #7fa6c8; }
+  /* Slot with no entity on this install: hidden, not labelled (D7). */
+  [data-slot][hidden] { display: none; }
+  /* Bad or missing value: "Err", icon becomes an alert (D88). Placeholder
+     marker until real icons arrive. */
+  [data-slot].err .ico { background: #c0392b; }
   .ico.heat { background: #d29a68; }
 
   .status-line { display: flex; align-items: center; }
@@ -185,9 +268,9 @@ const TEMPLATE = `
       </div>
       <div class="cluster">
         <div class="line">
-          <span class="t2"><span class="ico"></span>72°</span>
-          <span class="t3"><span class="ico"></span>35%</span>
-          <span class="t3"><span class="ico"></span>AQI 42</span>
+          <span class="t2" data-slot="out-temp"><span class="ico"></span><span data-live="out-temp"></span></span>
+          <span class="t3" data-slot="out-hum"><span class="ico"></span><span data-live="out-hum"></span></span>
+          <span class="t3" data-slot="out-aqi"><span class="ico"></span><span data-live="out-aqi"></span></span>
         </div>
       </div>
       <div class="cluster">
@@ -241,7 +324,24 @@ class HaagIdleCard extends HTMLElement {
   set hass(hass) {
     const first = !this._hass;
     this._hass = hass;
-    if (first) this._tick();
+    if (first) {
+      this._tick();
+      this._discover();
+    } else {
+      this._render();
+    }
+  }
+
+  // Find entities once (registries rarely change; reload the page to re-run).
+  async _discover() {
+    try {
+      this._reg = await loadRegistries(this._hass);
+      const overrides = this._config?.providers?.outdoor || {};
+      this._slots = discoverOutdoor(this._hass, this._reg, overrides);
+      this._render();
+    } catch (err) {
+      console.error('Håg: discovery failed', err);
+    }
   }
 
   getCardSize() { return 12; }
@@ -291,6 +391,31 @@ class HaagIdleCard extends HTMLElement {
 
     this._layout();
     this._timer = setTimeout(() => this._tick(), 60000 - (now.getSeconds() * 1000 + now.getMilliseconds()) + 50);
+  }
+
+  // Fill one slot: hide it if there's no entity, show "Err" for bad values.
+  // Returns true if anything visible changed.
+  _setSlot(name, value, format) {
+    const slot = this.shadowRoot.querySelector(`[data-slot="${name}"]`);
+    const text = value === null ? '' : value === 'Err' ? 'Err' : format(value);
+    if (slot.hidden === (value === null) && this._live[name].textContent === text) return false;
+    slot.hidden = value === null;
+    slot.classList.toggle('err', value === 'Err');
+    this._live[name].textContent = text;
+    return true;
+  }
+
+  // hass updates arrive for every state change in the house, so only
+  // re-measure the layout when something on screen actually changed.
+  _render() {
+    if (!this._live || !this._slots || !this._hass) return;
+    const { temperature, humidity, aqi } = this._slots;
+    const changed = [
+      this._setSlot('out-temp', numericValue(this._hass, temperature), v => `${v}°`),
+      this._setSlot('out-hum',  numericValue(this._hass, humidity),    v => `${v}%`),
+      this._setSlot('out-aqi',  numericValue(this._hass, aqi),         v => `AQI ${v}`),
+    ].some(Boolean);
+    if (changed) this._layout();
   }
 
   // ----- Layout engine (ported from design/wireframe-idle.html) -----
