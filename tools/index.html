@@ -31,6 +31,11 @@
   th { color: #666; font-weight: 500; }
   .muted { color: #777; }
   ul { margin: 4px 0; padding-left: 18px; }
+  .shapes { display: flex; gap: 6px; margin: 6px 0; }
+  .shapes button[aria-pressed="true"] { background: #222; color: #fff; border-color: #222; }
+  /* Card preview: a fixed-shape frame; the card fills it. */
+  .frame { --ar: 1; aspect-ratio: var(--ar); width: min(100%, calc((100vh - 60px) * var(--ar))); border: 1px solid #222; }
+  .frame haag-idle-card { --haag-height: 100%; }
 </style>
 </head>
 <body>
@@ -49,10 +54,20 @@
 </form>
 
 <div id="status">Not connected.</div>
+<div id="preview" hidden>
+  <h2>Idle card</h2>
+  <div class="shapes" id="shapes">
+    <button data-ar="1" aria-pressed="true">Square</button>
+    <button data-ar="0.5625" aria-pressed="false">Portrait</button>
+    <button data-ar="1.7778" aria-pressed="false">Landscape</button>
+  </div>
+  <div class="frame" id="frame"></div>
+</div>
 <div id="inspector"></div>
 
 <script type="module">
   import { connectHass } from './hass-shim.js';
+  import '../dist/haag.js';   // the Håg plugin itself (registers its elements)
 
   const KEY = 'haag-dev-connection';
   const $ = id => document.getElementById(id);
@@ -70,10 +85,11 @@
     session?.close();
     status('Connecting…');
     try {
-      session = await connectHass(url, token, hass => { window.hass = hass; });
+      session = await connectHass(url, token, hass => { window.hass = hass; if (card) card.hass = hass; });
       save({ url, token });
       const { hass } = session;
       status(`Connected to Home Assistant ${hass.config.version} as ${hass.user.name}${hass.user.is_admin ? ' (admin)' : ''}.`, 'ok');
+      await mountCard(hass);
       await inspect(hass);
     } catch (err) {
       // The client library rejects with numeric codes (e.g. 1 = can't
@@ -82,6 +98,27 @@
       status(`Connection failed: ${codes[err] || err?.message || err}`, 'err');
     }
   }
+
+  // Build the card the same way HA would: ask the strategy for the dashboard,
+  // then create the card it lists, with the config it gives.
+  let card = null;
+  async function mountCard(hass) {
+    const Strategy = customElements.get('ll-strategy-dashboard-haag');
+    const dashboard = await Strategy.generate({ type: 'custom:haag' }, hass);
+    const cardConfig = dashboard.views[0].cards[0];
+    card = document.createElement(cardConfig.type.replace('custom:', ''));
+    card.setConfig(cardConfig);
+    card.hass = hass;
+    $('frame').replaceChildren(card);
+    $('preview').hidden = false;
+  }
+
+  $('shapes').addEventListener('click', e => {
+    const b = e.target.closest('button[data-ar]');
+    if (!b) return;
+    $('shapes').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b));
+    $('frame').style.setProperty('--ar', b.dataset.ar);
+  });
 
   // Show what Håg's discovery will have to work with.
   async function inspect(hass) {
