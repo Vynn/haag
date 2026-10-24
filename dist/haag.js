@@ -7,7 +7,9 @@
     - the idle-screen card    `custom:haag-idle-card`
 
   Status: v0.1.0 in development. Live so far: date, time, build version,
-  outdoor temperature, humidity and AQI.
+  outdoor conditions, and one row per indoor floor (HVAC status,
+  temperature, humidity, CO₂, PM2.5). People and appointments are still
+  placeholders.
   Everything else shows wireframe placeholder values until it's wired to
   discovery.
 
@@ -83,15 +85,18 @@ async function loadRegistries(hass) {
   const platforms = [...new Set(entities.map(e => e.platform))];
   const manifests = await hass.callWS({ type: 'manifest/list', integrations: platforms }).catch(() => []);
   const iot = Object.fromEntries(manifests.map(m => [m.domain, m.iot_class]));
-  return { entities, floors, iot };
+  const deviceName = Object.fromEntries(devices.map(d => [d.id, d.name_by_user || d.name || '']));
+  return { entities, floors, iot, deviceName };
 }
 
 /**
  * Outdoor slots from the Exterior floor (D62): temperature, humidity, AQI,
  * weather condition. Returns { slot: entity_id | null }.
  */
+const isExterior = floor => /exterior|outdoor|outside/i.test(floor.name);
+
 function discoverOutdoor(hass, reg, overrides = {}) {
-  const exterior = reg.floors.find(f => /exterior|outdoor|outside/i.test(f.name));
+  const exterior = reg.floors.find(isExterior);
   const pool = reg.entities.filter(e =>
     exterior && e.floor === exterior.floor_id && !e.disabled_by && !e.hidden_by && hass.states[e.entity_id]);
 
@@ -118,13 +123,129 @@ function discoverOutdoor(hass, reg, overrides = {}) {
 }
 
 /**
+ * Indoor floors, in display order (center to edge, D52): the ground floor
+ * first, then the floors above it going up, then the floors below it going
+ * down. The ground floor is the lowest indoor floor at level 0 or above.
+ * (Your setup: First Floor, Second Floor, Basement.)
+ */
+function orderFloors(floors) {
+  const indoor = floors.filter(f => !isExterior(f));
+  const level = f => f.level ?? 0;
+  const ground = Math.min(...indoor.map(level).filter(l => l >= 0), Infinity);
+  const up = indoor.filter(f => level(f) >= ground).sort((a, b) => level(a) - level(b));
+  const down = indoor.filter(f => level(f) < ground).sort((a, b) => level(b) - level(a));
+  return [...up, ...down];
+}
+
+// Device classes that mark a device as an air-quality monitor.
+const MONITOR_CLASSES = ['carbon_dioxide', 'pm25', 'radon', 'carbon_monoxide'];
+
+// Air-quality line: these first, in this order; if any is missing on a floor,
+// the alternates fill in, up to three readings in total.
+const AQ_PREFERRED = ['hum', 'co2', 'pm25'];
+const AQ_ALTERNATES = ['radon', 'co'];
+
+/**
+ * One row per indoor floor (D47): HVAC status, temperature, and an air-quality
+ * line. Readings come from the floor's air-quality monitors (devices with a
+ * CO₂, PM2.5, radon or carbon monoxide sensor). With several monitors, one is
+ * primary and the others only fill readings it lacks (D59). Without a
+ * monitor, the thermostat's own temperature and humidity are used (D28).
+ *
+ * Monitor priority: settings order first; then the D92 rules (local before
+ * internet, push before polling, more decimal places); then device name as a
+ * fail-safe. Users can and should set the order when this guesses wrong.
+ *
+ * Overrides (D5): providers.floors.<floor_id>.monitors: [device_id, ...]
+ * and providers.floors.<floor_id>.climate: <entity_id>.
+ *
+ * Returns [{ id, name, climate, slots, aq }], where each slot is
+ * { entity, attr? } or null, and `aq` lists the slot names for the
+ * air-quality line. Floors with nothing to show are left out.
+ */
+function discoverFloors(hass, reg, overrides = {}) {
+  return orderFloors(reg.floors).map(floor => {
+    const opt = overrides[floor.floor_id] || {};
+    const pool = reg.entities.filter(e =>
+      e.floor === floor.floor_id && !e.disabled_by && !e.hidden_by && hass.states[e.entity_id] &&
+      !DERIVED.test(`${e.translation_key || ''} ${e.original_name || ''} ${e.entity_id}`));
+    const dcOf = e => hass.states[e.entity_id].attributes.device_class;
+    const sensors = pool.filter(e => e.entity_id.startsWith('sensor.'));
+
+    // Air-quality monitors on this floor.
+    const monitorIds = [...new Set(sensors
+      .filter(e => MONITOR_CLASSES.includes(dcOf(e)) && e.device_id)
+      .map(e => e.device_id))];
+
+    // Rank them: settings order, then D92 (local/push, precision), then name.
+    const order = opt.monitors || [];
+    const readings = id => sensors.filter(e => e.device_id === id);
+    const iotRank = id => Math.min(...readings(id).map(e => IOT_RANK[reg.iot[e.platform]] ?? 9));
+    const precision = id => {
+      const r = readings(id);
+      return r.reduce((sum, e) => sum + decimals(hass.states[e.entity_id].state), 0) / (r.length || 1);
+    };
+    monitorIds.sort((a, b) =>
+      ((order.indexOf(a) + 1 || 999) - (order.indexOf(b) + 1 || 999)) ||
+      (iotRank(a) - iotRank(b)) ||
+      (precision(b) - precision(a)) ||
+      (reg.deviceName[a] || '').localeCompare(reg.deviceName[b] || ''));
+
+    // First monitor (in priority order) that has a reading of this class.
+    const fromMonitors = cls => {
+      for (const id of monitorIds) {
+        const e = sensors.find(x => x.device_id === id && dcOf(x) === cls);
+        if (e) return { entity: e.entity_id };
+      }
+      return null;
+    };
+
+    const climate = opt.climate ?? pool.find(e => e.entity_id.startsWith('climate.'))?.entity_id ?? null;
+    const slots = {
+      temp:  fromMonitors('temperature') ?? (climate ? { entity: climate, attr: 'current_temperature' } : null),
+      hum:   fromMonitors('humidity')    ?? (climate ? { entity: climate, attr: 'current_humidity' } : null),
+      co2:   fromMonitors('carbon_dioxide'),
+      pm25:  fromMonitors('pm25'),
+      radon: fromMonitors('radon'),
+      co:    fromMonitors('carbon_monoxide'),
+    };
+    const aq = [...AQ_PREFERRED, ...AQ_ALTERNATES].filter(k => slots[k]).slice(0, 3);
+    const empty = !climate && !slots.temp && aq.length === 0;
+    return empty ? null : { id: floor.floor_id, name: floor.name, climate, slots, aq };
+  }).filter(Boolean);
+}
+
+/**
  * A slot's display value: null if there's no entity (hide the slot, D7),
  * 'Err' if the entity exists but its value is bad or missing (D88).
+ * `ref` is an entity_id, or { entity, attr } to read an attribute instead.
  */
-function numericValue(hass, entityId) {
-  if (!entityId) return null;
-  const n = Number(hass.states[entityId]?.state);
-  return Number.isFinite(n) ? Math.round(n) : 'Err';
+function numericValue(hass, ref) {
+  if (!ref) return null;
+  const { entity, attr } = typeof ref === 'string' ? { entity: ref } : ref;
+  const st = hass.states[entity];
+  const raw = attr ? st?.attributes?.[attr] : st?.state;
+  const n = Number(raw);
+  return raw !== null && raw !== undefined && raw !== '' && Number.isFinite(n) ? Math.round(n) : 'Err';
+}
+
+// Unit shown after a value: the entity's own unit (D32).
+const unitOf = (hass, ref) => (ref && !ref.attr && hass.states[ref.entity]?.attributes?.unit_of_measurement) || '';
+
+/**
+ * HVAC status for a floor's thermostat (D83): 'heat', 'cool', 'fan', 'idle',
+ * 'off' or 'err'; null if the floor has no thermostat.
+ */
+function hvacStatus(hass, climate) {
+  if (!climate) return null;
+  const st = hass.states[climate];
+  if (!st || st.state === 'unavailable' || st.state === 'unknown') return 'err';
+  const action = st.attributes.hvac_action;
+  if (action === 'heating' || action === 'preheating' || action === 'defrosting') return 'heat';
+  if (action === 'cooling') return 'cool';
+  if (action === 'fan' || action === 'drying') return 'fan';
+  if (action === 'off' || st.state === 'off') return 'off';
+  return 'idle';
 }
 
 /* ------------------------------------------------------------------------
@@ -229,13 +350,17 @@ const STYLE = `
     background: var(--line);
     vertical-align: -.05em;
   }
+  /* HVAC status on the floor's temperature icon (D83). Placeholder colours
+     until real icons and the palette arrive. */
+  .ico.heat { background: #d29a68; }
   .ico.cool { background: #7fa6c8; }
+  .ico.fan  { background: #9aa; }
+  .ico.off  { opacity: .35; }
+  .ico.err  { background: #c0392b; }
   /* Slot with no entity on this install: hidden, not labelled (D7). */
   [data-slot][hidden] { display: none; }
-  /* Bad or missing value: "Err", icon becomes an alert (D88). Placeholder
-     marker until real icons arrive. */
-  [data-slot].err .ico { background: #c0392b; }
-  .ico.heat { background: #d29a68; }
+  /* Bad or missing value: "Err", icon becomes an alert (D88). */
+  [data-slot].err > .ico { background: #c0392b; }
 
   .status-line { display: flex; align-items: center; }
   .status-line .people { margin-left: 2.4cqmin; }
@@ -255,8 +380,8 @@ const STYLE = `
   }
 `;
 
-// Markup. Values marked data-live are filled in by the card; the rest are
-// wireframe placeholders until discovery is wired up.
+// Markup. Values marked data-live are filled in by the card; the people and
+// appointments are still wireframe placeholders.
 const TEMPLATE = `
   <div class="stage">
     <div class="weather-bg"></div>
@@ -285,23 +410,8 @@ const TEMPLATE = `
       </div>
     </section>
 
-    <section class="side indoor" aria-label="Indoor">
-      <div class="cluster">
-        <div class="t3">First Floor</div>
-        <div class="status-line"><span class="t2"><span class="ico heat"></span>73°</span><span class="people"><span class="person"></span><span class="person"></span></span></div>
-        <div class="aq t3"><span><span class="ico"></span>48%</span><span><span class="ico"></span>690 ppm</span><span><span class="ico"></span>21 µg/m³</span></div>
-      </div>
-      <div class="cluster">
-        <div class="t3">Second Floor</div>
-        <div class="status-line"><span class="t2"><span class="ico cool"></span>70°</span><span class="people"><span class="person"></span></span></div>
-        <div class="aq t3"><span><span class="ico"></span>52%</span><span><span class="ico"></span>640 ppm</span><span><span class="ico"></span>9 µg/m³</span></div>
-      </div>
-      <div class="cluster">
-        <div class="t3">Basement</div>
-        <div class="status-line"><span class="t2"><span class="ico"></span>74°</span></div>
-        <div class="aq t3"><span><span class="ico"></span>43%</span><span><span class="ico"></span>610 ppm</span></div>
-      </div>
-    </section>
+    <!-- One cluster per indoor floor, built by the card from discovery. -->
+    <section class="side indoor" aria-label="Indoor"></section>
 
     <div class="alert-row t2"><span class="ico"></span><span data-live="version"></span></div>
   </div>
@@ -336,9 +446,11 @@ class HaagIdleCard extends HTMLElement {
   async _discover() {
     try {
       this._reg = await loadRegistries(this._hass);
-      const overrides = this._config?.providers?.outdoor || {};
-      this._slots = discoverOutdoor(this._hass, this._reg, overrides);
-      this._render();
+      const providers = this._config?.providers || {};
+      this._slots = discoverOutdoor(this._hass, this._reg, providers.outdoor || {});
+      this._floors = discoverFloors(this._hass, this._reg, providers.floors || {});
+      this._buildFloors();
+      this._render(true);
     } catch (err) {
       console.error('Håg: discovery failed', err);
     }
@@ -353,7 +465,7 @@ class HaagIdleCard extends HTMLElement {
     this._stage = root.querySelector('.stage');
     this._alertRow = root.querySelector('.alert-row');
     this._out = [...root.querySelectorAll('.outdoor .cluster')];
-    this._in = [...root.querySelectorAll('.indoor .cluster')];
+    this._in = [];   // filled by _buildFloors() after discovery
     this._live = Object.fromEntries([...root.querySelectorAll('[data-live]')].map(el => [el.dataset.live, el]));
 
     this._live.version.textContent = `Håg · v${VERSION}`;
@@ -393,28 +505,71 @@ class HaagIdleCard extends HTMLElement {
     this._timer = setTimeout(() => this._tick(), 60000 - (now.getSeconds() * 1000 + now.getMilliseconds()) + 50);
   }
 
-  // Fill one slot: hide it if there's no entity, show "Err" for bad values.
+  // Build one cluster per floor (label / HVAC + temperature / air quality).
+  _buildFloors() {
+    const indoor = this.shadowRoot.querySelector('.indoor');
+    const slot = (name, cls = '') =>
+      `<span class="${cls}" data-slot="${name}"><span class="ico"></span><span class="val"></span></span>`;
+    indoor.innerHTML = this._floors.map(f => `
+      <div class="cluster" data-floor="${f.id}">
+        <div class="t3"></div>
+        <div class="status-line">${slot('temp', 't2')}</div>
+        <div class="aq t3">${f.aq.map(k => slot(k)).join('')}</div>
+      </div>`).join('');
+    this._in = [...indoor.querySelectorAll('.cluster')];
+    this._in.forEach((el, i) => { el.firstElementChild.textContent = this._floors[i].name; });
+  }
+
+  // Fill one slot: hidden if there's no entity, "Err" for bad values.
   // Returns true if anything visible changed.
-  _setSlot(name, value, format) {
-    const slot = this.shadowRoot.querySelector(`[data-slot="${name}"]`);
+  _fill(slot, value, format) {
+    const out = slot.querySelector('.val, [data-live]');
     const text = value === null ? '' : value === 'Err' ? 'Err' : format(value);
-    if (slot.hidden === (value === null) && this._live[name].textContent === text) return false;
+    if (slot.hidden === (value === null) && out.textContent === text) return false;
     slot.hidden = value === null;
     slot.classList.toggle('err', value === 'Err');
-    this._live[name].textContent = text;
+    out.textContent = text;
     return true;
   }
 
   // hass updates arrive for every state change in the house, so only
   // re-measure the layout when something on screen actually changed.
-  _render() {
-    if (!this._live || !this._slots || !this._hass) return;
+  _render(force = false) {
+    const hass = this._hass;
+    if (!this._live || !this._slots || !hass) return;
+    const root = this.shadowRoot;
+    const q = name => root.querySelector(`[data-slot="${name}"]`);
+    let changed = force;
+
+    // Outdoor
     const { temperature, humidity, aqi } = this._slots;
-    const changed = [
-      this._setSlot('out-temp', numericValue(this._hass, temperature), v => `${v}°`),
-      this._setSlot('out-hum',  numericValue(this._hass, humidity),    v => `${v}%`),
-      this._setSlot('out-aqi',  numericValue(this._hass, aqi),         v => `AQI ${v}`),
-    ].some(Boolean);
+    changed = this._fill(q('out-temp'), numericValue(hass, temperature), v => `${v}°`) || changed;
+    changed = this._fill(q('out-hum'),  numericValue(hass, humidity),    v => `${v}%`) || changed;
+    changed = this._fill(q('out-aqi'),  numericValue(hass, aqi),         v => `AQI ${v}`) || changed;
+
+    // Floors
+    this._in.forEach((el, i) => {
+      const f = this._floors[i];
+      const fs = name => el.querySelector(`[data-slot="${name}"]`);
+      const temp = numericValue(hass, f.slots.temp);
+      changed = this._fill(fs('temp'), temp, v => `${v}°`) || changed;
+      for (const k of f.aq) {
+        const ref = f.slots[k];
+        const fmt = k === 'hum' ? v => `${v}%` : v => `${v} ${unitOf(hass, ref)}`.trim();
+        changed = this._fill(fs(k), numericValue(hass, ref), fmt) || changed;
+      }
+
+      // The temperature's icon shows the HVAC status (D47, D83), or the
+      // error icon when the temperature itself is bad (D88).
+      const icon = fs('temp').querySelector('.ico');
+      const status = temp === 'Err' ? 'err' : (hvacStatus(hass, f.climate) || '');
+      if (icon.dataset.status !== status) {
+        icon.className = `ico ${status}`;
+        icon.dataset.status = status;
+        changed = true;
+      }
+    });
+
     if (changed) this._layout();
   }
 
