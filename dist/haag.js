@@ -8,7 +8,7 @@
 
   Status: v0.1.0 in development. Live so far: date, time, build version,
   outdoor conditions, and one row per indoor floor (HVAC status,
-  temperature, humidity, CO₂, PM2.5). People and appointments are still
+  temperature, air quality), next appointments. People icons are still
   placeholders.
   Everything else shows wireframe placeholder values until it's wired to
   discovery.
@@ -249,6 +249,66 @@ function hvacStatus(hass, climate) {
 }
 
 /* ------------------------------------------------------------------------
+   Calendar
+   Appointments come from HA calendar entities through the calendar.get_events
+   action (any logged-in user can call it). Which calendars: settings
+   `providers.calendar.calendars: [entity_id, ...]` (D60), or every visible
+   calendar when unset.
+   ------------------------------------------------------------------------ */
+
+const APPT_COUNT = 4;                 // appointments shown
+const APPT_REFRESH = 5 * 60 * 1000;   // refetch every 5 minutes
+const APPT_DAYS = 30;                 // look-ahead window
+const APPT_MAX_CH = 28;               // no appointment line is ever wider than this
+const APPT_TOLERANCE_CH = 2;          // how far a line may pass the second-longest
+// Shown when nothing is scheduled in the window (not an error).
+const APPT_EMPTY = { day: "Looks like it's YOU time", night: "Shouldn't you be asleep?" };
+
+// Day or night from HA's sun entity; by the clock if there isn't one.
+function isNight(hass, now = new Date()) {
+  const sun = Object.keys(hass?.states || {}).find(id => id.startsWith('sun.'));
+  if (sun) return hass.states[sun].state === 'below_horizon';
+  const h = now.getHours();
+  return h < 6 || h >= 20;
+}
+const DAY = 24 * 60 * 60 * 1000;
+
+function discoverCalendars(hass, reg, overrides = {}) {
+  if (overrides.calendars) return overrides.calendars;
+  return reg.entities
+    .filter(e => e.entity_id.startsWith('calendar.') && !e.disabled_by && !e.hidden_by && hass.states[e.entity_id])
+    .map(e => e.entity_id);
+}
+
+// All-day events come as plain dates (YYYY-MM-DD); the end date is exclusive.
+const isAllDay = v => /^\d{4}-\d{2}-\d{2}$/.test(v);
+// Note: an all-day date is read as local midnight in the browser's time zone,
+// which matches HA's as long as the display device is set to the same zone.
+const toDate = v => isAllDay(v) ? new Date(`${v}T00:00:00`) : new Date(v);
+
+/**
+ * Upcoming events across the given calendars, soonest first, including ones
+ * in progress, over the next APPT_DAYS days.
+ */
+async function fetchEvents(hass, calendars) {
+  if (!calendars.length) return [];
+  const now = new Date();
+  const get = async days => {
+    const res = await hass.callWS({
+      type: 'call_service', domain: 'calendar', service: 'get_events',
+      target: { entity_id: calendars },
+      service_data: { start_date_time: now.toISOString(), end_date_time: new Date(now.getTime() + days * DAY).toISOString() },
+      return_response: true,
+    });
+    return Object.entries(res.response || {}).flatMap(([calendar, { events = [] }]) =>
+      events.map(e => ({ calendar, summary: e.summary || '', start: e.start, end: e.end,
+                         allDay: isAllDay(e.start), startAt: toDate(e.start), endAt: toDate(e.end) })));
+  };
+  const events = await get(APPT_DAYS);
+  return events.filter(e => e.endAt > now).sort((a, b) => a.startAt - b.startAt);
+}
+
+/* ------------------------------------------------------------------------
    Idle card
    ------------------------------------------------------------------------ */
 
@@ -319,6 +379,10 @@ const STYLE = `
     white-space: nowrap;
   }
 
+  /* No active alert: the row fades out and the two sides close in (D58). */
+  .stage.animate .alert-row { transition: opacity var(--move), visibility var(--move); }
+  .stage.no-alert .alert-row { opacity: 0; visibility: hidden; }
+
   /* Three text sizes (D54). */
   .t1 { font-size: 14cqmin; }
   .t2 { font-size: 4.5cqmin; }
@@ -366,9 +430,39 @@ const STYLE = `
   .status-line .people { margin-left: 2.4cqmin; }
   .aq { display: flex; gap: 1cqmin; }
 
-  .agenda { display: flex; align-items: last baseline; gap: 1.6cqmin; }
+  .agenda { display: flex; align-items: flex-end; gap: 1.6cqmin; }   /* icons pinned by _alignAway() */
   .appointments { display: flex; flex-direction: column; gap: .4cqmin; align-items: flex-start; }
+  /* More than 24 hours away: day shown, plus a visual cue (placeholder). */
   .appt.later { opacity: .55; }
+  /* Ongoing or within the hour: "breathes in", brightening on each breath
+     at the same 6 s pace as the nobody-away frame (D85). */
+  .appt.soon { opacity: .7; animation: breathe-in 6s ease-in-out infinite; }
+  @keyframes breathe-in {
+    0%, 100% { opacity: .7; }
+    50%      { opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) { .appt.soon { animation: none; opacity: 1; } }
+  .appt-error .ico { background: #c0392b; }   /* calendar error (D85: calendar-alert icon) */
+
+  /* Each appointment: icon, then text. Each later day steps in by one
+     indent, following the diagonal. */
+  .appt { display: flex; align-items: baseline; margin-left: calc(var(--indent, 0) * 2.8cqmin); }
+  /* Width is set per line by _fitAppointments(): no line reaches past the
+     second-longest by more than a small tolerance. Lines are cut off with
+     "…"; only the soonest appointment may wrap to a second line first. */
+  .appt .text {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .appt.wrap .text {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
 
   .people { display: flex; gap: .8cqmin; align-items: center; }
   .person {
@@ -380,32 +474,32 @@ const STYLE = `
   }
 `;
 
-// Markup. Values marked data-live are filled in by the card; the people and
-// appointments are still wireframe placeholders.
+// Markup. Values marked data-live are filled in by the card; the people
+// icons are still wireframe placeholders.
 const TEMPLATE = `
   <div class="stage">
     <div class="weather-bg"></div>
 
     <section class="side outdoor" aria-label="Outdoor">
+      <!-- Time and date are separate blocks, each following the line on its
+           own; the date sits above the time. -->
       <div class="cluster">
-        <div class="t2" data-live="date"></div>
         <div class="t1 time"><span data-live="time"></span><span class="ampm overhang" data-live="ampm"></span></div>
+      </div>
+      <div class="cluster">
+        <div class="t2" data-live="date" data-descender="0.5"></div>
       </div>
       <div class="cluster">
         <div class="line">
           <span class="t2" data-slot="out-temp"><span class="ico"></span><span data-live="out-temp"></span></span>
-          <span class="t3" data-slot="out-hum"><span class="ico"></span><span data-live="out-hum"></span></span>
-          <span class="t3" data-slot="out-aqi"><span class="ico"></span><span data-live="out-aqi"></span></span>
+          <span class="t2" data-slot="out-hum"><span class="ico"></span><span data-live="out-hum"></span></span>
+          <span class="t2" data-slot="out-aqi"><span class="ico"></span><span data-live="out-aqi"></span></span>
         </div>
       </div>
       <div class="cluster">
         <div class="agenda">
           <div class="people"><span class="person"></span></div>
-          <div class="appointments">
-            <div class="t3 appt later"><span class="ico"></span>Sat 10:00 AM Soccer</div>
-            <div class="t3 appt"><span class="ico"></span>2:00 PM School pickup</div>
-            <div class="t3 appt"><span class="ico"></span>9:30 AM Dentist</div>
-          </div>
+          <div class="appointments"></div>
         </div>
       </div>
     </section>
@@ -439,6 +533,7 @@ class HaagIdleCard extends HTMLElement {
       this._discover();
     } else {
       this._render();
+      if (this._calendars && this._calendarStamp !== this._calendarStates()) this._refreshEvents();
     }
   }
 
@@ -449,11 +544,39 @@ class HaagIdleCard extends HTMLElement {
       const providers = this._config?.providers || {};
       this._slots = discoverOutdoor(this._hass, this._reg, providers.outdoor || {});
       this._floors = discoverFloors(this._hass, this._reg, providers.floors || {});
+      this._calendars = discoverCalendars(this._hass, this._reg, providers.calendar || {});
       this._buildFloors();
       this._render(true);
+      this._refreshEvents();
     } catch (err) {
       console.error('Håg: discovery failed', err);
     }
+  }
+
+  // Fetch appointments now and every few minutes; also refetch when a
+  // watched calendar changes state (an event starts or ends).
+  async _refreshEvents() {
+    clearTimeout(this._eventsTimer);
+    try {
+      this._events = await fetchEvents(this._hass, this._calendars);
+    } catch (err) {
+      console.error('Håg: calendar fetch failed', err);
+      this._events = 'Err';
+    }
+    this._calendarStamp = this._calendarStates();
+    this._renderAppointments();
+    this._eventsTimer = setTimeout(() => this._refreshEvents(), APPT_REFRESH);
+  }
+
+  _calendarStates() {
+    return (this._calendars || []).map(id => this._hass.states[id]?.last_changed).join('|');
+  }
+
+    // Show or hide the alert row. In v0.1 the row always shows the build
+  // version (D64); real alerts will drive this later.
+  setAlertVisible(visible) {
+    this._stage?.classList.toggle('no-alert', !visible);
+    this._layout();
   }
 
   getCardSize() { return 12; }
@@ -480,6 +603,7 @@ class HaagIdleCard extends HTMLElement {
   disconnectedCallback() {
     this._resize?.disconnect();
     clearTimeout(this._timer);
+    clearTimeout(this._eventsTimer);
   }
 
   // ----- Live content -----
@@ -501,8 +625,64 @@ class HaagIdleCard extends HTMLElement {
     // Long-form date above the time (D52).
     this._live.date.textContent = new Intl.DateTimeFormat(locale, { weekday: 'long', month: 'long', day: 'numeric', timeZone: tz }).format(now);
 
+    this._renderAppointments();   // relative labels (within 24 h, soon) move with the clock
     this._layout();
     this._timer = setTimeout(() => this._tick(), 60000 - (now.getSeconds() * 1000 + now.getMilliseconds()) + 50);
+  }
+
+  // Next appointments, soonest at the bottom (nearest the center).
+  // Within 24 hours: time only. Later: day and time, with the "later" cue.
+  // Ongoing or within the hour: the "soon" breathing. None, or the calendars
+  // failed: an error line (D65).
+  _renderAppointments() {
+    const list = this.shadowRoot.querySelector('.appointments');
+    if (!list || this._events === undefined) return;
+    const hass = this._hass;
+    const tz = hass?.config?.time_zone;
+    const locale = hass?.language || navigator.language;
+    const time = d => new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz }).format(d);
+    const day = d => new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone: tz }).format(d);
+    const dateKey = d => new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(d);   // YYYY-MM-DD
+    const now = new Date();
+
+    let rows;
+    const upcoming = this._events === 'Err' ? [] : this._events.filter(e => e.endAt > now).slice(0, APPT_COUNT);
+    if (this._events === 'Err') {
+      rows = [{ cls: 'appt-error err', text: 'Err' }];          // calendars failed (D88)
+    } else if (!upcoming.length) {
+      rows = [{ cls: 'appt-empty', text: APPT_EMPTY[isNight(hass, now) ? 'night' : 'day'] }];   // nothing in the window
+    } else {
+      // Indent level = how many distinct days come before this one's day.
+      const days = [...new Set(upcoming.map(e => dateKey(e.startAt)))];
+      rows = upcoming.map(e => {
+        const later = e.startAt - now > DAY;
+        const soon = e.startAt <= now || e.startAt - now <= 60 * 60 * 1000;
+        let when;
+        if (e.allDay) when = dateKey(e.startAt) === dateKey(now) ? 'Today' : day(e.startAt);
+        else when = later ? `${day(e.startAt)} ${time(e.startAt)}` : time(e.startAt);
+        return {
+          cls: `appt${later ? ' later' : ''}${soon && !later ? ' soon' : ''}${e === upcoming[0] ? ' wrap' : ''}`,
+          text: `${when} ${e.summary}`,
+          indent: days.indexOf(dateKey(e.startAt)),
+        };
+      }).reverse();   // soonest last = nearest the center
+    }
+
+    const key = JSON.stringify(rows);
+    if (key === this._apptKey) return;
+    this._apptKey = key;
+    list.replaceChildren(...rows.map(r => {
+      const div = document.createElement('div');
+      div.className = `t3 ${r.cls}`;
+      div.style.setProperty('--indent', r.indent || 0);
+      const text = document.createElement('span');
+      text.className = 'text';
+      text.textContent = r.text;   // event titles are never parsed as HTML
+      div.innerHTML = '<span class="ico"></span>';
+      div.append(text);
+      return div;
+    }));
+    this._layout();
   }
 
   // Build one cluster per floor (label / HVAC + temperature / air quality).
@@ -581,14 +761,28 @@ class HaagIdleCard extends HTMLElement {
     return this._measure.measureText('H').actualBoundingBoxAscent;
   }
 
-  // Baseline of an element's text, via a zero-size inline probe.
-  _baselineY(el) {
+  // How far an element's own text reaches below its baseline (0 if it has no
+  // descenders).
+  _descent(el) {
+    const cs = getComputedStyle(el);
+    this._measure.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    return Math.max(0, this._measure.measureText(el.textContent).actualBoundingBoxDescent);
+  }
+
+  // Baseline of an element's text: the first line's, via a zero-size inline
+  // probe, or the last visible line's (for text that wraps or is cut off),
+  // counted from the first in whole line heights.
+  _baselineY(el, last = false) {
     const probe = document.createElement('span');
     probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
     el.insertBefore(probe, el.firstChild);
-    const y = probe.getBoundingClientRect().bottom;
+    const first = probe.getBoundingClientRect().bottom;
     probe.remove();
-    return y;
+    if (!last) return first;
+    const lh = parseFloat(getComputedStyle(el).lineHeight);
+    if (!lh) return first;
+    const lines = Math.max(1, Math.round(el.getBoundingClientRect().height / lh));
+    return first + (lines - 1) * lh;
   }
 
   // The visible pieces of a cluster: elements that hold text, plus graphics.
@@ -625,15 +819,71 @@ class HaagIdleCard extends HTMLElement {
           continue;
         }
         if ([...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())) {
-          const b = this._baselineY(el);
-          top = Math.min(top, b - this._capHeight(el));
-          bottom = Math.max(bottom, b);
+          top = Math.min(top, this._baselineY(el) - this._capHeight(el));
+          // data-descender="f" counts that fraction of the text's actual
+          // descender as part of its visible bottom (the date's "y" hangs
+          // toward the clock; D56 exception).
+          const share = parseFloat(el.dataset.descender) || 0;
+          bottom = Math.max(bottom, this._baselineY(el, true) + share * this._descent(el));
         }
         walk(el);
       }
     };
     walk(cluster);
     return { top: top - base, bottom: bottom - base };
+  }
+
+  // Keep the appointment block's right edge even: measure each line at full
+  // length, then cap every line at the second-longest line's right edge plus
+  // a small tolerance (and never more than APPT_MAX_CH). Lines past the cap
+  // are cut off; the soonest wraps to a second line first.
+  _fitAppointments() {
+    const rows = [...this.shadowRoot.querySelectorAll('.appointments > .appt')];
+    if (!rows.length) return;
+    const texts = rows.map(r => r.querySelector('.text'));
+    texts.forEach(t => { t.style.maxWidth = 'none'; t.style.whiteSpace = 'nowrap'; t.style.display = 'inline-block'; });
+    const listLeft = rows[0].parentElement.getBoundingClientRect().left;
+    const right = texts.map(t => t.getBoundingClientRect().right - listLeft);   // natural right edges
+    const lefts = texts.map(t => t.getBoundingClientRect().left - listLeft);
+    texts.forEach(t => { t.style.whiteSpace = ''; t.style.display = ''; });
+
+    const cs = getComputedStyle(texts[0]);
+    this._measure.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    const ch = this._measure.measureText('0').width;
+    const sorted = [...right].sort((a, b) => b - a);
+    const cap = rows.length > 1 ? sorted[1] + APPT_TOLERANCE_CH * ch : Infinity;
+
+    texts.forEach((t, i) => {
+      t.style.maxWidth = `${Math.min(cap - lefts[i], APPT_MAX_CH * ch)}px`;
+    });
+  }
+
+  // Sit the people-away icons on the baseline of the last appointment line,
+  // including when that appointment wraps to two lines.
+  _alignAway() {
+    const agenda = this.shadowRoot.querySelector('.agenda');
+    const people = agenda?.querySelector('.people');
+    const lastText = [...(agenda?.querySelectorAll('.appointments > div .text') || [])].pop();
+    if (!people || !lastText) return;
+    people.style.marginBottom = '0px';
+    const gap = agenda.getBoundingClientRect().bottom - this._baselineY(lastText, true);
+    people.style.marginBottom = `${Math.max(0, gap)}px`;
+  }
+
+  // Size the clock so its numerals are exactly as tall as the top floor block
+  // (cap top to baseline), so the two line up across the divide (D58). The
+  // clock is a unique element, so it doesn't have to follow the size steps.
+  _fitTime() {
+    const time = this.shadowRoot.querySelector('.time');
+    const top = this._in[0];
+    if (!time || !top) return;
+    time.style.fontSize = '';                   // start from the default size
+    const t = this._opticalEdges(this._out[0]);
+    const f = this._opticalEdges(top);
+    const current = t.bottom - t.top, target = f.bottom - f.top;
+    if (current > 0 && target > 0) {
+      time.style.fontSize = `${parseFloat(getComputedStyle(time).fontSize) * target / current}px`;
+    }
   }
 
   // Top-align AM/PM with the clock numerals by measured cap height.
@@ -670,10 +920,18 @@ class HaagIdleCard extends HTMLElement {
     const a = this._angle * Math.PI / 180, sa = Math.sin(a), ca = Math.cos(a);
     const gap = this._px('--gap'), cgap = this._px('--cluster-gap');
     const edge = Math.min(W, H) * 0.02;
-    const half = this._alertRow.getBoundingClientRect().height / 2;
+    // With the alert row shown, clusters clear it by one gap. Without it, the
+    // innermost block on each side (the time; the top floor) is centered on
+    // the middle, so the two sit side by side across the line, and slide
+    // past each other as the alert row opens.
+    const alertOn = !stage.classList.contains('no-alert');
+    const half = alertOn ? this._alertRow.getBoundingClientRect().height / 2 : 0;
 
     stage.style.setProperty('--haag-split', (180 - this._angle) + 'deg');
+    this._fitTime();
     this._alignAmPm();
+    this._fitAppointments();
+    this._alignAway();
 
     const place = (el, ty, target, pick) => {
       const corners = this._shapeCorners(el);
@@ -685,7 +943,18 @@ class HaagIdleCard extends HTMLElement {
       el.style.transform = `translate(${tx}px, ${ty}px)`;
     };
 
-    let y = cy - half - cgap;                 // visible bottom of next outdoor cluster
+    // Visible bottom of the first outdoor cluster, and visible top of the
+    // first indoor cluster.
+    let outStart = cy - half - cgap;
+    let inStart = cy + half + cgap;
+    if (!alertOn) {
+      const ot = this._out[0] && this._opticalEdges(this._out[0]);
+      const it = this._in[0] && this._opticalEdges(this._in[0]);
+      if (ot) outStart = cy + (ot.bottom - ot.top) / 2;
+      if (it) inStart = cy - (it.bottom - it.top) / 2;
+    }
+
+    let y = outStart;                          // visible bottom of next outdoor cluster
     for (const el of this._out) {
       const o = this._opticalEdges(el);
       const ty = y - o.bottom;
@@ -693,7 +962,7 @@ class HaagIdleCard extends HTMLElement {
       y = ty + o.top - cgap;
     }
 
-    y = cy + half + cgap;                     // visible top of next indoor cluster
+    y = inStart;                               // visible top of next indoor cluster
     for (const el of this._in) {
       const o = this._opticalEdges(el);
       const ty = y - o.top;

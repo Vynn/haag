@@ -60,8 +60,13 @@
     <button data-ar="1" aria-pressed="true">Square</button>
     <button data-ar="0.5625" aria-pressed="false">Portrait</button>
     <button data-ar="1.7778" aria-pressed="false">Landscape</button>
+    <button id="alert-toggle" aria-pressed="true" style="margin-left:12px">Alert</button>
   </div>
   <div class="frame" id="frame"></div>
+  <h2>Strategy config</h2>
+  <p class="muted" style="margin:0 0 6px">The same options a <code>strategy:</code> block would hold, as JSON (e.g. <code>{"providers": {"calendar": {"calendars": ["calendar.example"]}}}</code>). Kept in this browser only, never in a file.</p>
+  <textarea id="config" rows="6" spellcheck="false" style="width:min(100%,640px);font:12px/1.4 ui-monospace,monospace"></textarea>
+  <div><button type="button" id="apply">Apply config</button> <span id="config-msg" class="muted"></span></div>
 </div>
 <div id="inspector"></div>
 
@@ -78,6 +83,9 @@
   const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; } };
   const save = v => { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch {} };
   const forget = () => { try { localStorage.removeItem(KEY); } catch {} };
+  const CONFIG_KEY = 'haag-dev-config';
+  const loadConfig = () => { try { return localStorage.getItem(CONFIG_KEY) || '{}'; } catch { return '{}'; } };
+  const saveConfig = v => { try { localStorage.setItem(CONFIG_KEY, v); } catch {} };
 
   let session = null;
 
@@ -104,19 +112,29 @@
   let card = null;
   async function mountCard(hass) {
     const Strategy = customElements.get('ll-strategy-dashboard-haag');
-    const dashboard = await Strategy.generate({ type: 'custom:haag' }, hass);
+    const options = JSON.parse($('config').value || '{}');
+    const dashboard = await Strategy.generate({ type: 'custom:haag', ...options }, hass);
     const cardConfig = dashboard.views[0].cards[0];
     card = document.createElement(cardConfig.type.replace('custom:', ''));
     card.setConfig(cardConfig);
     card.hass = hass;
     $('frame').replaceChildren(card);
+    card.setAlertVisible(alertVisible);
     $('preview').hidden = false;
   }
+
+  // Show/hide the alert row (pressed = shown). Applied again after remounts.
+  let alertVisible = true;
+  $('alert-toggle').addEventListener('click', e => {
+    alertVisible = !alertVisible;
+    e.currentTarget.setAttribute('aria-pressed', alertVisible);
+    card?.setAlertVisible(alertVisible);
+  });
 
   $('shapes').addEventListener('click', e => {
     const b = e.target.closest('button[data-ar]');
     if (!b) return;
-    $('shapes').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b));
+    $('shapes').querySelectorAll('button[data-ar]').forEach(x => x.setAttribute('aria-pressed', x === b));   // shape buttons only
     $('frame').style.setProperty('--ar', b.dataset.ar);
   });
 
@@ -175,6 +193,19 @@
   });
 
   // Reconnect automatically if this browser remembers a connection.
+  $('config').value = loadConfig();
+  $('apply').addEventListener('click', async () => {
+    try {
+      JSON.parse($('config').value || '{}');
+    } catch (err) {
+      $('config-msg').textContent = `Not valid JSON: ${err.message}`;
+      return;
+    }
+    saveConfig($('config').value);
+    $('config-msg').textContent = 'Applied.';
+    if (session) await mountCard(window.hass || session.hass);   // latest hass
+  });
+
   const saved = load();
   if (saved) {
     $('url').value = saved.url;
