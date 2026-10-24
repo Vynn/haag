@@ -442,10 +442,13 @@ const STYLE = `
     --gap: calc(2.5 * var(--u));          /* perpendicular distance from the split line to clusters */
     --alert-pad: calc(1.2 * var(--u));    /* vertical padding of the alert row */
     --cluster-gap: calc(2.7 * var(--u));  /* visible gap between clusters (see opticalEdges) */
-    /* Medium text step (D54). Also sizes AM/PM, person icons (D49) and the
-       appointment stagger, which are all defined as "the medium line". 5.5
-       makes date + conditions as tall as a floor block (D96). */
+    /* Medium text step (D54). Also sizes AM/PM and the appointment stagger,
+       which are defined as "the medium line". 5.5 makes date + conditions as
+       tall as a floor block (D96). */
     --t2: calc(5.5 * var(--u));
+    /* Person icons: as tall as the medium digits, border included (D49).
+       An estimate until _fitPortraits() measures the real font. */
+    --portrait: calc(.71 * var(--t2));
     --move: 700ms ease-in-out;
     position: relative;
     width: 100%;
@@ -563,7 +566,7 @@ const STYLE = `
 
   /* Each appointment: icon, then text. Each later day steps in by one
      indent, following the diagonal. */
-  .appt { display: flex; align-items: baseline; margin-left: calc(var(--indent, 0) * var(--t2)); }   /* one step = a person icon's width */
+  .appt { display: flex; align-items: baseline; margin-left: calc(var(--indent, 0) * var(--t2)); }   /* one step = the medium line */
   /* Width is set per line by _fitAppointments(): no line reaches past the
      second-longest by more than a small tolerance. Lines are cut off with
      "…"; only the soonest appointment may wrap to a second line first. */
@@ -584,7 +587,7 @@ const STYLE = `
   .people { display: flex; gap: calc(.8 * var(--u)); align-items: center; }
   /* One rounded square per person: their HA picture, or initials (D86). */
   .person {
-    width: var(--t2);
+    width: var(--portrait);   /* border-box: the border is inside this size */
     aspect-ratio: 1;
     border: calc(.35 * var(--u)) solid var(--line);
     border-radius: 30%;
@@ -592,7 +595,7 @@ const STYLE = `
     overflow: hidden;
     display: grid;
     place-items: center;
-    font-size: calc(1.9 * var(--u));
+    font-size: calc(.38 * var(--portrait));   /* initials keep their proportion */
     line-height: 1;
     box-sizing: border-box;
   }
@@ -1087,6 +1090,29 @@ class HaagIdleCard extends HTMLElement {
     });
   }
 
+  // Make person icons exactly as tall as the medium digits (cap top to
+  // baseline, border included), and sit each row of them inside its
+  // temperature's digits, so a row with people is no taller than one
+  // without (D49, D96).
+  _fitPortraits() {
+    const stage = this.shadowRoot.querySelector('.stage');
+    const rows = [...this.shadowRoot.querySelectorAll('.status-line')];
+    const digits = row => [...row.querySelectorAll('.t2[data-slot] > :last-child')]
+      .find(el => el.getClientRects().length && el.textContent.trim());
+    const ref = rows.map(digits).find(Boolean);
+    if (!ref) return;                           // nothing to measure yet
+    stage.style.setProperty('--portrait', `${this._capHeight(ref)}px`);
+    for (const row of rows) {
+      const people = row.querySelector('.people');
+      const text = digits(row);
+      if (!people) continue;
+      people.style.transform = '';
+      if (!text || !people.getClientRects().length) continue;   // no temperature: stay centered
+      const capTop = this._baselineY(text) - this._capHeight(text);
+      people.style.transform = `translateY(${capTop - people.getBoundingClientRect().top}px)`;
+    }
+  }
+
   // Size the clock so its numerals are exactly as tall as the top floor block
   // (cap top to baseline), so the two line up across the divide (D58). The
   // clock is a unique element, so it doesn't have to follow the size steps.
@@ -1145,6 +1171,7 @@ class HaagIdleCard extends HTMLElement {
     const half = alertOn ? this._alertRow.getBoundingClientRect().height / 2 : 0;
 
     stage.style.setProperty('--haag-split', (180 - this._angle) + 'deg');
+    this._fitPortraits();
     this._fitTime();
     this._alignAmPm();
     this._fitAppointments();
