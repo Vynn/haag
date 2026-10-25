@@ -1,0 +1,1483 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weather Background Study</title>
+<!--
+  Håg: weather background study, second pass (D43, D78, D98–D100).
+
+  Style: cel-shaded. Flat fills, one hard-edged shadow per shape (light from
+  the upper left), no outlines unless needed, no gradients or blur. Inline
+  SVG animated with CSS; the random events (lightning, shooting stars, the
+  space station) are timed by JS.
+
+  Conditions drawn: the eight that use only elements designed so far
+  (sunny, clear-night, partlycloudy, cloudy, rainy, pouring, lightning,
+  lightning-rainy). Snow, hail, fog, wind and exceptional come later.
+
+  How changes carry over (D98): every condition uses one shared set of
+  elements (sun, moon, stars, seven cloud slots, two rain sheets, lightning,
+  sky wash). A condition only says which are in and how they look (a cloud
+  slot can be fair, grey or storm, and keeps drifting while it changes).
+  Changing condition moves each element from where it is. Timings are
+  fractions of one duration (--change); an element uses the timing of the
+  state it's entering, so arriving and leaving can be staged differently.
+
+  Sun and moon follow a time of day (D100): sunrise 7:00, solar noon 13:00,
+  sunset 19:00 here; in the card these come from sun.sun. Day/night colors
+  switch at sunrise and sunset (D79).
+
+  All colors, sizes, speeds and counts are placeholders for discussion.
+-->
+<style>
+  @property --snow {          /* how much snow has settled: 0 bare, 1 full */
+    syntax: '<number>';
+    inherits: true;
+    initial-value: 0;
+  }
+  @property --daylight {
+    syntax: '<number>';
+    inherits: true;
+    initial-value: 0;
+  }
+
+  :root {
+    /* Base palette (palette study): night / day */
+    --n-sky: #10162A;       --d-sky: #7CC8F2;
+    --n-horizon: #1D3442;   --d-horizon: #FFD6E7;
+    --n-home: #1E2433;      --d-home: #F6FAFF;
+    --n-band: #FFFFFF14;    --d-band: #FFFFFFB3;
+    --n-text: #F1EADC;      --d-text: #0E1F3A;
+    --n-text-2: #A9B0C2;    --d-text-2: #34537A;
+    --n-coral: #FF7A68;     --d-coral: #D6336C;
+
+    /* Clouds: highlight / body / shadow. Fair, grey, storm; the back layer is
+       smaller and bluer. By day the body is just off white so the highlight shows. */
+    --n-cf-hl: #4D5B7C;  --n-cf: #3B4868;  --n-cf-sh: #2B3654;   --d-cf-hl: #FFFFFF;  --d-cf: #EAF2F9;  --d-cf-sh: #BFD3E6;
+    --n-cg-hl: #424E6A;  --n-cg: #333E58;  --n-cg-sh: #252E45;   --d-cg-hl: #F0F4F8;  --d-cg: #D8E0E8;  --d-cg-sh: #A9B8C8;
+    --n-cs-hl: #323B55;  --n-cs: #252D44;  --n-cs-sh: #191F33;   --d-cs-hl: #A3AFC2;  --d-cs: #8692A8;  --d-cs-sh: #66728A;
+    --n-cb-hl: #384468;  --n-cb: #2C3756;  --n-cb-sh: #222B47;   --d-cb-hl: #E9F3FC;  --d-cb: #D2E3F2;  --d-cb-sh: #ADC4DA;
+    --n-cbg-hl: #343E59; --n-cbg: #29324B; --n-cbg-sh: #1F273C;  --d-cbg-hl: #DAE1E9; --d-cbg: #C2CCD7; --d-cbg-sh: #9FADBD;
+    --n-cbs-hl: #29314A; --n-cbs: #1F263B; --n-cbs-sh: #171D2E;  --d-cbs-hl: #8F9BB0; --d-cbs: #76839A; --d-cbs-sh: #5C687F;
+
+    /* Rain by depth, lightning, sky washes */
+    --n-rain-far: #3A5274;  --d-rain-far: #A3C3DA;
+    --n-rain-mid: #6A89B0;  --d-rain-mid: #C9E2F4;
+    --n-rain-near: #A8C4E8; --d-rain-near: #EEF8FF;
+    --n-bolt: #FFF3B0;      --d-bolt: #FFFBE6;
+    --n-flash: #DDE6FF;     --d-flash: #FFFFFF;
+    --n-w-cloudy: #0A0E1A;  --d-w-cloudy: #D5DEE8;
+    --n-w-rain: #0A0E1A;    --d-w-rain: #A3B1C2;
+    --n-w-pour: #070A14;    --d-w-pour: #8696A9;
+    --n-w-storm: #05070F;   --d-w-storm: #5F7590;
+    --n-w-snow: #2A3350;    --d-w-snow: #E6ECF2;
+
+    /* Snow by depth, plus its shadow tone */
+    --n-snow-far: #56657F;  --d-snow-far: #D6E2EE;
+    --n-snow-mid: #8696B2;  --d-snow-mid: #ECF2F8;
+    --n-snow-near: #C6D3E6; --d-snow-near: #FFFFFF;
+    --n-snow-sh: #3B4964;   --d-snow-sh: #B4C8DC;
+
+    /* Fog: two tones, plus its wash */
+    --n-wind: #9FB4D2;      --d-wind: #FFFFFF;      /* wind streaks */
+    --n-fog-light: #5D6A86; --d-fog-light: #EEF3F7;
+    --n-fog-base: #46526C;  --d-fog-base: #D7E0E9;
+    --n-w-fog: #2B3348;     --d-w-fog: #DDE5EC;
+
+    /* Hail by depth, and its streak */
+    --n-hail-far: #6E829F;  --d-hail-far: #B9CCDD;
+    --n-hail-mid: #90A5C0;  --d-hail-mid: #D3E1EE;
+    --n-hail-near: #B9C9DD; --d-hail-near: #EEF5FB;
+    --n-hail-streak: #C9D6E8; --d-hail-streak: #FFFFFF;
+  }
+
+  /* Blended tokens: what the scene uses. */
+  .stage {
+    --daylight: 0;
+    --p: calc(var(--daylight) * 100%);
+    --sky:       color-mix(in oklab, var(--d-sky) var(--p), var(--n-sky));
+    --horizon:   color-mix(in oklab, var(--d-horizon) var(--p), var(--n-horizon));
+    --home:      color-mix(in oklab, var(--d-home) var(--p), var(--n-home));
+    --band:      color-mix(in oklab, var(--d-band) var(--p), var(--n-band));
+    --text:      color-mix(in oklab, var(--d-text) var(--p), var(--n-text));
+    --text-2:    color-mix(in oklab, var(--d-text-2) var(--p), var(--n-text-2));
+    --coral:     color-mix(in oklab, var(--d-coral) var(--p), var(--n-coral));
+    --cf-hl:     color-mix(in oklab, var(--d-cf-hl) var(--p), var(--n-cf-hl));
+    --cg-hl:     color-mix(in oklab, var(--d-cg-hl) var(--p), var(--n-cg-hl));
+    --cs-hl:     color-mix(in oklab, var(--d-cs-hl) var(--p), var(--n-cs-hl));
+    --cb-hl:     color-mix(in oklab, var(--d-cb-hl) var(--p), var(--n-cb-hl));
+    --cbg-hl:    color-mix(in oklab, var(--d-cbg-hl) var(--p), var(--n-cbg-hl));
+    --cbs-hl:    color-mix(in oklab, var(--d-cbs-hl) var(--p), var(--n-cbs-hl));
+    --cf:        color-mix(in oklab, var(--d-cf) var(--p), var(--n-cf));
+    --cf-sh:     color-mix(in oklab, var(--d-cf-sh) var(--p), var(--n-cf-sh));
+    --cg:        color-mix(in oklab, var(--d-cg) var(--p), var(--n-cg));
+    --cg-sh:     color-mix(in oklab, var(--d-cg-sh) var(--p), var(--n-cg-sh));
+    --cs:        color-mix(in oklab, var(--d-cs) var(--p), var(--n-cs));
+    --cs-sh:     color-mix(in oklab, var(--d-cs-sh) var(--p), var(--n-cs-sh));
+    --cb:        color-mix(in oklab, var(--d-cb) var(--p), var(--n-cb));
+    --cb-sh:     color-mix(in oklab, var(--d-cb-sh) var(--p), var(--n-cb-sh));
+    --cbg:       color-mix(in oklab, var(--d-cbg) var(--p), var(--n-cbg));
+    --cbg-sh:    color-mix(in oklab, var(--d-cbg-sh) var(--p), var(--n-cbg-sh));
+    --cbs:       color-mix(in oklab, var(--d-cbs) var(--p), var(--n-cbs));
+    --cbs-sh:    color-mix(in oklab, var(--d-cbs-sh) var(--p), var(--n-cbs-sh));
+    --rain-far:  color-mix(in oklab, var(--d-rain-far) var(--p), var(--n-rain-far));
+    --rain-mid:  color-mix(in oklab, var(--d-rain-mid) var(--p), var(--n-rain-mid));
+    --rain-near: color-mix(in oklab, var(--d-rain-near) var(--p), var(--n-rain-near));
+    --bolt:      color-mix(in oklab, var(--d-bolt) var(--p), var(--n-bolt));
+    --flash:     color-mix(in oklab, var(--d-flash) var(--p), var(--n-flash));
+    --w-cloudy:  color-mix(in oklab, var(--d-w-cloudy) var(--p), var(--n-w-cloudy));
+    --w-rain:    color-mix(in oklab, var(--d-w-rain) var(--p), var(--n-w-rain));
+    --w-pour:    color-mix(in oklab, var(--d-w-pour) var(--p), var(--n-w-pour));
+    --w-storm:   color-mix(in oklab, var(--d-w-storm) var(--p), var(--n-w-storm));
+    --w-snow:    color-mix(in oklab, var(--d-w-snow) var(--p), var(--n-w-snow));
+    --snow-far:  color-mix(in oklab, var(--d-snow-far) var(--p), var(--n-snow-far));
+    --snow-mid:  color-mix(in oklab, var(--d-snow-mid) var(--p), var(--n-snow-mid));
+    --snow-near: color-mix(in oklab, var(--d-snow-near) var(--p), var(--n-snow-near));
+    --snow-sh:   color-mix(in oklab, var(--d-snow-sh) var(--p), var(--n-snow-sh));
+    --wind:      color-mix(in oklab, var(--d-wind) var(--p), var(--n-wind));
+    --fog-light: color-mix(in oklab, var(--d-fog-light) var(--p), var(--n-fog-light));
+    --fog-base:  color-mix(in oklab, var(--d-fog-base) var(--p), var(--n-fog-base));
+    --w-fog:     color-mix(in oklab, var(--d-w-fog) var(--p), var(--n-w-fog));
+    --hail-far:  color-mix(in oklab, var(--d-hail-far) var(--p), var(--n-hail-far));
+    --hail-mid:  color-mix(in oklab, var(--d-hail-mid) var(--p), var(--n-hail-mid));
+    --hail-near: color-mix(in oklab, var(--d-hail-near) var(--p), var(--n-hail-near));
+    --hail-streak: color-mix(in oklab, var(--d-hail-streak) var(--p), var(--n-hail-streak));
+    --snow-in: 360s;     /* settling while it snows */
+    --snow-out: 720s;    /* melting after it stops */
+    --change: 6s;   /* one condition change; set by the slider */
+
+    position: relative;
+    width: min(100%, 560px);
+    aspect-ratio: 1;
+    container-type: size;
+    overflow: hidden;
+    background: var(--home);
+    color: var(--text);
+    border-radius: 6px;
+  }
+  .stage.animate { transition: --daylight 2.5s ease-in-out; }   /* dawn/dusk switch (D79) */
+  .stages.compare .stage { width: min(calc(50% - 6px), 520px); }
+
+  /* ---------- Page ---------- */
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 16px;
+    background: #f4f4f4;
+    color: #222;
+    font: 14px/1.4 system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .controls { display: flex; flex-direction: column; gap: 6px; align-items: center; max-width: 1080px; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; justify-content: center; }
+  .row label { display: flex; gap: 6px; align-items: center; }
+  .row button, .row select { font: inherit; padding: 3px 9px; border: 1px solid #999; background: #fff; border-radius: 3px; cursor: pointer; }
+  .row button[aria-pressed="true"] { background: #222; color: #fff; border-color: #222; }
+  .row output { min-width: 5ch; color: #666; }
+  .stages { display: flex; gap: 12px; justify-content: center; width: 100%; }
+  .readout, .note { max-width: 760px; color: #666; margin: 0; font-size: 12px; text-align: center; }
+  .readout .bad { color: #b00020; }
+
+  /* ---------- Stage layers ---------- */
+  .sky {
+    position: absolute;
+    inset: 0;
+    clip-path: polygon(0 0, 100% 0, 0 100%);
+    background:
+      radial-gradient(120% 90% at 30% 85%, var(--horizon), transparent 60%),
+      var(--sky);
+  }
+  .weather { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  /* Sky wash per condition. */
+  .wash {
+    fill: var(--wash, transparent);
+    opacity: var(--wash-a, 0);
+    transition: fill calc(var(--change) * .6) ease-in-out, opacity calc(var(--change) * .6) ease-in-out;
+  }
+  .stage[data-wash="cloudy"] { --wash: var(--w-cloudy); --wash-a: .35; }
+  .stage[data-wash="rain"]   { --wash: var(--w-rain);   --wash-a: .45; }
+  .stage[data-wash="pour"]   { --wash: var(--w-pour);   --wash-a: .55; }
+  .stage[data-wash="storm"]  { --wash: var(--w-storm);  --wash-a: .55; }
+  .stage[data-wash="snow"]   { --wash: var(--w-snow);   --wash-a: .35; }
+  .stage[data-wash="fog"]    { --wash: var(--w-fog);    --wash-a: .45; }
+  .stage.fast-snow { --snow-in: 16s; --snow-out: 32s; }   /* study only: no waiting */
+
+  /* ---------- Shared elements: in or out per condition ----------
+     Default = out; its transition is used when an element leaves. The
+     [data-on] state's transition is used when it arrives. */
+  .vis { opacity: 0; transition: opacity calc(var(--change) * .45) ease-in-out; }
+  .vis[data-on="1"] { opacity: 1; }
+  .sunv[data-on="1"], .moonv[data-on="1"] { transition-delay: calc(var(--change) * .35); }
+  .stars-a[data-on="1"], .stars-b[data-on="1"] { transition-delay: calc(var(--change) * .5); }
+  .cloud { transition-delay: calc(var(--change) * .3); }          /* leave after the rain stops */
+  .cloud[data-on="1"] { transition-delay: 0s; transition-duration: calc(var(--change) * .55); }
+  .rain { transition-duration: calc(var(--change) * .3); }        /* stops first */
+  .rain[data-on="1"] { transition-delay: calc(var(--change) * .45); transition-duration: calc(var(--change) * .4); }
+
+  /* Sun: capsule rays breathing in place, staggered around the disc. */
+  .sun-sh { fill: #F5A524; }
+  .sun-bd { fill: #FFD447; }
+  .sun-hl { fill: none; stroke: #FFF2B0; stroke-width: 2; stroke-linecap: round; }
+  .ray {
+    stroke-width: 2.6;
+    stroke-linecap: round;
+    transform-box: fill-box;
+    transform-origin: 0% 50%;
+    animation: breathe 4.8s ease-in-out var(--d) infinite alternate;
+  }
+  .ray.lit { stroke: #FFD447; }
+  .ray.shade { stroke: #F5A524; }
+  @keyframes breathe { from { transform: scaleX(.72); } to { transform: scaleX(1.12); } }
+
+  /* Moon: dark disc, lit phase, craters on the lit part only. */
+  .moon-dark { fill: #252E4D; }
+  .moon-lit { fill: #8D97A7; }                       /* lit surface: blue grey */
+  .moon-shade { fill: #1B2236; opacity: .22; }         /* slight cel shadow on the lower right, over everything lit */
+  .maria, .pits { fill: #7B8596; }                    /* seas and craters */
+  .maria-core { fill: #626B7B; }                       /* darker middles of the seas */
+  .bright { fill: #8D97A7; }                           /* young bright craters: highland grey */
+  .bright line { stroke: #8D97A7; stroke-linecap: round; }   /* Tycho's rays show where they cross a sea */
+  .rims path { fill: none; stroke: #626B7B; stroke-linecap: round; }   /* crater shadows */
+  .moon-rim { fill: none; stroke: #45527A; stroke-width: .5; display: none; }
+  .moon-face { transform-box: fill-box; transform-origin: center; }
+  .stage.south .moon-face { transform: rotate(180deg); }   /* seen upside down from the south */
+
+  /* Stars, Milky Way, visitors. */
+  .tw { animation: twinkle var(--t) ease-in-out var(--d) infinite alternate; }
+  @keyframes twinkle { from { opacity: .3; } to { opacity: 1; } }
+  .milky { fill: #8FA6C8; opacity: .05; }
+
+  /* Clouds: one body color and one shadow per variant; they keep drifting
+     while their color changes. */
+  .cloud .bd { fill: var(--c); transition: fill calc(var(--change) * .5) ease-in-out; }
+  .cloud .sh, .cloud .us { fill: var(--c-sh); transition: fill calc(var(--change) * .5) ease-in-out; }
+  .cloud .hl { fill: var(--c-hl); transition: fill calc(var(--change) * .5) ease-in-out; }
+  /* While day/night switches, cloud colors follow it directly (a fill
+     transition would restart on every frame and lag behind the sky). */
+  .stage.theming .cloud :is(.bd, .sh, .hl, .us) { transition: none; }
+  .cloud[data-v="fair"]       { --c: var(--cf);  --c-sh: var(--cf-sh);  --c-hl: var(--cf-hl); }
+  .cloud[data-v="grey"]       { --c: var(--cg);  --c-sh: var(--cg-sh);  --c-hl: var(--cg-hl); }
+  .cloud[data-v="storm"]      { --c: var(--cs);  --c-sh: var(--cs-sh);  --c-hl: var(--cs-hl); }
+  .cloud[data-v="back"]       { --c: var(--cb);  --c-sh: var(--cb-sh);  --c-hl: var(--cb-hl); }
+  .cloud[data-v="back-grey"]  { --c: var(--cbg); --c-sh: var(--cbg-sh); --c-hl: var(--cbg-hl); }
+  .cloud[data-v="back-storm"] { --c: var(--cbs); --c-sh: var(--cbs-sh); --c-hl: var(--cbs-hl); }
+  .stage.no-back .cloud[data-layer="back"] { display: none; }
+  .drift { animation: drift var(--t) linear var(--d) infinite; }
+  .stage.wind-left .drift { animation-direction: reverse; }
+  @keyframes drift { from { transform: translateX(var(--x0)); } to { transform: translateX(var(--x1)); } }
+  /* Shapes are drawn moving left (tail trailing right); mirrored when the
+     drift is to the right. Each copy mirrors on its own, so the shadow
+     stays on the lower right. */
+  .mir { transform-box: fill-box; transform-origin: center; }
+  .stage:not(.wind-left) .mir { transform: scaleX(-1); }
+
+  /* Rain: streaks fall to the split line; some splash there. */
+  .fall { animation: fall var(--t) linear var(--d) infinite; }
+  @keyframes fall { to { transform: translate(var(--tx), var(--ty)); } }
+  .far  { fill: var(--rain-far); }
+  .mid  { fill: var(--rain-mid); }
+  .near { fill: var(--rain-near); }
+  .spl {
+    opacity: 0;
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    animation: splash var(--t) linear var(--d) infinite;
+  }
+  @keyframes splash {
+    0%   { opacity: 1; transform: scale(.5); }
+    14%  { opacity: 0; transform: translateY(-.5px) scale(1.3); }
+    100% { opacity: 0; }
+  }
+
+  /* Snow: puffs that sway as they fall, slanted by the wind. */
+  .sway { animation: sway var(--sp) ease-in-out var(--sd) infinite alternate; }
+  @keyframes sway { from { transform: translateX(calc(var(--sa) * -1)); } to { transform: translateX(var(--sa)); } }
+  .fsh { fill: var(--snow-sh); }
+  .sf-far .fbd, .spl.sf-far { fill: var(--snow-far); }
+  .sf-mid .fbd, .spl.sf-mid { fill: var(--snow-mid); }
+  .sf-near .fbd, .spl.sf-near { fill: var(--snow-near); }
+  /* Settled snow: grows while it snows (--snow to 1 over --snow-in), melts
+     after (back to 0 over --snow-out). Reversing midway is smooth. */
+  .accum { --snow: 0; transition: --snow var(--snow-out) linear; }
+  .stage[data-snowing="1"] .accum { --snow: 1; transition-duration: var(--snow-in); }
+  .accum path { fill: var(--snow-near); }
+  .acc-alert { transform: scaleY(var(--snow)); }      /* grows up from the banner's top */
+  .alert-snow { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+  .alert-snow path { fill: var(--snow-near); }
+  .acc-corner { transform: scale(var(--snow)); }      /* grows out of the corner */
+  .stage[data-alert="0"] :is(.alert-snow, .band, .band-bg) { display: none; }
+
+  /* Wind: thin streaks with a small upturned whoosh at the front, a few
+     all the time, plus gusts (JS) carrying seasonal detritus and, now and
+     then, an easter egg. Shapes face the way the wind blows. */
+  .streak { fill: var(--wind); }
+  .streak-run { opacity: 0; animation: streak var(--t) linear var(--d) infinite; }
+  .stage.wind-left .streak-run { animation-direction: reverse; }
+  @keyframes streak {
+    0%   { opacity: 0; transform: translateX(0); }
+    10%  { opacity: .75; }
+    50%  { opacity: .75; }
+    60%  { opacity: 0; transform: translateX(var(--dist)); }
+    100% { opacity: 0; transform: translateX(var(--dist)); }
+  }
+  .wmir { transform-box: fill-box; transform-origin: center; }
+  .stage.wind-left .wmir { transform: scaleX(-1); }
+  @media (prefers-reduced-motion: reduce) { .streak-run { animation-play-state: paused; } }
+
+  /* Fog: wavy ribbons whose waves slide with the wind, and thin wisps
+     drifting across, in front of the other weather and behind the text.
+     One wispy ribbon crosses the bottom of the clock, in front of it.
+     The sun and moon show through, dimmed. */
+  .fog-ribbons path { opacity: .8; }
+  .fog-ribbons path:nth-child(odd) { fill: var(--fog-light); }
+  .fog-ribbons path:nth-child(even) { fill: var(--fog-base); }
+  .fog-wisps path { fill: var(--fog-light); opacity: .7; }
+  .fog-shift { animation: fogshift var(--t) linear infinite; }
+  .stage.wind-left .fog-shift { animation-direction: reverse; }
+  @keyframes fogshift { from { transform: translateX(0); } to { transform: translateX(var(--lam)); } }
+  .fog-over { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+  .fog-front { fill: var(--fog-light); opacity: .75; }
+  /* The sun and moon are dimmed by a pale veil in front of them (fading
+     them toward the fog's color, not the sky's), not by transparency. */
+  .fog-veil { fill: var(--fog-light); opacity: .55; }
+  @media (prefers-reduced-motion: reduce) { .fog-shift { animation-play-state: paused; } }
+
+  /* Hail: small pellets with a white glint and a long faint streak, falling
+     fast. About 1 in 6 hop off the split (or the frame's left edge). */
+  .hs { fill: var(--hail-streak); opacity: .45; }
+  .hg { fill: #FFFFFF; }
+  .hl-far .hp, .hop.hl-far { fill: var(--hail-far); }
+  .hl-mid .hp, .hop.hl-mid { fill: var(--hail-mid); }
+  .hl-near .hp, .hop.hl-near { fill: var(--hail-near); }
+  .hop { opacity: 0; }   /* animated per stone by JS (see buildHail) */
+
+  /* Lightning. */
+  .bolts path, .bolts-front path, .static-bolt { fill: none; stroke: var(--bolt); stroke-linecap: round; stroke-linejoin: round; }
+  .flash { fill: var(--flash); }
+  .static-bolt { display: none; stroke-width: .5; }
+
+  /* Reduced motion: everything holds still; no flashes or visitors. */
+  @media (prefers-reduced-motion: reduce) {
+    .drift, .fall, .spl, .tw, .ray { animation-play-state: paused; }
+    .stage[data-lightning="1"] .static-bolt { display: inline; }
+  }
+
+  /* ---------- Mock card text (made-up data) ----------
+     Sizes and spacing match the real card (measured at square, scale 0.9). */
+  .mock { position: absolute; inset: 0; font-size: 2.52cqmin; line-height: 1.05; }
+  .mock > div { position: absolute; }
+  .t1 { font-size: 15.11cqmin; line-height: .8; }     /* auto-fitted in the card */
+  .t2 { font-size: 4.95cqmin; }
+  .t3 { font-size: 2.52cqmin; color: var(--text-2); }
+  .ico { display: inline-block; width: .8em; height: .8em; margin-right: .2em; vertical-align: -.05em; }
+  .ico svg { display: block; width: 100%; height: 100%; fill: currentColor; }
+  .ico.coral { color: var(--coral); }
+  .people { display: inline-flex; gap: .72cqmin; align-items: center; }
+  .person { display: inline-block; width: 3.51cqmin; height: 3.51cqmin; border-radius: 30%; border: .315cqmin solid var(--text-2); box-sizing: border-box; }
+  .ampm { font-size: 4.95cqmin; vertical-align: top; margin-left: .63cqmin; line-height: 1; }
+  .appts { display: flex; flex-direction: column; gap: .36cqmin; align-items: flex-start; }
+  .appt { margin-left: calc(var(--i, 0) * 4.95cqmin); }
+  .row-c { display: flex; align-items: center; gap: 1.08cqmin; }
+  .row-c .people.away { margin-right: 1.08cqmin; }    /* 2.16 in all, as in the card */
+  .status { display: flex; align-items: center; }
+  .status .people { margin-left: 2.16cqmin; }
+  .aq { display: flex; gap: .9cqmin; }
+  .band, .band-bg { left: 0; right: 0; top: 45.33cqmin; height: 9.33cqmin; }
+  .band-bg { background: var(--band); }
+  .band { padding: 1.08cqmin 0; line-height: 7.18cqmin; text-align: center; }
+  .floor { display: flex; flex-direction: column; gap: .36cqmin; }   /* 11.21 tall, as in the card */
+  .floor .t3:first-child { color: var(--text); }
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <div class="row">
+    <label>Condition
+      <select id="cond-a"></select>
+    </label>
+    <label><input type="checkbox" id="compare"> Compare with</label>
+    <select id="cond-b" disabled></select>
+  </div>
+  <div class="row">
+    <label>Time <input id="time" type="range" min="0" max="23.75" step="0.25" value="22"></label>
+    <output id="time-out">10:00 PM</output>
+    <button id="run" aria-pressed="false">Run the clock</button>
+    <label>Moon
+      <select id="phase">
+        <option value="">Unknown</option>
+        <option value="new_moon">New moon</option>
+        <option value="waxing_crescent">Waxing crescent</option>
+        <option value="first_quarter">First quarter</option>
+        <option value="waxing_gibbous">Waxing gibbous</option>
+        <option value="full_moon">Full moon</option>
+        <option value="waning_gibbous">Waning gibbous</option>
+        <option value="last_quarter">Last quarter</option>
+        <option value="waning_crescent">Waning crescent</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="south"> Southern hemisphere</label>
+    <label>Season
+      <select id="season">
+        <option value="">From the date</option>
+        <option value="spring">Spring</option>
+        <option value="summer">Summer</option>
+        <option value="autumn">Autumn</option>
+        <option value="winter">Winter</option>
+      </select>
+    </label>
+  </div>
+  <div class="row">
+    <label>Wind
+      <select id="wind">
+        <option value="none">No data</option>
+        <option value="west">From the west</option>
+        <option value="east">From the east</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="back" checked> Back cloud layer</label>
+    <label><input type="checkbox" id="alert" checked> Alert row</label>
+    <label><input type="checkbox" id="fast-snow"> Fast snow build-up (study)</label>
+    <label>Change <input id="dur" type="range" min="2" max="12" step="1" value="6"></label>
+    <output id="dur-out">6 s</output>
+  </div>
+  <div class="row">
+    <button id="strike">Lightning burst now</button>
+    <button id="shoot">Shooting star now</button>
+    <button id="station">Space station now</button>
+    <button id="gust">Wind gust now</button>
+    <button id="egg">Easter egg now</button>
+  </div>
+</div>
+
+<div class="stages" id="stages"></div>
+<p class="readout" id="readout"></p>
+<p class="note">Lightning comes in bursts of 2–3 strikes, a new burst within 60 s of the last one starting. Shooting stars come at random every 1–2 minutes and the space station every 5 minutes, at night when stars are out; the buttons trigger them now. In the card, sunrise, noon and sunset come from <code>sun.sun</code>, the phase from the Moon integration, and the wind from the weather sources.</p>
+
+<script type="module">
+  import * as mdi from '../tools/vendor/mdi/icons.js';
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const svgEl = (tag, attrs = {}, parent) => {
+    const n = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    parent?.append(n);
+    return n;
+  };
+  // Seeded random for layouts (the same on every reload); Math.random for events.
+  const seeded = seed => (a, b) => { seed = (seed * 16807) % 2147483647; return a + (seed / 2147483647) * (b - a); };
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+
+  /* ---------- What each condition uses ---------- */
+  const SCENES = {
+    'sunny':           { label: 'Sunny',              sun: 1, clouds: {} },
+    'clear-night':     { label: 'Clear night',        moon: 1, stars: 2, clouds: {} },
+    'partlycloudy':    { label: 'Partly cloudy',      sun: 1, moon: 1, stars: 1, clouds: { f2: 'fair', f4: 'fair', b1: 'back' } },
+    'cloudy':          { label: 'Cloudy',             wash: 'cloudy', clouds: { f1: 'grey', f2: 'grey', f3: 'grey', f4: 'grey', f5: 'grey', b1: 'back-grey', b2: 'back-grey', b3: 'back-grey', b4: 'back-grey' } },
+    'rainy':           { label: 'Rainy',              wash: 'rain', rain: 1, clouds: { f1: 'grey', f2: 'grey', f3: 'grey', f4: 'grey', b1: 'back-grey', b3: 'back-grey' } },
+    'pouring':         { label: 'Pouring',            wash: 'pour', rain: 2, clouds: { f1: 'storm', f2: 'storm', f3: 'storm', f4: 'storm', f5: 'storm', b1: 'back-storm', b2: 'back-storm', b3: 'back-storm', b4: 'back-storm' } },
+    'lightning':       { label: 'Lightning',          wash: 'storm', lightning: 1, clouds: { t1: 'storm', t2: 'storm', f1: 'storm', f3: 'storm', t3: 'back-storm', b2: 'back-storm', b4: 'back-storm' } },
+    'lightning-rainy': { label: 'Lightning + rain',   wash: 'storm', lightning: 1, rain: 1, clouds: { t1: 'storm', t2: 'storm', f1: 'storm', f3: 'storm', t3: 'back-storm', b2: 'back-storm', b4: 'back-storm' } },
+    'windy':           { label: 'Windy',              sun: 1, moon: 1, stars: 1, wind: 1, clouds: {} },
+    'windy-variant':   { label: 'Windy + clouds',     sun: 1, moon: 1, stars: 1, wind: 1, clouds: { s1: 'fair', s2: 'fair', s3: 'back', s4: 'back' } },
+    'fog':             { label: 'Fog',                sun: 1, moon: 1, fog: 1, wash: 'fog', clouds: {} },
+    'hail':            { label: 'Hail',               wash: 'storm', hail: 1, clouds: { t1: 'storm', t2: 'storm', f1: 'storm', f3: 'storm', t3: 'back-storm', b2: 'back-storm' } },
+    'snowy':           { label: 'Snowy',              wash: 'snow', snow: 'full', clouds: { f1: 'fair', f2: 'fair', f3: 'fair', b1: 'back', b3: 'back' } },
+    'snowy-rainy':     { label: 'Snow + rain',        wash: 'rain', rain: 1, snow: 'mix', clouds: { f1: 'grey', f2: 'grey', f3: 'grey', b1: 'back-grey', b3: 'back-grey' } },
+  };
+
+  /* Cloud slots, spread over the whole height of the outdoor side (the
+     bottom of the frame isn't the ground). y = baseline; s = scale;
+     ph = phase. Each slot drifts from just off the left edge to just past
+     the split at its height; front clouds move faster than back ones. */
+  const SLOTS = [
+    { id: 'f1', layer: 'front', kind: 'rolling',  s: .76, y: 22, ph: .05 },
+    { id: 'f2', layer: 'front', kind: 'rolling',  s: .64, y: 38, ph: .45 },
+    { id: 'f3', layer: 'front', kind: 'rolling',  s: .70, y: 54, ph: .75 },
+    { id: 'f4', layer: 'front', kind: 'rolling',  s: .60, y: 70, ph: .25 },
+    { id: 'f5', layer: 'front', kind: 'rolling',  s: .58, y: 84, ph: .60 },
+    { id: 't1', layer: 'front', kind: 'towering', s: .78, y: 42, ph: .30 },
+    { id: 't2', layer: 'front', kind: 'towering', s: .66, y: 68, ph: .85 },
+    { id: 'b1', layer: 'back',  kind: 'rolling',  s: .54, y: 12, ph: .55 },
+    { id: 'b2', layer: 'back',  kind: 'rolling',  s: .50, y: 28, ph: .15 },
+    { id: 'b3', layer: 'back',  kind: 'rolling',  s: .52, y: 46, ph: .90 },
+    { id: 'b4', layer: 'back',  kind: 'rolling',  s: .48, y: 62, ph: .40 },
+    { id: 't3', layer: 'back',  kind: 'towering', s: .60, y: 28, ph: .65 },
+    // Stratus: long, flat layers that move fast with the wind (windy-variant).
+    { id: 's1', layer: 'front', kind: 'stratus',  s: .62, y: 30, ph: .20, spd: 3.4 },
+    { id: 's2', layer: 'front', kind: 'stratus',  s: .55, y: 58, ph: .65, spd: 3.0 },
+    { id: 's3', layer: 'back',  kind: 'stratus',  s: .48, y: 16, ph: .45, spd: 2.2 },
+    { id: 's4', layer: 'back',  kind: 'stratus',  s: .50, y: 76, ph: .90, spd: 2.0 },
+  ];
+  const SPEED = { front: 1.5, back: .9 };   // units per second
+  for (const s of SLOTS) {
+    const w = (s.kind === 'stratus' ? 182 : 114) * s.s;
+    const h = ({ towering: 69, stratus: 16 }[s.kind] || 40) * s.s;
+    s.x0 = -w - 2;                          // fully off the left edge
+    s.x1 = 100 - s.y + h / 2 + 2;           // left edge past the split at mid-height
+    s.t = (s.x1 - s.x0) / (s.spd || SPEED[s.layer]);
+  }
+
+  // Rolling cloud, drawn moving left: bumps shrink into a tapered tail on the right.
+  const ROLL = '<rect x="0" y="-14" width="84" height="14" rx="7"/><circle cx="20" cy="-21" r="19"/><circle cx="44" cy="-22" r="15"/><circle cx="63" cy="-16" r="11"/><circle cx="78" cy="-11" r="7"/><path d="M76 0C92 0 104 -3 114 -10C102 -7 90 -8 80 -14Z"/>';
+  // Underside: a slim, smooth band in the shadow tone along the flat bottom.
+  const UNDER = '<g class="us"><rect x="8" y="-3.4" width="70" height="3.4" rx="1.7"/></g>';
+  // Stratus: long, streaky, wispy layers rather than bumps: one main
+  // streak tapering into a long tail, with a thin wisp above and below.
+  const STRATUS = '<path d="M0 -2.5C4 -7 30 -8.5 70 -8C110 -7.5 150 -5.5 182 -3C150 -1.5 100 -.5 60 -.3C30 -.2 2 .5 0 -2.5Z"/>'
+    + '<path d="M40 -9.5C70 -13 120 -13 160 -10C130 -9 90 -8.5 40 -9.5Z"/>'
+    + '<path d="M90 1.5C115 .2 150 .2 175 1C150 2.2 115 2.6 90 1.5Z"/>';
+  const TOWER = ROLL + '<circle cx="14" cy="-33" r="12"/><circle cx="28" cy="-44" r="15"/><circle cx="42" cy="-36" r="13"/><circle cx="30" cy="-58" r="11"/>';
+  // Rain streak: thicker and round at the leading (bottom) end, tapering up
+  // into a tail. Pouring gets longer tails.
+  const streak = tail => `M-0.35 -${tail}L0.35 -${tail}L1.4 -1.2A1.4 1.4 0 0 1 -1.4 -1.2Z`;
+  const TAIL = { light: 36, heavy: 56 };
+
+  // Lit part of the moon (r = 13), northern hemisphere: waxing is lit on the right.
+  const R = 13;
+  const PHASES = {
+    new_moon: '',
+    waxing_crescent: `M0 -${R}A${R} ${R} 0 0 1 0 ${R}A${R / 2} ${R} 0 0 0 0 -${R}Z`,
+    first_quarter:   `M0 -${R}A${R} ${R} 0 0 1 0 ${R}Z`,
+    waxing_gibbous:  `M0 -${R}A${R} ${R} 0 0 1 0 ${R}A${R / 2} ${R} 0 0 1 0 -${R}Z`,
+    full_moon:       `M0 -${R}A${R} ${R} 0 1 1 0 ${R}A${R} ${R} 0 1 1 0 -${R}Z`,
+    waning_gibbous:  `M0 -${R}A${R} ${R} 0 0 0 0 ${R}A${R / 2} ${R} 0 0 0 0 -${R}Z`,
+    last_quarter:    `M0 -${R}A${R} ${R} 0 0 0 0 ${R}Z`,
+    waning_crescent: `M0 -${R}A${R} ${R} 0 0 0 0 ${R}A${R / 2} ${R} 0 0 1 0 -${R}Z`,
+  };
+
+  // Height on the arc (0 at the horizon, 1 at the peak; -1 below the horizon).
+  const arc = (t, rise, peak, set) => {
+    const n = x => ((x % 24) + 24) % 24;
+    const T = n(t - rise), P = n(peak - rise), S = n(set - rise);
+    if (T > S) return -1;
+    return T <= P ? Math.sin(Math.PI / 2 * T / P) : Math.sin(Math.PI / 2 * (S - T) / (S - P));
+  };
+  const SUN_TIMES = [7, 13, 19];          // sunrise, solar noon, sunset
+  const MOON_TIMES = [19, 1, 7];          // mirrored: sunset, solar midnight, sunrise
+  const BODY_SCALE = 2;                   // sun and moon drawings (radius 12 / 13) at 200%
+  const bodyY = h => h < 0 ? 110 : 74 - 61 * h;  // slides down the left edge; at the peak, half a radius is cropped at the top
+  const BODY_X = 13;                      // a quarter of the moon's width is cropped on the left (D100)
+
+  const fmtTime = t => {
+    const h = Math.floor(t) % 24, m = Math.round((t % 1) * 60);
+    return { hm: `${h % 12 || 12}:${String(m).padStart(2, '0')}`, ap: h < 12 ? 'AM' : 'PM' };
+  };
+
+  /* ---------- Wind: season, detritus, easter eggs ---------- */
+  // Meteorological seasons (by calendar month), flipped for the southern
+  // hemisphere. The card would use HA's home latitude for that.
+  let seasonPick = '';
+  const seasonNow = south => {
+    if (seasonPick) return seasonPick;
+    const n = ['winter', 'winter', 'spring', 'spring', 'spring', 'summer', 'summer', 'summer', 'autumn', 'autumn', 'autumn', 'winter'][new Date().getMonth()];
+    return south ? { winter: 'summer', summer: 'winter', spring: 'autumn', autumn: 'spring' }[n] : n;
+  };
+  // [kind, color, shade]
+  const DETRITUS = {
+    spring: [['petal', '#F4A7C0', '#D97FA0'], ['petal', '#FBEFF3', '#E4C9D3']],
+    summer: [['leaf', '#7BB661', '#5E9447'], ['leaf', '#9CCB6E', '#7AAA52']],
+    autumn: [['leaf', '#E59A3A', '#C47A22'], ['leaf', '#D4553A', '#AE3C26'], ['leaf', '#A86B3C', '#86512A']],
+    winter: [['leaf', '#A88B6A', '#8A6F52'], ['needles', '#4F6B4A']],
+  };
+  const drawPiece = (g, [kind, c1, c2]) => {
+    if (kind === 'leaf') {                     // almond leaf, lower half in shade, with a midrib
+      svgEl('path', { d: 'M-2.5 0Q0 -1.8 2.5 0Q0 1.8 -2.5 0Z', fill: c2 }, g);
+      svgEl('path', { d: 'M-2.5 0Q0 -1.8 2.5 0Z', fill: c1 }, g);
+      svgEl('path', { d: 'M-2.3 0H2.3', stroke: c2, 'stroke-width': .2 }, g);
+    } else if (kind === 'petal') {
+      svgEl('path', { d: 'M0 0C1.2 -1.4 2.6 -1 2.6 0C2.6 1 1.2 1.4 0 0Z', fill: c1 }, g);
+      svgEl('path', { d: 'M0 0C1.2 .7 2.2 .9 2.6 0C2.6 1 1.2 1.4 0 0Z', fill: c2 }, g);
+    } else {                                   // a little cluster of pine needles
+      for (const a of [-22, 0, 22]) svgEl('path', { d: 'M0 0H2.4', stroke: c1, 'stroke-width': .28, 'stroke-linecap': 'round', transform: `rotate(${a})` }, g);
+      svgEl('circle', { r: .35, fill: '#7A5A3A' }, g);
+    }
+  };
+  // Easter eggs: odd things that now and then blow through with a gust.
+  const EGGS = {
+    kite(g) {
+      svgEl('path', { d: 'M-4.5 4Q-7 6 -9 5Q-11 4 -13 6', fill: 'none', stroke: '#555', 'stroke-width': .2 }, g);
+      for (const [x, y] of [[-7, 5.6], [-10.3, 4.6]]) svgEl('path', { d: `M${x} ${y}l.9 -.7l0 1.4Z`, fill: '#F2C14E' }, g);
+      svgEl('path', { d: 'M0 -4L3 0L0 5L-3 0Z', fill: '#E8505B' }, g);
+      svgEl('path', { d: 'M0 -4L3 0L0 5Z', fill: '#C93F49' }, g);
+      svgEl('path', { d: 'M0 -4V5M-3 0H3', stroke: '#9E2F38', 'stroke-width': .2 }, g);
+    },
+    balloon(g) {
+      svgEl('path', { d: 'M0 3.2Q-.8 5 .4 6.5Q1.4 8 .2 9.6', fill: 'none', stroke: '#555', 'stroke-width': .18 }, g);
+      svgEl('ellipse', { rx: 2.4, ry: 3, fill: '#E8505B' }, g);
+      svgEl('path', { d: 'M0 -3A2.4 3 0 0 1 0 3A1.4 3 0 0 0 0 -3Z', fill: '#C93F49' }, g);
+      svgEl('ellipse', { cx: -1, cy: -1.3, rx: .5, ry: .8, fill: '#F7A2A8' }, g);
+      svgEl('path', { d: 'M-.4 3.2L.4 3.2L0 2.6Z', fill: '#C93F49' }, g);
+    },
+    newspaper(g) {
+      svgEl('rect', { x: -3.4, y: -2.4, width: 6.8, height: 4.8, fill: '#EEEAE0' }, g);
+      svgEl('rect', { x: 0, y: -2.4, width: 3.4, height: 4.8, fill: '#DCD7CB' }, g);
+      for (const y of [-1.6, -.6, .4, 1.4]) svgEl('rect', { x: -2.8, y, width: 2.2, height: .35, fill: '#A9A49A' }, g);
+      svgEl('rect', { x: .6, y: -1.6, width: 2.2, height: 1.4, fill: '#A9A49A' }, g);
+    },
+    tincan(g) {
+      svgEl('rect', { x: -1.4, y: -2.2, width: 2.8, height: 4.4, rx: .3, fill: '#B9C2CC' }, g);
+      svgEl('rect', { x: .3, y: -2.2, width: 1.1, height: 4.4, fill: '#98A2AD' }, g);
+      svgEl('rect', { x: -1.4, y: -.8, width: 2.8, height: 1.6, fill: '#D4553A' }, g);
+      svgEl('ellipse', { cy: -2.2, rx: 1.4, ry: .45, fill: '#DDE3E8' }, g);
+    },
+    plane(g) {
+      svgEl('path', { d: 'M-3.5 .8L4 0L-3.5 -1.6Z', fill: '#FFFFFF' }, g);
+      svgEl('path', { d: 'M-3.5 .8L4 0L-2.2 0Z', fill: '#D8E0E8' }, g);
+    },
+    umbrella(g) {                              // blown inside out
+      svgEl('path', { d: 'M0 -.6V4.2Q0 5 -.8 5', fill: 'none', stroke: '#333', 'stroke-width': .3, 'stroke-linecap': 'round' }, g);
+      svgEl('path', { d: 'M-3.5 -2Q0 1.5 3.5 -2L2.6 -2.6Q0 .2 -2.6 -2.6Z', fill: '#3E6FB0' }, g);
+      svgEl('path', { d: 'M0 -.6Q1.8 -1 3.5 -2L2.6 -2.6Q1.2 -1.2 0 -.9Z', fill: '#2F5690' }, g);
+    },
+  };
+  // A thin wind streak (length 10), with a small upturned whoosh at the front.
+  const WSTREAK = 'M0 0Q5 -.7 8.6 -.45Q9.8 -.4 10 -1.5Q10.1 -.2 8.6 .25Q5 .5 0 0Z';
+
+  /* ---------- One stage ---------- */
+  const stageHTML = id => `
+    <div class="sky"></div>
+    <svg class="weather" viewBox="0 0 100 100" aria-hidden="true">
+      <defs>
+        <linearGradient id="${id}-fg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset=".38" stop-color="#fff"/><stop offset=".56" stop-color="#000"/>
+        </linearGradient>
+        <mask id="${id}-fade" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+          <rect width="100" height="100" fill="url(#${id}-fg)"/>
+        </mask>
+        <clipPath id="${id}-out"><polygon points="0,0 100,0 0,100"/></clipPath>
+        <clipPath id="${id}-sun"><circle r="12"/></clipPath>
+        <clipPath id="${id}-moon"><path class="moon-clip"/></clipPath>
+      </defs>
+      <g mask="url(#${id}-fade)">
+        <rect class="wash" width="100" height="100"/>
+        <g class="vis stars-b" data-on="0"><polygon class="milky"/><g class="mw-dots"></g><g class="stars-extra"></g></g>
+        <g class="vis stars-a" data-on="0"></g>
+        <g class="vis sunv" data-on="0"><g class="sun-pos"><g transform="scale(${BODY_SCALE})">
+          <g class="rays"></g>
+          <circle r="12" class="sun-sh"/>
+          <circle cx="-2" cy="-2" r="12" class="sun-bd" clip-path="url(#${id}-sun)"/>
+          <path class="sun-hl" d="M-9 1.9A8.5 8.5 0 0 1 1.9 -9"/>
+        </g></g></g>
+        <g class="vis moonv" data-on="0"><g class="moon-pos"><g transform="scale(${BODY_SCALE})"><g class="moon-face">
+          <circle r="${R}" class="moon-dark"/>
+          <path class="moon-lit"/>
+          <g class="craters" clip-path="url(#${id}-moon)">
+            <g class="maria"></g>
+            <g class="maria-core"></g>
+            <g class="pits"></g>
+            <g class="bright"></g>
+            <g class="rims"></g>
+            <path class="moon-shade" fill-rule="evenodd" d="M13 0A13 13 0 1 1 -13 0A13 13 0 1 1 13 0ZM11.4 -1.6A13 13 0 1 1 -14.6 -1.6A13 13 0 1 1 11.4 -1.6Z"/>
+          </g>
+          <circle r="${R}" class="moon-rim"/>
+        </g></g></g></g>
+        <g class="visitors"></g>
+        <g class="clouds-back"></g>
+      </g>
+      <g clip-path="url(#${id}-out)">
+        <g class="bolts"></g>
+        <path class="static-bolt" d="M26 28L22 36L27 41L20 52L24 57L19 68"/>
+      </g>
+      <g class="vis rain rain-l" data-on="0"><g class="drops" clip-path="url(#${id}-out)"></g><g class="splashes"></g></g>
+      <g class="vis rain rain-h" data-on="0"><g class="drops" clip-path="url(#${id}-out)"></g><g class="splashes"></g></g>
+      <g class="vis rain hail" data-on="0"><g class="drops" clip-path="url(#${id}-out)"></g><g class="bounces"></g></g>
+      <g class="vis rain snow-full" data-on="0"><g class="drops" clip-path="url(#${id}-out)"></g><g class="splashes"></g></g>
+      <g class="vis rain snow-mix" data-on="0"><g class="drops" clip-path="url(#${id}-out)"></g><g class="splashes"></g></g>
+      <g class="accum" clip-path="url(#${id}-out)">
+        <g transform="translate(0 100)"><path class="acc-corner"/></g>
+      </g>
+      <g mask="url(#${id}-fade)">
+        <g class="clouds-front"></g>
+        <g class="vis windv" data-on="0"><g class="streaks"></g><g class="gusts"></g></g>
+        <g class="vis fogv" data-on="0"><rect class="fog-veil" width="100" height="100"/><g class="fog-ribbons"></g><g class="fog-wisps"></g></g>
+        <rect class="flash" width="100" height="100" opacity="0"/>
+      </g>
+      <!-- Cloud-to-cloud strikes arc in front of the clouds. -->
+      <g clip-path="url(#${id}-out)"><g class="bolts-front"></g></g>
+    </svg>
+    <!-- Mock card text (made-up data). Positions and sizes match the real
+         card at square with the alert shown, measured 2026-10-25: outdoor
+         blocks by their right edges (nearest the line), floors by their left. -->
+    <div class="mock" aria-label="Mock card text">
+      <div class="appts" style="top:6cqmin; right:17.48cqmin">
+        <div class="t3 appt" style="--i:1"><span class="ico" data-i="CalendarArrowRight"></span>Mon 9:00 AM Dentist</div>
+        <div class="t3 appt" style="--i:1"><span class="ico" data-i="CalendarArrowRight"></span>Mon 7:30 AM Swim club</div>
+        <div class="t3 appt" style="--i:0"><span class="ico" data-i="CalendarClock"></span>6:30 PM Dinner</div>
+        <div class="t3 appt" style="--i:0"><span class="ico" data-i="CalendarClock"></span>3:00 PM Soccer practice</div>
+      </div>
+      <div class="row-c" style="top:19.04cqmin; right:27.12cqmin">
+        <span class="people away"><span class="person"></span><span class="person"></span><span class="person"></span></span>
+        <span class="t2"><span class="ico" data-i="Thermometer"></span>68°</span>
+        <span class="t3"><span class="ico" data-i="WaterPercent"></span>54%</span>
+        <span class="t3"><span class="ico" data-i="Leaf"></span>AQI 31</span>
+      </div>
+      <div class="t2" style="top:25.22cqmin; right:33.6cqmin">Saturday, October 24</div>
+      <div style="top:31.78cqmin; right:39.92cqmin"><span class="t1 m-time">10:00</span><span class="ampm m-ap">PM</span></div>
+      <!-- One wispy fog ribbon drifts across the bottom of the clock, in front of it. -->
+      <svg class="vis fogv fog-over" data-on="0" viewBox="0 0 100 100" aria-hidden="true">
+        <defs><clipPath id="${id}-fogclip"><polygon points="0,0 100,0 0,100"/></clipPath></defs>
+        <g clip-path="url(#${id}-fogclip)"><g class="fog-shift fog-front-g"><path class="fog-front"/></g></g>
+      </svg>
+      <div class="band-bg"></div>
+      <!-- Snow on the alert row spans its full width, across the split (a
+           little "fourth wall" break): over the banner, under its text. -->
+      <svg class="accum alert-snow" viewBox="0 0 100 100" aria-hidden="true">
+        <g transform="translate(0 45.33)"><path class="acc-alert"/></g>
+      </svg>
+      <div class="band t2"><span class="ico" data-i="Information"></span>Håg · design study</div>
+      <div class="floor" style="top:56.73cqmin; left:46.45cqmin">
+        <div class="t3">First Floor</div>
+        <div class="t2 status"><span><span class="ico coral" data-i="Fire"></span>72°</span><span class="people"><span class="person"></span></span></div>
+        <div class="t3 aq"><span><span class="ico" data-i="WaterPercent"></span>45%</span><span><span class="ico" data-i="Sprout"></span>640 ppm</span><span><span class="ico" data-i="Molecule"></span>12 µg/m³</span></div>
+      </div>
+      <div class="floor" style="top:69.6cqmin; left:33.58cqmin">
+        <div class="t3">Second Floor</div>
+        <div class="t2 status"><span><span class="ico" data-i="Thermostat"></span>69°</span></div>
+        <div class="t3 aq"><span><span class="ico" data-i="WaterPercent"></span>52%</span><span><span class="ico" data-i="Sprout"></span>610 ppm</span><span><span class="ico" data-i="Molecule"></span>8 µg/m³</span></div>
+      </div>
+      <div class="floor" style="top:82.47cqmin; left:20.71cqmin">
+        <div class="t3">Basement</div>
+        <div class="t2 status"><span><span class="ico" data-i="Thermostat"></span>66°</span><span class="people"><span class="person"></span><span class="person"></span></span></div>
+        <div class="t3 aq"><span><span class="ico" data-i="WaterPercent"></span>43%</span><span><span class="ico" data-i="Sprout"></span>590 ppm</span><span><span class="ico" data-i="Molecule"></span>15 µg/m³</span></div>
+      </div>
+    </div>`;
+
+  class Stage {
+    constructor(id, host, cond) {
+      this.el = document.createElement('div');
+      this.el.className = 'stage';
+      this.el.innerHTML = stageHTML(id);
+      host.append(this.el);
+      this.cond = cond;
+      this.change = 6;
+      this.dir = 1;              // +1 drift right (also the no-data fallback), -1 left
+      this.day = null;
+      this.back = true;
+      this.build();
+    }
+    q(s) { return this.el.querySelector(s); }
+
+    build() {
+      const rand = seeded(11);
+
+      // Mock icons: the real MDI shapes.
+      this.el.querySelectorAll('[data-i]').forEach(s => {
+        s.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${mdi['mdi' + s.dataset.i]}"></path></svg>`;
+      });
+
+      // Sun rays: eight capsules; the three facing away from the light are in shadow.
+      const rays = this.q('.rays');
+      for (let i = 0; i < 8; i++) {
+        const a = i * 45;                       // 0 = right, clockwise
+        const g = svgEl('g', { transform: `rotate(${a})` }, rays);
+        svgEl('line', { class: `ray ${a <= 90 ? 'shade' : 'lit'}`, x1: 15.5, y1: 0, x2: 19.5, y2: 0, style: `--d:${(-i * .6).toFixed(1)}s` }, g);
+      }
+
+      // Moon face: the real near side (north up), simplified into flat seas
+      // and a few landmark craters. Coordinates are fractions of the radius.
+      const blob = pts => {                    // smooth closed outline through the points
+        const P = pts.map(([x, y]) => [x * R, y * R]), n = P.length, f = v => v.toFixed(2);
+        let d = `M${f(P[0][0])} ${f(P[0][1])}`;
+        for (let i = 0; i < n; i++) {
+          const [p0, p1, p2, p3] = [P[(i + n - 1) % n], P[i], P[(i + 1) % n], P[(i + 2) % n]];
+          d += `C${f(p1[0] + (p2[0] - p0[0]) / 6)} ${f(p1[1] + (p2[1] - p0[1]) / 6)} ${f(p2[0] - (p3[0] - p1[0]) / 6)} ${f(p2[1] - (p3[1] - p1[1]) / 6)} ${f(p2[0])} ${f(p2[1])}`;
+        }
+        return d + 'Z';
+      };
+      const MARIA = [
+        [[-.58, -.38], [-.5, -.6], [-.3, -.68], [-.08, -.58], [-.05, -.38], [-.15, -.22], [-.38, -.2]],                     // Imbrium
+        [[-.9, -.25], [-.72, -.42], [-.58, -.3], [-.42, -.15], [-.38, .05], [-.48, .25], [-.62, .38], [-.82, .32], [-.93, .05]], // Procellarum
+        [[.02, -.5], [.14, -.6], [.3, -.52], [.32, -.36], [.18, -.28], [.04, -.34]],                                       // Serenitatis
+        [[.22, -.26], [.42, -.3], [.55, -.14], [.5, .02], [.34, .04], [.22, -.08]],                                        // Tranquillitatis
+        [[.58, -.3], [.7, -.39], [.82, -.31], [.78, -.2], [.64, -.2]],                                                     // Crisium
+        [[.52, .04], [.68, 0], [.74, .16], [.62, .3], [.5, .22]],                                                          // Fecunditatis
+        [[.31, .24], [.42, .2], [.46, .32], [.36, .39]],                                                                   // Nectaris
+        [[-.3, .22], [-.05, .2], [.02, .36], [-.12, .48], [-.32, .42]],                                                    // Nubium
+        [[-.58, .36], [-.46, .33], [-.41, .44], [-.53, .5]],                                                               // Humorum
+        [[-.45, -.72], [-.1, -.81], [.3, -.75], [.31, -.69], [-.1, -.74], [-.42, -.66], 'thin'],                           // Frigoris
+        [[-.05, -.24], [.06, -.25], [.07, -.16], [-.04, -.15]],                                                            // Vaporum
+      ];
+      // Seas: smooth, organic blobs (after the reference, but calmer): each
+      // outline gets extra points with a gentle wobble, then a smooth curve
+      // through them. Larger seas get a darker core built the same way.
+      const mrand = seeded(5);
+      const wobble = (pts, amt) => pts.flatMap((a, i) => {
+        const b = pts[(i + 1) % pts.length];
+        const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
+        const n = Math.max(1, Math.round(l / .09));
+        return Array.from({ length: n }, (_, j) => {
+          const t = j / n, o = j ? mrand(-amt, amt) : 0;
+          return [a[0] + dx * t - dy / l * o, a[1] + dy * t + dx / l * o];
+        });
+      });
+      for (const sea of MARIA) {
+        const thin = sea.at(-1) === 'thin', m = thin ? sea.slice(0, -1) : sea;
+        svgEl('path', { d: blob(wobble(m, .025)) }, this.q('.maria'));
+        if (thin) continue;                     // thin seas stay one tone (no dark line through them)
+        const cx = m.reduce((v, p) => v + p[0], 0) / m.length, cy = m.reduce((v, p) => v + p[1], 0) / m.length;
+        const size = Math.max(...m.map(p => Math.hypot(p[0] - cx, p[1] - cy)));
+        if (size < .1) continue;                // small seas stay one tone
+        const core = m.map(([x, y]) => [cx + (x - cx) * .5, cy + (y - cy) * .5]);
+        svgEl('path', { d: blob(wobble(core, .015)) }, this.q('.maria-core'));
+      }
+
+      // Craters: bright young ones (Tycho, Copernicus, Kepler,
+      // Aristarchus) in the highland grey, older ones (and dark-floored Plato)
+      // in the sea grey. Each has a shadow on its upper-left inside wall,
+      // away from the light.
+      const shade = (x, y, r) => {
+        const a0 = 150 * Math.PI / 180, a1 = 300 * Math.PI / 180, rr = r * .72;
+        svgEl('path', {
+          d: `M${(x + rr * Math.cos(a0)).toFixed(2)} ${(y + rr * Math.sin(a0)).toFixed(2)}A${rr.toFixed(2)} ${rr.toFixed(2)} 0 0 1 ${(x + rr * Math.cos(a1)).toFixed(2)} ${(y + rr * Math.sin(a1)).toFixed(2)}`,
+          'stroke-width': (r * .38).toFixed(2),
+        }, this.q('.rims'));
+      };
+      const bright = this.q('.bright');      // (Tycho's rays left out: they cut across Nubium)
+      for (const [x, y, r] of [[-.12, .68, .06], [-.33, -.1, .06], [-.55, -.06, .04], [-.62, -.32, .035]].map(([x, y, r]) => [x * R, y * R, r * R])) {
+        svgEl('circle', { cx: x.toFixed(2), cy: y.toFixed(2), r: r.toFixed(2) }, bright);
+        shade(x, y, r);
+      }
+      for (const [x, y, r] of [[-.12, -.72, .05], [.55, .5, .055], [.2, .62, .045], [-.6, .62, .05], [.75, -.55, .04], [.35, .72, .035]].map(([x, y, r]) => [x * R, y * R, r * R])) {
+        svgEl('circle', { cx: x.toFixed(2), cy: y.toFixed(2), r: r.toFixed(2) }, this.q('.pits'));
+        shade(x, y, r);
+      }
+
+      // Stars: a base set (any clear-ish night) and an extra set plus the
+      // Milky Way (clear nights only).
+      const COLORS = ['#F1EADC', '#F6E7C1', '#DCE6F5'];
+      const star = (parent, rMin, rMax) => {
+        let x, y;
+        do { x = rand(1, 76); y = rand(1, 64); } while (x + y > 84);
+        svgEl('circle', {
+          class: 'tw', cx: x.toFixed(2), cy: y.toFixed(2), r: rand(rMin, rMax).toFixed(2),
+          fill: COLORS[Math.floor(rand(0, 3))],
+          style: `--t:${rand(3, 8).toFixed(1)}s;--d:${(-rand(0, 8)).toFixed(1)}s`,
+        }, parent);
+      };
+      for (let i = 0; i < 16; i++) star(this.q('.stars-a'), .28, .55);
+      for (let i = 0; i < 34; i++) star(this.q('.stars-extra'), .18, .42);
+      // Milky Way: a very faint ribbon with denser tiny stars along it.
+      const P0 = [0, 32], P1 = [72, 6];
+      const dx = P1[0] - P0[0], dy = P1[1] - P0[1], len = Math.hypot(dx, dy);
+      const nx = -dy / len, ny = dx / len;
+      const width = u => 4.5 + 2.2 * Math.sin(u * Math.PI * 3 + 1) + 1.2 * Math.sin(u * Math.PI * 7);
+      const top = [], bottom = [];
+      for (let i = 0; i <= 24; i++) {
+        const u = i / 24, cx = P0[0] + dx * u, cy = P0[1] + dy * u, w = width(u) / 2;
+        top.push(`${(cx + nx * w).toFixed(2)},${(cy + ny * w).toFixed(2)}`);
+        bottom.unshift(`${(cx - nx * w).toFixed(2)},${(cy - ny * w).toFixed(2)}`);
+      }
+      this.q('.milky').setAttribute('points', [...top, ...bottom].join(' '));
+      const mw = this.q('.mw-dots');
+      for (let i = 0; i < 90; i++) {
+        const u = rand(0, 1), off = (rand(-1, 1) + rand(-1, 1)) / 2 * width(u) * .6;
+        svgEl('circle', {
+          cx: (P0[0] + dx * u + nx * off).toFixed(2), cy: (P0[1] + dy * u + ny * off).toFixed(2),
+          r: rand(.1, .22).toFixed(2), fill: COLORS[Math.floor(rand(0, 3))], opacity: rand(.45, .9).toFixed(2),
+        }, mw);
+      }
+
+      // Clouds, three tones: the shadow copy, a highlight copy nudged up and
+      // left, then the body between them. What shows of each is a sliver:
+      // highlight on the upper-left edges, shadow on the lower right.
+      for (const s of SLOTS) {
+        const shape = { towering: TOWER, stratus: STRATUS }[s.kind] || ROLL;
+        this.q(s.layer === 'back' ? '.clouds-back' : '.clouds-front').insertAdjacentHTML('beforeend', `
+          <g class="vis cloud" data-slot="${s.id}" data-layer="${s.layer}" data-on="0" data-v="fair">
+            <g class="drift" style="--x0:${s.x0.toFixed(1)}px;--x1:${s.x1.toFixed(1)}px;--t:${s.t.toFixed(1)}s;--d:${(-s.ph * s.t).toFixed(1)}s">
+              <g transform="translate(0 ${s.y}) scale(${s.s})">
+                <g class="mir sh">${shape}</g>
+                <g transform="translate(-4.2 -5.4)"><g class="mir hl">${shape}</g></g>
+                <g transform="translate(-2.6 -3.4)"><g class="mir bd">${shape}${s.kind === 'stratus' ? '' : UNDER}</g></g>
+              </g>
+            </g>
+          </g>`);
+      }
+
+      this.buildRain();
+      this.buildSnow();
+      this.buildHail();
+      this.buildFog();
+      this.buildWind();
+      this.buildAccumulation();
+      this.el.dataset.alert = '1';
+      this.lightningOn = false;
+    }
+
+    // Two rain sheets (light and heavy), so rainy and pouring can crossfade.
+    // Each drop starts just above the top edge, falls behind the clouds and
+    // keeps going until its whole tail has passed the split, so nothing pops.
+    buildRain() {
+      const rand = seeded(23);
+      const k = Math.tan(15 * Math.PI / 180) * this.dir;     // sideways per unit of fall
+      for (const [sel, heavy] of [['.rain-l', false], ['.rain-h', true]]) {
+        const drops = this.q(`${sel} .drops`), splashes = this.q(`${sel} .splashes`);
+        drops.replaceChildren();
+        splashes.replaceChildren();
+        const n = heavy ? 120 : 60;
+        const tail = heavy ? TAIL.heavy : TAIL.light;
+        // [depth, share, fall speed (units/s), size]
+        for (const [depth, share, speed, size] of [['far', .45, 38, .11], ['mid', .35, 48, .14], ['near', .2, 60, .18]]) {
+          const g = svgEl('g', { class: depth }, drops);
+          const sc = size * (heavy ? 1.1 : 1);
+          const L = tail * sc;                                // streak length
+          const y0 = -L - 1;                                  // fully above the frame
+          let made = 0, tries = 0;
+          while (made < Math.round(n * share) && tries++ < 5000) {
+            const x0 = this.dir > 0 ? rand(-34, 100) : rand(0, 134);
+            const tLine = (100 - x0 - y0) / (1 + k);          // fall until the head meets the split
+            if (tLine < L) continue;
+            if (rand(0, 1) > tLine / 150) continue;           // even density: long paths cover more sky
+            const total = tLine + L * 1.2;                    // until the tail is past the split too
+            const dur = total / (speed * (heavy ? 1.4 : 1));
+            const delay = -rand(0, dur);
+            const f = svgEl('g', { class: 'fall', style: `--tx:${(k * total).toFixed(2)}px;--ty:${total.toFixed(2)}px;--t:${dur.toFixed(2)}s;--d:${delay.toFixed(2)}s` }, g);
+            svgEl('path', { d: streak(tail), transform: `translate(${x0.toFixed(2)} ${y0.toFixed(2)}) rotate(${-15 * this.dir}) scale(${sc.toFixed(3)})` }, f);
+            // About 1 in 7 drops splash where they meet the split, timed to
+            // the moment the head lands.
+            const ex = x0 + k * tLine, ey = y0 + tLine;
+            if (rand(0, 1) < 1 / 7 && ex > 0 && ey > 0 && ey < 100) {
+              const at = svgEl('g', { transform: `translate(${ex.toFixed(2)} ${ey.toFixed(2)})` }, splashes);
+              const sp = svgEl('g', { class: `spl ${depth}`, style: `--t:${dur.toFixed(2)}s;--d:${(delay + tLine / total * dur).toFixed(2)}s` }, at);
+              svgEl('circle', { cx: -.8, cy: -.5, r: .32 }, sp);
+              svgEl('circle', { cx: .8, cy: -.5, r: .32 }, sp);
+              svgEl('circle', { cx: 0, cy: -1, r: .25 }, sp);
+            }
+            made++;
+          }
+        }
+      }
+    }
+
+    // Wind: a few streaks all the time (CSS, each crossing now and then).
+    buildWind() {
+      const rand = seeded(61), f = v => v.toFixed(2);
+      const host = this.q('.streaks');
+      host.replaceChildren();
+      for (let i = 0; i < 8; i++) {
+        const y = rand(4, 90), x = rand(-15, Math.max(-5, 92 - y - 30)), L = rand(14, 26), th = rand(.8, 1.3);
+        const at = svgEl('g', { transform: `translate(${f(x)} ${f(y)})` }, host);
+        const run = svgEl('g', { class: 'streak-run', style: `--dist:${f(rand(40, 60))}px;--t:${f(rand(4, 7))}s;--d:${f(-rand(0, 7))}s` }, at);
+        const mir = svgEl('g', { class: 'wmir' }, run);
+        svgEl('path', { class: 'streak', d: WSTREAK, transform: `scale(${f(L / 10)} ${f(th)})` }, mir);
+      }
+    }
+
+    // Gusts: every 15–40 s while it's windy, 3–5 s of faster streaks and
+    // seasonal detritus; about 1 gust in 15 carries an easter egg.
+    scheduleGust(sec) {
+      clearTimeout(this.gustTimer);
+      this.gustTimer = setTimeout(() => {
+        if (!SCENES[this.cond].wind) return;
+        this.gust();
+        this.scheduleGust(rnd(15, 40));
+      }, sec * 1000);
+    }
+    gust(forceEgg = false) {
+      if (reduced.matches) return;
+      const host = this.q('.gusts'), dir = this.dir, f = v => v.toFixed(2);
+      const startX = () => dir > 0 ? rnd(-25, 25) : rnd(45, 95);
+      const fly = (el, dist, ms, delay, bob, spin) => {
+        const [mover, spinner] = el;
+        mover.animate([
+          { transform: 'translate(0, 0)', opacity: 0 },
+          { transform: `translate(${f(dir * dist * .12)}px, ${f(bob)}px)`, opacity: 1, offset: .12 },
+          { transform: `translate(${f(dir * dist * .4)}px, ${f(-bob)}px)`, offset: .4 },
+          { transform: `translate(${f(dir * dist * .7)}px, ${f(bob)}px)`, opacity: 1, offset: .7 },
+          { transform: `translate(${f(dir * dist)}px, 0)`, opacity: 0 },
+        ], { duration: ms, delay, fill: 'both' }).onfinish = () => mover.parentNode.remove();
+        if (spinner) spinner.animate([{ transform: 'rotate(0deg)' }, { transform: `rotate(${f(spin)}deg)` }], { duration: ms, delay, fill: 'both' });
+      };
+      const place = y => {
+        const at = svgEl('g', { transform: `translate(${f(startX())} ${f(y)})` }, host);
+        const mover = svgEl('g', {}, at);
+        return [mover, svgEl('g', {}, mover)];
+      };
+      // Faster streaks.
+      for (let i = 0; i < 12; i++) {
+        const [mover, inner] = place(rnd(4, 90));
+        const mir = svgEl('g', { class: 'wmir' }, inner);
+        svgEl('path', { class: 'streak', d: WSTREAK, transform: `scale(${f(rnd(1.6, 3))} ${f(rnd(.9, 1.4))})` }, mir);
+        fly([mover], rnd(50, 75), rnd(900, 1400), rnd(0, 2500), 0, 0);
+      }
+      // Seasonal detritus, tumbling and bobbing.
+      const kinds = DETRITUS[seasonNow(this.el.classList.contains('south'))];
+      for (let i = 0; i < 6; i++) {
+        const [mover, spinner] = place(rnd(10, 88));
+        drawPiece(spinner, kinds[Math.floor(rnd(0, kinds.length))]);
+        fly([mover, spinner], rnd(60, 90), rnd(2200, 3500), rnd(0, 3000), rnd(2, 4), rnd(360, 900) * (Math.random() < .5 ? -1 : 1));
+      }
+      // Now and then, something odd.
+      if (forceEgg || Math.random() < 1 / 15) {
+        const names = Object.keys(EGGS), name = names[Math.floor(rnd(0, names.length))];
+        const [mover, spinner] = place(rnd(12, 70));
+        EGGS[name](spinner);
+        const tumbles = name === 'tincan' || name === 'newspaper';
+        fly([mover, spinner], 95, rnd(4000, 5200), rnd(500, 1500), rnd(2, 3.5), tumbles ? rnd(300, 600) * dir : rnd(-25, 25));
+      }
+    }
+
+    // Fog: wavy ribbons across the whole height and thin wisps drifting
+    // over them. Ribbons repeat every wavelength, so sliding by one
+    // wavelength loops seamlessly; the direction follows the wind (CSS).
+    buildFog() {
+      const rand = seeded(53), f = v => v.toFixed(2);
+      const band = (y, amp, lam, th, phase, pinch = 0) => {
+        const top = [], bot = [];
+        for (let x = -lam; x <= 100 + lam + .01; x += 2) {
+          const a = 2 * Math.PI * x / lam;
+          const t = th * (1 - pinch + pinch * (.5 + .5 * Math.sin(a + phase * 2)));   // pinch: wispy thin spots
+          top.push([x, y + amp * Math.sin(a + phase)]);
+          bot.push([x, y + t + amp * .8 * Math.sin(a + phase + .9)]);
+        }
+        return 'M' + top.map(p => `${f(p[0])} ${f(p[1])}`).join('L') + 'L' + bot.reverse().map(p => `${f(p[0])} ${f(p[1])}`).join('L') + 'Z';
+      };
+      const ribbons = this.q('.fog-ribbons');
+      ribbons.replaceChildren();
+      // Ten ribbons over the full height, closer together (and a little
+      // thicker) toward the bottom.
+      const RIBBONS = 10;
+      for (let i = 0; i < RIBBONS; i++) {
+        const u = (i / (RIBBONS - 1)) ** .7, y = 4 + 92 * u;
+        const lam = rand(42, 62), t = rand(36, 54), th = 4 + 2.5 * u;
+        const g = svgEl('g', { class: 'fog-shift', style: `--lam:${f(lam)}px;--t:${f(t)}s` }, ribbons);
+        svgEl('path', { d: band(y, rand(1.2, 2.2), lam, th, rand(0, 6.28), .35) }, g);
+      }
+      // Wisps: thin tapered streaks drifting across faster than the ribbons.
+      const wisps = this.q('.fog-wisps');
+      wisps.replaceChildren();
+      for (let i = 0; i < 12; i++) {
+        const y = 4 + 92 * rand(0, 1) ** .6, L = rand(22, 40), h = rand(.7, 1.2);   // more of them low down
+        const x0 = -L - 2, x1 = 100 - y + 2, t = (x1 - x0) / rand(2, 3);
+        const g = svgEl('g', { class: 'drift', style: `--x0:${f(x0)}px;--x1:${f(x1)}px;--t:${f(t)}s;--d:${f(-rand(0, t))}s` }, wisps);
+        svgEl('path', { d: `M0 ${f(y)}Q${f(L / 2)} ${f(y - h)} ${f(L)} ${f(y)}Q${f(L / 2)} ${f(y + h * .6)} 0 ${f(y)}Z` }, g);
+      }
+      // The ribbon over the bottom of the clock (numerals' baseline at 42.85).
+      const front = this.q('.fog-front-g');
+      front.style.setProperty('--lam', '40px');
+      front.style.setProperty('--t', '34s');
+      this.q('.fog-front').setAttribute('d', band(41.6, .5, 40, 2.4, 1, .75));
+    }
+
+    // Hail: small pellets, each with a white glint and a long faint streak
+    // behind, falling fast and nearly straight. Each stone hits the split
+    // (or, blown left, the frame's left edge) and keeps going until its
+    // streak has passed; about 1 in 6 hops off the surface it hit.
+    buildHail() {
+      const rand = seeded(41);
+      const slant = 10 * Math.PI / 180, k = Math.tan(slant) * this.dir;
+      const hrand = seeded(43);                  // hop variety, kept apart so the stones' layout doesn't shift
+      const drops = this.q('.hail .drops'), hops = this.q('.hail .bounces');
+      drops.replaceChildren();
+      hops.replaceChildren();
+      const n = 56;
+      // [depth, share, fall speed (units/s), pellet radius, streak length]
+      for (const [depth, share, speed, r, tail] of [['far', .45, 82, .32, 6], ['mid', .35, 102, .41, 7.6], ['near', .2, 124, .5, 9.2]]) {
+        const g = svgEl('g', { class: `hl-${depth}` }, drops);
+        const y0 = -tail - 2;
+        let made = 0, tries = 0;
+        while (made < Math.round(n * share) && tries++ < 5000) {
+          const x0 = this.dir > 0 ? rand(-20, 100) : rand(0, 120);
+          const tLine = (100 - x0 - y0) / (1 + k);              // reaches the split
+          const tEdge = k < 0 ? x0 / -k : Infinity;             // reaches the left edge (blown left)
+          const tHit = Math.min(tLine, tEdge), edge = tEdge < tLine;
+          if (tHit < tail || y0 + tHit < 5) continue;          // none land in the top 5% (too short a fall)
+          if (rand(0, 1) > tHit / 130) continue;                // even density
+          const total = tHit + tail * 1.2;
+          const dur = total / speed;
+          const delay = -rand(0, dur);
+          const f = svgEl('g', { class: 'fall', style: `--tx:${(k * total).toFixed(2)}px;--ty:${total.toFixed(2)}px;--t:${dur.toFixed(2)}s;--d:${delay.toFixed(2)}s` }, g);
+          const stone = svgEl('g', { transform: `translate(${x0.toFixed(2)} ${y0.toFixed(2)}) rotate(${(-10 * this.dir).toFixed(1)})` }, f);
+          svgEl('path', { class: 'hs', d: `M${(-r * .45).toFixed(2)} ${(-r * .4).toFixed(2)}L${(r * .45).toFixed(2)} ${(-r * .4).toFixed(2)}L0 ${(-r - tail).toFixed(2)}Z` }, stone);
+          svgEl('circle', { class: 'hp', r }, stone);
+          svgEl('circle', { class: 'hg', cx: (-r * .35).toFixed(2), cy: (-r * .35).toFixed(2), r: (r * .3).toFixed(2) }, stone);
+          // About 1 in 6 hop off what they hit: up and to the left off the
+          // split, to the right off the left edge.
+          const ex = x0 + k * tHit, ey = y0 + tHit;
+          if (rand(0, 1) < 1 / 6 && ey > 0 && ey < 100) {
+            const at = svgEl('g', { transform: `translate(${Math.max(ex, r).toFixed(2)} ${ey.toFixed(2)})` }, hops);
+            const reach = 3 * hrand(.85, 1.15), lift = 2.4 * hrand(.75, 1.25), secs = .75 * hrand(.8, 1.2);
+            const bx = edge ? reach : -reach, by = edge ? -.4 : -.8;
+            const hp = svgEl('g', { class: `hop hl-${depth}` }, at);
+            svgEl('circle', { r: (r * .8).toFixed(2) }, hp);
+            // The hop lasts about three quarters of a second (give or take 20%,
+            // with its height and reach varying too) whatever the stone's
+            // speed, so its keyframes are set per stone, synced to the landing.
+            if (!reduced.matches) {
+              const hf = Math.min(.9, secs / dur);
+              hp.animate([
+                { offset: 0, opacity: 1, transform: 'translate(0, 0)' },
+                { offset: hf * .45, opacity: 1, transform: `translate(${(bx * .5).toFixed(2)}px, ${(-lift).toFixed(2)}px)` },
+                { offset: hf, opacity: 0, transform: `translate(${bx.toFixed(2)}px, ${by}px)` },
+                { offset: 1, opacity: 0, transform: `translate(${bx.toFixed(2)}px, ${by}px)` },
+              ], { duration: dur * 1000, iterations: Infinity, delay: (delay + tHit / total * dur) * 1000, easing: 'linear' });
+            }
+          }
+          made++;
+        }
+      }
+    }
+
+    // Snow sheets: full (snowy, settles) and mixed with rain (snowy-rainy,
+    // splashes like rain). Puffs fall slowly, sway side to side, and drift
+    // further with the wind than rain does.
+    buildSnow() {
+      const rand = seeded(31);
+      const k = Math.tan(30 * Math.PI / 180) * this.dir;
+      for (const [sel, mix] of [['.snow-full', false], ['.snow-mix', true]]) {
+        const drops = this.q(`${sel} .drops`), splashes = this.q(`${sel} .splashes`);
+        drops.replaceChildren();
+        splashes.replaceChildren();
+        const n = mix ? 50 : 240;
+        // [depth, share, fall speed (units/s), radius, sway]
+        for (const [depth, share, speed, r, sway] of [['far', .45, 6, .45, 1.5], ['mid', .35, 8, .62, 2.3], ['near', .2, 10, .85, 3.3]]) {
+          const g = svgEl('g', { class: `sf-${depth}` }, drops);
+          const y0 = -2;
+          let made = 0, tries = 0;
+          while (made < Math.round(n * share) && tries++ < 5000) {
+            const x0 = this.dir > 0 ? rand(-60, 100) : rand(0, 160);
+            const tLine = (100 - x0 - y0) / (1 + k);
+            if (tLine < 2) continue;
+            if (rand(0, 1) > tLine / 160) continue;           // even density
+            const total = tLine + r * 3 + sway;              // until fully past the split
+            const dur = total / speed;
+            const delay = -rand(0, dur);
+            const f = svgEl('g', { class: 'fall', style: `--tx:${(k * total).toFixed(2)}px;--ty:${total.toFixed(2)}px;--t:${dur.toFixed(2)}s;--d:${delay.toFixed(2)}s` }, g);
+            const w = svgEl('g', { class: 'sway', style: `--sa:${sway}px;--sp:${rand(1.8, 3.4).toFixed(2)}s;--sd:${(-rand(0, 3)).toFixed(2)}s` }, f);
+            svgEl('circle', { class: 'fsh', cx: (x0 + r * .3).toFixed(2), cy: (y0 + r * .3).toFixed(2), r }, w);
+            svgEl('circle', { class: 'fbd', cx: x0.toFixed(2), cy: y0, r }, w);
+            const ex = x0 + k * tLine, ey = y0 + tLine;
+            if (mix && rand(0, 1) < 1 / 7 && ex > 0 && ey > 0 && ey < 100) {
+              const at = svgEl('g', { transform: `translate(${ex.toFixed(2)} ${ey.toFixed(2)})` }, splashes);
+              const sp = svgEl('g', { class: `spl sf-${depth}`, style: `--t:${dur.toFixed(2)}s;--d:${(delay + tLine / total * dur).toFixed(2)}s` }, at);
+              svgEl('circle', { cx: -.8, cy: -.5, r: .32 }, sp);
+              svgEl('circle', { cx: .8, cy: -.5, r: .32 }, sp);
+              svgEl('circle', { cx: 0, cy: -1, r: .25 }, sp);
+            }
+            made++;
+          }
+        }
+      }
+    }
+
+    // Settled snow, drawn at full depth; CSS scales it with --snow.
+    // - The bottom corner: one smooth drift, deepest in the corner, sweeping
+    //   up the frame's left edge and up the split.
+    // - The alert row: one continuous layer across its full width with a
+    //   wavy, windblown top, deep enough at full build-up to bury the bottom
+    //   5–10% of the clock's numerals (baseline 2.48 above the banner,
+    //   numerals 10.9 tall).
+    buildAccumulation() {
+      // Corner at (0, 0) here; up the left edge is -y, up the split is (+x, -y).
+      this.q('.acc-corner').setAttribute('d', 'M0 -56C1.2 -41 4.8 -27 11 -22C20 -23 40 -42 77.8 -77.8L0 0Z');
+      // [x, depth] along the alert row's top; deepest toward the left of the clock.
+      const TOP = [[0, 2.5], [5, 2.3], [10, 2.2], [14, 2.6], [18, 2.9], [22, 3.0], [28, 3.2], [36, 3.5], [44, 3.3],
+                   [52, 3.1], [60, 3.0], [68, 2.9], [76, 2.8], [84, 2.6], [92, 2.4], [100, 2.3]];
+      const pts = TOP.map(([x, h]) => [x, -h]), f2 = v => v.toFixed(2);
+      let d = `M0 0L${f2(pts[0][0])} ${f2(pts[0][1])}`;
+      for (let i = 0; i < pts.length - 1; i++) {    // smooth curve through the depths
+        const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+        d += `C${f2(p1[0] + (p2[0] - p0[0]) / 6)} ${f2(p1[1] + (p2[1] - p0[1]) / 6)} ${f2(p2[0] - (p3[0] - p1[0]) / 6)} ${f2(p2[1] - (p3[1] - p1[1]) / 6)} ${f2(p2[0])} ${f2(p2[1])}`;
+      }
+      this.q('.acc-alert').setAttribute('d', d + 'L100 0Z');
+    }
+
+    setTime(t) {
+      const hs = arc(t, ...SUN_TIMES), hm = arc(t, ...MOON_TIMES);
+      this.q('.sun-pos').setAttribute('transform', `translate(${BODY_X} ${bodyY(hs).toFixed(2)})`);
+      this.q('.moon-pos').setAttribute('transform', `translate(${BODY_X} ${bodyY(hm).toFixed(2)})`);
+      const day = hs >= 0;
+      if (day !== this.day) {
+        this.el.classList.toggle('animate', this.day !== null);   // no fade on first paint
+        this.el.classList.add('theming');
+        clearTimeout(this.themeTimer);
+        this.themeTimer = setTimeout(() => this.el.classList.remove('theming'), 2600);
+        this.el.style.setProperty('--daylight', day ? 1 : 0);
+        this.day = day;
+        this.apply();
+      }
+      const f = fmtTime(t);
+      this.q('.m-time').textContent = f.hm;
+      this.q('.m-ap').textContent = f.ap;
+    }
+
+    setCond(c) { this.cond = c; this.apply(); }
+    setChange(s) { this.change = s; this.el.style.setProperty('--change', `${s}s`); }
+    setBack(on) { this.back = on; this.el.classList.toggle('no-back', !on); }
+    setSouth(on) { this.el.classList.toggle('south', on); }
+    setWind(w) {
+      const dir = w === 'east' ? -1 : 1;
+      this.el.classList.toggle('wind-left', dir < 0);
+      if (dir !== this.dir) { this.dir = dir; this.buildRain(); this.buildSnow(); this.buildHail(); }
+    }
+    setPhase(p) {
+      const d = PHASES[p || 'waxing_gibbous'];   // unknown: waxing gibbous (D99)
+      this.q('.moon-lit').setAttribute('d', d);
+      this.q('.moon-clip').setAttribute('d', d);
+      this.q('.moon-rim').style.display = p === 'new_moon' ? 'inline' : 'none';
+    }
+
+    // Put each shared element in or out for the current condition.
+    apply() {
+      const sc = SCENES[this.cond];
+      const night = !this.day;
+      const on = (sel, v) => { this.q(sel).dataset.on = v ? '1' : '0'; };
+      on('.sunv', sc.sun && this.day);
+      on('.moonv', sc.moon && night);
+      on('.stars-a', night && sc.stars >= 1);
+      on('.stars-b', night && sc.stars >= 2);
+      for (const s of SLOTS) {
+        const c = this.q(`.cloud[data-slot="${s.id}"]`), v = sc.clouds[s.id];
+        c.dataset.on = v ? '1' : '0';
+        if (v) c.dataset.v = v;     // leaving clouds keep their color while they fade
+      }
+      this.el.dataset.wash = sc.wash || 'none';
+      on('.rain-l', sc.rain === 1);
+      on('.rain-h', sc.rain === 2);
+      on('.hail', !!sc.hail);
+      this.el.querySelectorAll('.fogv').forEach(f => { f.dataset.on = sc.fog ? '1' : '0'; });
+      this.el.dataset.fog = sc.fog ? '1' : '0';
+      on('.windv', sc.wind);
+      clearTimeout(this.gustTimer);
+      if (sc.wind) this.scheduleGust(rnd(3, 6));
+      on('.snow-full', sc.snow === 'full');
+      on('.snow-mix', sc.snow === 'mix');
+      this.el.dataset.snowing = sc.snow === 'full' ? '1' : '0';   // only plain snow settles
+      this.el.dataset.lightning = sc.lightning ? '1' : '0';
+      clearTimeout(this.enableTimer);
+      if (sc.lightning && !this.lightningOn) {
+        // Lightning comes last, once the storm clouds are in.
+        this.enableTimer = setTimeout(() => { this.lightningOn = true; this.scheduleBurst(rnd(1.5, 4)); }, this.change * 850);
+      } else if (!sc.lightning) {
+        this.lightningOn = false;
+        clearTimeout(this.burstTimer);
+      }
+    }
+
+    /* ----- Lightning: bursts of 2–3 strikes; burst starts at most 60 s apart ----- */
+    scheduleBurst(sec) {
+      clearTimeout(this.burstTimer);
+      this.burstTimer = setTimeout(() => {
+        if (!this.lightningOn) return;
+        this.burst();
+        this.scheduleBurst(rnd(20, 60));        // start to start
+      }, sec * 1000);
+    }
+    burst() {
+      if (reduced.matches) return;
+      const n = Math.random() < .5 ? 2 : 3;
+      let at = 0;
+      for (let i = 0; i < n; i++) {
+        setTimeout(() => this.strike(), at * 1000);
+        at += rnd(1, 2.6);                       // at least 1 s apart: well under 3 flashes a second
+      }
+    }
+    strike() {
+      const r = Math.random();
+      const double = Math.random() < .5;
+      this.q('.flash').animate(double
+        ? [{ opacity: 0 }, { opacity: .16, offset: .15 }, { opacity: .04, offset: .4 }, { opacity: .12, offset: .6 }, { opacity: 0 }]
+        : [{ opacity: 0 }, { opacity: .16, offset: .3 }, { opacity: 0 }], { duration: double ? 380 : 220 });
+      if (r > .8) return;                        // a flash with no bolt
+      const ground = r < .5;
+      const bolt = ground ? this.groundBolt() : this.cloudBolt();
+      this.q(ground ? '.bolts' : '.bolts-front').append(bolt);   // ground strikes start behind the clouds
+      bolt.animate([{ opacity: 0 }, { opacity: 1, offset: .08 }, { opacity: .35, offset: .3 }, { opacity: 1, offset: .45 }, { opacity: 0 }], { duration: 420 })
+        .onfinish = () => bolt.remove();
+    }
+    jag(p0, p1, depth, disp) {               // midpoint displacement
+      if (!depth) return [p0, p1];
+      const dx = p1[0] - p0[0], dy = p1[1] - p0[1], l = Math.hypot(dx, dy);
+      const off = rnd(-1, 1) * disp;
+      const m = [(p0[0] + p1[0]) / 2 - dy / l * off, (p0[1] + p1[1]) / 2 + dx / l * off];
+      return [...this.jag(p0, m, depth - 1, disp / 2).slice(0, -1), ...this.jag(m, p1, depth - 1, disp / 2)];
+    }
+    pathOf(pts) { return 'M' + pts.map(p => `${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join('L'); }
+    branch(g, pts, mainLen, width) {
+      const i = 1 + Math.floor(rnd(1, pts.length - 3));
+      const [a, b] = [pts[i - 1], pts[i]];
+      const ang = Math.atan2(b[1] - a[1], b[0] - a[0]) + (Math.random() < .5 ? -1 : 1) * rnd(.45, .8);
+      const l = mainLen * rnd(.2, .38);
+      const end = [pts[i][0] + Math.cos(ang) * l, pts[i][1] + Math.sin(ang) * l];
+      svgEl('path', { d: this.pathOf(this.jag(pts[i], end, 3, l * .22)), 'stroke-width': width }, g);
+    }
+    groundBolt() {                             // cloud to ground: ends on the split line
+      const g = svgEl('g');
+      const y0 = rnd(26, 48), yEnd = rnd(Math.max(58, y0 + 16), 88);
+      const p0 = [rnd(6, Math.min(46, 100 - y0 - 14)), y0], p1 = [100 - yEnd, yEnd];
+      const l = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+      const pts = this.jag(p0, p1, 4, l * .18);
+      svgEl('path', { d: this.pathOf(pts), 'stroke-width': .55 }, g);
+      const n = Math.random() < .5 ? 1 : 2;
+      for (let i = 0; i < n; i++) this.branch(g, pts, l, .32);
+      return g;
+    }
+    cloudBolt() {                              // cloud to cloud: across the cloud band
+      const g = svgEl('g');
+      const y = rnd(12, 60);
+      const p0 = [rnd(2, Math.max(4, 100 - y - 42)), y];
+      const p1 = [Math.min(p0[0] + rnd(18, 34), 100 - y - 8), y + rnd(-6, 6)];
+      const l = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+      const pts = this.jag(p0, p1, 4, l * .22);
+      svgEl('path', { d: this.pathOf(pts), 'stroke-width': .42 }, g);
+      if (Math.random() < .6) this.branch(g, pts, l, .26);
+      return g;
+    }
+
+    /* ----- Night visitors (only when stars are out) ----- */
+    starsOut() { return !this.day && (SCENES[this.cond].stars || 0) >= 1 && !reduced.matches; }
+    shoot(again = true) {
+      if (!this.starsOut()) return;
+      // Longer, faster and further than a quick blink: about 46 units in 1.3 s.
+      const left = Math.random() < .5;
+      const ang = (Math.random() < .5 ? 1 : -1) * rnd(15, 32) + (left ? 180 : 0);
+      const x = left ? rnd(38, 72) : rnd(2, 30), y = rnd(3, 22);
+      const outer = svgEl('g', { transform: `translate(${x.toFixed(1)} ${y.toFixed(1)}) rotate(${ang.toFixed(1)})` }, this.q('.visitors'));
+      const inner = svgEl('g', {}, outer);
+      svgEl('polygon', { points: '0,-.3 0,.3 -14,0', fill: '#F6F1E3' }, inner);
+      svgEl('circle', { r: .4, fill: '#FFFFFF' }, inner);
+      inner.animate([
+        { transform: 'translateX(0)', opacity: 0 },
+        { transform: 'translateX(5px)', opacity: 1, offset: .12 },
+        { transform: 'translateX(38px)', opacity: 1, offset: .8 },
+        { transform: 'translateX(46px)', opacity: 0 },
+      ], { duration: 1300, easing: 'ease-in' }).onfinish = () => outer.remove();
+      // Now and then, a second one right behind it.
+      if (again && Math.random() < .01) setTimeout(() => this.shoot(false), rnd(400, 900));
+    }
+    station() {
+      if (!this.starsOut()) return;
+      const from = [-3, 27], to = [44, -3];
+      const ang = Math.atan2(to[1] - from[1], to[0] - from[0]) * 180 / Math.PI;
+      const outer = svgEl('g', { transform: `translate(${from[0]} ${from[1]}) rotate(${ang.toFixed(1)})` }, this.q('.visitors'));
+      const inner = svgEl('g', {}, outer);
+      // A hint of the station's shape around a steady light.
+      const hint = svgEl('g', { fill: '#8FA6C8', opacity: .45 }, inner);
+      svgEl('rect', { x: -.7, y: -.25, width: 1.4, height: .5 }, hint);
+      svgEl('rect', { x: -2.3, y: -.65, width: 1.3, height: 1.3 }, hint);
+      svgEl('rect', { x: 1, y: -.65, width: 1.3, height: 1.3 }, hint);
+      const light = svgEl('circle', { r: .45, fill: '#FFFFFF' }, inner);
+      // Blinks like an airplane (not realistic, on purpose): dim, then a quick double strobe.
+      light.animate([
+        { opacity: .35 }, { opacity: .35, offset: .7 }, { opacity: 1, offset: .72 }, { opacity: .35, offset: .76 },
+        { opacity: 1, offset: .8 }, { opacity: .35, offset: .84 }, { opacity: .35 },
+      ], { duration: 1500, iterations: Infinity });
+      const dist = Math.hypot(to[0] - from[0], to[1] - from[1]);
+      inner.animate([
+        { transform: 'translateX(0)', opacity: 0 },
+        { transform: `translateX(${dist * .08}px)`, opacity: 1, offset: .08 },
+        { transform: `translateX(${dist * .92}px)`, opacity: 1, offset: .92 },
+        { transform: `translateX(${dist}px)`, opacity: 0 },
+      ], { duration: 25000 }).onfinish = () => outer.remove();
+    }
+
+    // Contrast of the mock text over the current sky and the front clouds.
+    contrast() {
+      const probe = this.probe ||= Object.assign(this.el.appendChild(document.createElement('i')), { hidden: true });
+      const tok = n => { probe.style.color = `var(--${n})`; return getComputedStyle(probe).color; };
+      const w = getComputedStyle(this.q('.wash'));
+      const wa = parseFloat(w.opacity) || 0, wc = rgb(w.fill);
+      const sky = rgb(tok('sky')).map((v, i) => v * (1 - wa) + wc[i] * wa);
+      const t1 = rgb(tok('text')), t2 = rgb(tok('text-2'));
+      const cloud = this.q('.clouds-front .cloud[data-on="1"] .bd');
+      const fmt = r => `<span class="${r < 4.5 ? 'bad' : ''}">${r.toFixed(1)}:1</span>`;
+      let out = `On the sky: text ${fmt(ratio(t1, sky))}, secondary ${fmt(ratio(t2, sky))}`;
+      if (cloud) {
+        const c = rgb(getComputedStyle(cloud).fill);
+        out += ` · On a front cloud: text ${fmt(ratio(t1, c))}, secondary ${fmt(ratio(t2, c))}`;
+      }
+      return out;
+    }
+  }
+
+  // Color helpers (WCAG contrast).
+  const ctx = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true });
+  function rgb(css) {
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = css;
+    ctx.fillRect(0, 0, 1, 1);
+    return [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3);
+  }
+  const lum = c => { const f = v => { v /= 255; return v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }; return .2126 * f(c[0]) + .7152 * f(c[1]) + .0722 * f(c[2]); };
+  const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + .05) / (y + .05); };
+
+  /* ---------- Page wiring ---------- */
+  const $ = id => document.getElementById(id);
+  const host = $('stages');
+  const A = new Stage('a', host, 'clear-night');
+  const B = new Stage('b', host, 'pouring');
+  B.el.hidden = true;
+  const stages = [A, B];
+  const each = fn => stages.forEach(fn);
+
+  for (const sel of [$('cond-a'), $('cond-b')]) {
+    for (const [k, v] of Object.entries(SCENES)) sel.add(new Option(v.label, k));
+  }
+  $('cond-a').value = 'clear-night';
+  $('cond-b').value = 'pouring';
+  $('cond-a').addEventListener('change', e => A.setCond(e.target.value));
+  $('cond-b').addEventListener('change', e => B.setCond(e.target.value));
+  $('compare').addEventListener('change', e => {
+    B.el.hidden = !e.target.checked;
+    $('cond-b').disabled = !e.target.checked;
+    host.classList.toggle('compare', e.target.checked);
+  });
+
+  let time = 22;
+  const setTime = t => {
+    time = ((t % 24) + 24) % 24;
+    $('time').value = time;
+    const f = fmtTime(time);
+    $('time-out').textContent = `${f.hm} ${f.ap}`;
+    each(s => s.setTime(time));
+  };
+  $('time').addEventListener('input', e => setTime(Number(e.target.value)));
+  let running = false, last = 0;
+  const tick = now => {
+    if (!running) return;
+    setTime(time + (now - last) / 1000 * .5);   // half an hour per second
+    last = now;
+    requestAnimationFrame(tick);
+  };
+  $('run').addEventListener('click', e => {
+    running = !running;
+    e.currentTarget.setAttribute('aria-pressed', running);
+    if (running) { last = performance.now(); requestAnimationFrame(tick); }
+  });
+
+  $('phase').addEventListener('change', e => each(s => s.setPhase(e.target.value)));
+  $('south').addEventListener('change', e => each(s => s.setSouth(e.target.checked)));
+  $('wind').addEventListener('change', e => each(s => s.setWind(e.target.value)));
+  $('back').addEventListener('change', e => each(s => s.setBack(e.target.checked)));
+  $('alert').addEventListener('change', e => each(s => { s.el.dataset.alert = e.target.checked ? '1' : '0'; }));
+  $('fast-snow').addEventListener('change', e => each(s => s.el.classList.toggle('fast-snow', e.target.checked)));
+  $('dur').addEventListener('input', e => {
+    each(s => s.setChange(Number(e.target.value)));
+    $('dur-out').textContent = `${e.target.value} s`;
+  });
+  $('strike').addEventListener('click', () => each(s => { if (SCENES[s.cond].lightning) s.burst(); }));
+  $('shoot').addEventListener('click', () => each(s => s.shoot()));
+  $('station').addEventListener('click', () => each(s => s.station()));
+  $('gust').addEventListener('click', () => each(s => { if (SCENES[s.cond].wind) s.gust(); }));
+  $('egg').addEventListener('click', () => each(s => { if (SCENES[s.cond].wind) s.gust(true); }));
+  $('season').addEventListener('change', e => { seasonPick = e.target.value; });
+
+  // Shooting stars at random every 1–2 minutes; the station every 5 minutes.
+  const nextShoot = () => setTimeout(() => { each(s => s.shoot()); nextShoot(); }, rnd(60, 120) * 1000);
+  nextShoot();
+  setInterval(() => each(s => s.station()), 5 * 60 * 1000);
+
+  // Start: night, clear, unknown phase.
+  each(s => { s.setPhase(''); s.setTime(time); s.apply(); });
+  setTime(time);
+  setInterval(() => { $('readout').innerHTML = `Condition A · ${A.contrast()}`; }, 1000);
+</script>
+</body>
+</html>
