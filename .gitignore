@@ -1,2 +1,5 @@
 # Anything containing real household data (state dumps, proposal, notes)
 private/
+
+# Local Claude app settings (not part of the project)
+.claude/

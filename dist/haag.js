@@ -12,13 +12,13 @@
   Everything else shows wireframe placeholder values until it's wired to
   discovery.
 
-  Plain JavaScript, no build step (D3). Sizes use container query units
+  Plain JavaScript, no build step. Sizes use container query units
   (cqmin = 1% of the card's shorter side), so one layout scales from a
   phone to a 4K screen.
 */
 
 const VERSION = '0.1.0-dev';
-const MANIFEST = 'haag/v1';   // config format marker (D82)
+const MANIFEST = 'haag/v1';   // config format marker
 
 /* ------------------------------------------------------------------------
    Shared setup
@@ -53,15 +53,15 @@ class HaagStrategy extends HTMLElement {
 
 /* ------------------------------------------------------------------------
    Discovery
-   Finds entities from HA's registries instead of hardcoded IDs (D4).
-   Anything found can be overridden in settings (D5), under
+   Finds entities from HA's registries instead of hardcoded IDs.
+   Anything found can be overridden in settings, under
    `providers.outdoor.<slot>: <entity_id>`.
    ------------------------------------------------------------------------ */
 
-// Readings that share a device class but aren't the plain measurement (D92).
+// Readings that share a device class but aren't the plain measurement.
 const DERIVED = /dew.?point|feels.?like|wet.?bulb|apparent|heat.?index|wind.?chill/i;
 
-// Integration iot_class ranking: local before internet, push before polling (D92).
+// Integration iot_class ranking: local before internet, push before polling.
 const IOT_RANK = { local_push: 0, local_polling: 1, cloud_push: 2, cloud_polling: 3 };
 
 // Number of decimal places in a numeric state: a stand-in for precision.
@@ -69,7 +69,7 @@ const decimals = state => (/^-?\d+\.(\d+)$/.exec(state)?.[1].length) ?? 0;
 
 /**
  * Read the registries once and index what discovery needs.
- * Registry reads work for any logged-in user (D19).
+ * Registry reads work for any logged-in user.
  */
 async function loadRegistries(hass) {
   const [entities, devices, areas, floors] = await Promise.all(
@@ -89,7 +89,7 @@ async function loadRegistries(hass) {
 }
 
 /**
- * Outdoor slots from the Exterior floor (D62): temperature, humidity, AQI,
+ * Outdoor slots from the Exterior floor: temperature, humidity, AQI,
  * weather condition. Returns { slot: entity_id | null }.
  */
 const isExterior = floor => /exterior|outdoor|outside/i.test(floor.name);
@@ -122,10 +122,10 @@ function discoverOutdoor(hass, reg, overrides = {}) {
 }
 
 /**
- * Indoor floors, in display order (center to edge, D52): the ground floor
+ * Indoor floors, in display order (center to edge): the ground floor
  * first, then the floors above it going up, then the floors below it going
  * down. The ground floor is the lowest indoor floor at level 0 or above.
- * (Your setup: First Floor, Second Floor, Basement.)
+ * (For example: First Floor, Second Floor, then Basement.)
  */
 function orderFloors(floors) {
   const indoor = floors.filter(f => !isExterior(f));
@@ -145,17 +145,17 @@ const AQ_PREFERRED = ['hum', 'co2', 'pm25'];
 const AQ_ALTERNATES = ['radon', 'co'];
 
 /**
- * One row per indoor floor (D47): HVAC status, temperature, and an air-quality
+ * One row per indoor floor: HVAC status, temperature, and an air-quality
  * line. Readings come from the floor's air-quality monitors (devices with a
  * CO₂, PM2.5, radon or carbon monoxide sensor). With several monitors, one is
- * primary and the others only fill readings it lacks (D59). Without a
- * monitor, the thermostat's own temperature and humidity are used (D28).
+ * primary and the others only fill readings it lacks. Without a
+ * monitor, the thermostat's own temperature and humidity are used.
  *
- * Monitor priority: settings order first; then the D92 rules (local before
+ * Monitor priority: settings order first; then the source rules (local before
  * internet, push before polling, more decimal places); then device name as a
  * fail-safe. Users can and should set the order when this guesses wrong.
  *
- * Overrides (D5): providers.floors.<floor_id>.monitors: [device_id, ...]
+ * Overrides: providers.floors.<floor_id>.monitors: [device_id, ...]
  * and providers.floors.<floor_id>.climate: <entity_id>.
  *
  * Returns [{ id, name, climate, slots, aq }], where each slot is
@@ -176,7 +176,7 @@ function discoverFloors(hass, reg, overrides = {}) {
       .filter(e => MONITOR_CLASSES.includes(dcOf(e)) && e.device_id)
       .map(e => e.device_id))];
 
-    // Rank them: settings order, then D92 (local/push, precision), then name.
+    // Rank them: settings order, then local/push and precision, then name.
     const order = opt.monitors || [];
     const readings = id => sensors.filter(e => e.device_id === id);
     const iotRank = id => Math.min(...readings(id).map(e => IOT_RANK[reg.iot[e.platform]] ?? 9));
@@ -215,8 +215,8 @@ function discoverFloors(hass, reg, overrides = {}) {
 }
 
 /**
- * A slot's display value: null if there's no entity (hide the slot, D7),
- * 'Err' if the entity exists but its value is bad or missing (D88).
+ * A slot's display value: null if there's no entity (hide the slot),
+ * 'Err' if the entity exists but its value is bad or missing.
  * `ref` is an entity_id, or { entity, attr } to read an attribute instead.
  */
 function numericValue(hass, ref) {
@@ -228,11 +228,11 @@ function numericValue(hass, ref) {
   return raw !== null && raw !== undefined && raw !== '' && Number.isFinite(n) ? Math.round(n) : 'Err';
 }
 
-// Unit shown after a value: the entity's own unit (D32).
+// Unit shown after a value: the entity's own unit.
 const unitOf = (hass, ref) => (ref && !ref.attr && hass.states[ref.entity]?.attributes?.unit_of_measurement) || '';
 
 /**
- * HVAC status for a floor's thermostat (D83): 'heat', 'cool', 'fan', 'idle',
+ * HVAC status for a floor's thermostat: 'heat', 'cool', 'fan', 'idle',
  * 'off' or 'err'; null if the floor has no thermostat.
  */
 function hvacStatus(hass, climate) {
@@ -249,8 +249,8 @@ function hvacStatus(hass, climate) {
 
 /* ------------------------------------------------------------------------
    Icons
-   Material Design Icons, drawn by HA's own `ha-icon` (D17), so the plugin
-   ships no icon data. Names per D83–D88.
+   Material Design Icons, drawn by HA's own `ha-icon`, so the plugin
+   ships no icon data.
 ------------------------------------------------------------------------ */
 
 const ERR_ICON = 'mdi:alert';
@@ -267,7 +267,7 @@ const APPT_ICONS = {
   err: 'mdi:calendar-alert', empty: 'mdi:party-popper',
 };
 
-// Temperature icon (D84): low at or below freezing, high at or above
+// Temperature icon: low at or below freezing, high at or above
 // 85 °F / 29 °C, in the reading's own unit.
 function thermometerIcon(value, unit) {
   if (typeof value !== 'number') return 'mdi:thermometer';
@@ -290,12 +290,12 @@ function setIcon(box, name) {
 
 /* ------------------------------------------------------------------------
    People
-   Who's on which floor, and who's away (D49). People are HA `person`
+   Who's on which floor, and who's away. People are HA `person`
    entities; settings `providers.people`:
-     exclude: [person_id, ...]   people not counted (D61), e.g. visitors
+     exclude: [person_id, ...]   people not counted, e.g. visitors
      include: [person_id, ...]   only these (optional)
      links:   { person_id: person_id }   follow someone else's location
-                                         when you have none of your own (D90)
+                                         when you have none of your own
    ------------------------------------------------------------------------ */
 
 function discoverPeople(hass, overrides = {}) {
@@ -307,7 +307,7 @@ function discoverPeople(hass, overrides = {}) {
 /**
  * Floor for a tracker's reported location: a floor name, an area name (on
  * that floor), or a room name that starts with or contains a floor name
- * (ESPresense reports e.g. "Basement Bathroom"). Returns floor_id or null.
+ * (room-presence trackers report e.g. "Upstairs Office"). Returns floor_id or null.
  */
 function floorForPlace(place, reg) {
   if (!place) return null;
@@ -388,20 +388,20 @@ function linkGroups(people) {
   return group;
 }
 
-// Initials from a display name (D86 fallback when there's no picture).
+// Initials from a display name (fallback when there's no picture).
 const initials = name => (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
 
 /* ------------------------------------------------------------------------
    Calendar
    Appointments come from HA calendar entities through the calendar.get_events
    action (any logged-in user can call it). Which calendars: settings
-   `providers.calendar.calendars: [entity_id, ...]` (D60), or every visible
+   `providers.calendar.calendars: [entity_id, ...]`, or every visible
    calendar when unset.
    ------------------------------------------------------------------------ */
 
 // With no alert, the clock keeps at least this much room on its left
 // (fraction of the card's shorter side), so wide times (10:00–12:59) don't
-// press against the edge (D58).
+// press against the edge.
 const PAIR_LEFT_MARGIN = 0.105;
 
 const APPT_COUNT = 4;                 // appointments shown
@@ -471,11 +471,11 @@ const STYLE = `
     width: 100%;
     height: var(--haag-height, 100vh);
     container-type: size;
-    font-family: system-ui, sans-serif;   /* Open Sans once bundled (D91) */
+    font-family: system-ui, sans-serif;   /* Open Sans once bundled */
     color: #222;
   }
 
-  /* Wireframe placeholder colours; the real palette comes later (D77). */
+  /* Wireframe placeholder colours; the real palette comes later. */
   .stage {
     --out: #d6d6d6;
     --in: #ececec;
@@ -483,11 +483,11 @@ const STYLE = `
     --gap: calc(2.5 * var(--u));          /* perpendicular distance from the split line to clusters */
     --alert-pad: calc(1.2 * var(--u));    /* vertical padding of the alert row */
     --cluster-gap: calc(2.7 * var(--u));  /* visible gap between clusters (see opticalEdges) */
-    /* Medium text step (D54). Also sizes AM/PM and the appointment stagger,
+    /* Medium text step. Also sizes AM/PM and the appointment stagger,
        which are defined as "the medium line". 5.5 makes date + conditions as
-       tall as a floor block (D96). */
+       tall as a floor block. */
     --t2: calc(5.5 * var(--u));
-    /* Person icons: as tall as the medium digits, border included (D49).
+    /* Person icons: as tall as the medium digits, border included.
        An estimate until _fitPortraits() measures the real font. */
     --portrait: calc(.71 * var(--t2));
     --move: 700ms ease-in-out;
@@ -509,7 +509,7 @@ const STYLE = `
   }
 
   /* Clusters: positioned by layout(). Content inside is left-aligned; the
-     cluster as a whole is justified toward the split line (D44). */
+     cluster as a whole is justified toward the split line. */
   .side { display: contents; }
   .cluster {
     position: absolute;
@@ -524,7 +524,7 @@ const STYLE = `
   }
   .stage.animate .cluster { transition: transform var(--move); }
 
-  /* Alert row: full width through the center (D48). */
+  /* Alert row: full width through the center. */
   .alert-row {
     position: absolute;
     left: 0;
@@ -539,11 +539,11 @@ const STYLE = `
     white-space: nowrap;
   }
 
-  /* No active alert: the row fades out and the two sides close in (D58). */
+  /* No active alert: the row fades out and the two sides close in. */
   .stage.animate .alert-row { transition: opacity var(--move), visibility var(--move); }
   .stage.no-alert .alert-row { opacity: 0; visibility: hidden; }
 
-  /* Three text sizes (D54). */
+  /* Three text sizes. */
   .t1 { font-size: calc(14 * var(--u)); }
   .t2 { font-size: var(--t2); }
   .t3 { font-size: calc(2.8 * var(--u)); }
@@ -565,7 +565,7 @@ const STYLE = `
     line-height: 1;
   }
 
-  /* Icon box: a fixed .8em square holding HA's ha-icon (D17). The box sets
+  /* Icon box: a fixed .8em square holding HA's ha-icon. The box sets
      the spacing, so icons never change the layout; motion runs on the icon
      inside, never on the box. */
   .ico {
@@ -576,14 +576,14 @@ const STYLE = `
     vertical-align: -.05em;
   }
   .ico > ha-icon { display: flex; width: 100%; height: 100%; --mdc-icon-size: 100%; }
-  /* HVAC status on the floor's temperature icon (D83). Placeholder colours
-     until the palette arrives (D77). */
+  /* HVAC status on the floor's temperature icon. Placeholder colours
+     until the palette arrives. */
   .ico.heat { color: #d29a68; }
   .ico.cool { color: #7fa6c8; }
   .ico.fan  { color: #9aa; }
   .ico.off  { opacity: .35; }
   .ico.err  { color: #c0392b; }
-  /* HVAC motion (D83): slow and gentle. Heat flickers from its base, cool
+  /* HVAC motion: slow and gentle. Heat flickers from its base, cool
      turns very slowly, fan spins slowly. */
   .ico.heat > ha-icon { transform-origin: 50% 90%; animation: flicker 4s ease-in-out infinite; }
   .ico.cool > ha-icon { animation: turn 40s linear infinite; }
@@ -595,9 +595,9 @@ const STYLE = `
   }
   @keyframes turn { to { transform: rotate(1turn); } }
   @media (prefers-reduced-motion: reduce) { .ico > ha-icon { animation: none; } }
-  /* Slot with no entity on this install: hidden, not labelled (D7). */
+  /* Slot with no entity on this install: hidden, not labelled. */
   [data-slot][hidden] { display: none; }
-  /* Bad or missing value: "Err", icon becomes an alert (D88). */
+  /* Bad or missing value: "Err", icon becomes an alert. */
   [data-slot].err > .ico { color: #c0392b; }
 
   .status-line { display: flex; align-items: center; }
@@ -610,14 +610,14 @@ const STYLE = `
   /* More than 24 hours away: day shown, plus a visual cue (placeholder). */
   .appt.later { opacity: .55; }
   /* Ongoing or within the hour: "breathes in", brightening on each breath
-     at the same 6 s pace as the nobody-away frame (D85). */
+     at the same 6 s pace as the nobody-away frame. */
   .appt.soon { opacity: .7; animation: breathe-in 6s ease-in-out infinite; }
   @keyframes breathe-in {
     0%, 100% { opacity: .7; }
     50%      { opacity: 1; }
   }
   @media (prefers-reduced-motion: reduce) { .appt.soon { animation: none; opacity: 1; } }
-  .appt-error .ico { color: #c0392b; }   /* calendar error (D85: calendar-alert icon) */
+  .appt-error .ico { color: #c0392b; }   /* calendar error (calendar-alert icon) */
 
   /* Each appointment: icon, then text. Each later day steps in by one
      indent, following the diagonal. */
@@ -640,7 +640,7 @@ const STYLE = `
   }
 
   .people { display: flex; gap: calc(.8 * var(--u)); align-items: center; }
-  /* One rounded square per person: their HA picture, or initials (D86). */
+  /* One rounded square per person: their HA picture, or initials. */
   .person {
     width: var(--portrait);   /* border-box: the border is inside this size */
     aspect-ratio: 1;
@@ -655,7 +655,7 @@ const STYLE = `
     box-sizing: border-box;
   }
   .person img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  /* Linked people together: one outline around the group (D90). */
+  /* Linked people together: one outline around the group. */
   /* The outline floats around the icons: it takes no layout space, so it
      never changes a row's height or any spacing. */
   .person-group { position: relative; display: flex; gap: calc(.8 * var(--u)); }
@@ -667,7 +667,7 @@ const STYLE = `
     border-radius: calc(1.6 * var(--u));
     pointer-events: none;
   }
-  /* Nobody away: one empty frame that slowly "breathes" (D65). */
+  /* Nobody away: one empty frame that slowly "breathes". */
   .person.empty { animation: breathe 6s ease-in-out infinite; }
   @keyframes breathe {
     0%, 100% { opacity: .25; }
@@ -716,7 +716,7 @@ class HaagIdleCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' }).innerHTML = `<style>${STYLE}</style>${TEMPLATE}`;
-    this._angle = 45;   // split line angle from horizontal (D42)
+    this._angle = 45;   // split line angle from horizontal
     this._measure = document.createElement('canvas').getContext('2d');
   }
 
@@ -777,7 +777,7 @@ class HaagIdleCard extends HTMLElement {
   }
 
   // Show or hide the alert row. In v0.1 the row always shows the build
-  // version (D64); real alerts will drive this later.
+  // version; real alerts will drive this later.
   setAlertVisible(visible) {
     this._stage?.classList.toggle('no-alert', !visible);
     this._resetApptLimit();
@@ -830,13 +830,13 @@ class HaagIdleCard extends HTMLElement {
     const tz = this._hass?.config?.time_zone;   // HA's time zone, not the browser's
     const locale = this._hass?.language || navigator.language;
 
-    // 12-hour clock with a separate AM/PM label (D46).
+    // 12-hour clock with a separate AM/PM label.
     const parts = new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz }).formatToParts(now);
     const pick = type => parts.find(p => p.type === type)?.value ?? '';
     this._live.time.textContent = `${pick('hour')}:${pick('minute')}`;
     this._live.ampm.textContent = pick('dayPeriod').toUpperCase();
 
-    // Long-form date above the time (D52).
+    // Long-form date above the time.
     this._live.date.textContent = new Intl.DateTimeFormat(locale, { weekday: 'long', month: 'long', day: 'numeric', timeZone: tz }).format(now);
 
     this._renderAppointments();   // relative labels (within 24 h, soon) move with the clock
@@ -847,7 +847,7 @@ class HaagIdleCard extends HTMLElement {
   // Next appointments, soonest at the bottom (nearest the center).
   // Within 24 hours: time only. Later: day and time, with the "later" cue.
   // Ongoing or within the hour: the "soon" breathing. None, or the calendars
-  // failed: an error line (D65).
+  // failed: an error line.
   _renderAppointments() {
     const list = this.shadowRoot.querySelector('.appointments');
     if (!list || this._events === undefined) return;
@@ -862,7 +862,7 @@ class HaagIdleCard extends HTMLElement {
     let rows;
     const upcoming = this._events === 'Err' ? [] : this._events.filter(e => e.endAt > now).slice(0, this._apptLimit ?? APPT_COUNT);
     if (this._events === 'Err') {
-      rows = [{ cls: 'appt-error err', icon: APPT_ICONS.err, text: 'Err' }];          // calendars failed (D88)
+      rows = [{ cls: 'appt-error err', icon: APPT_ICONS.err, text: 'Err' }];          // calendars failed
     } else if (!upcoming.length) {
       rows = [{ cls: 'appt-empty', icon: APPT_ICONS.empty, text: APPT_EMPTY[isNight(hass, now) ? 'night' : 'day'] }];   // nothing in the window
     } else {
@@ -937,7 +937,7 @@ class HaagIdleCard extends HTMLElement {
     const q = name => root.querySelector(`[data-slot="${name}"]`);
     let changed = force;
 
-    // A slot's icon: its own, or the alert icon when its value is bad (D88).
+    // A slot's icon: its own, or the alert icon when its value is bad.
     // Icons don't change any size, so they never need a re-layout.
     const icon = (slot, value, name) => setIcon(slot.querySelector('.ico'), value === 'Err' ? ERR_ICON : name);
     const tempUnit = ref => unitOf(hass, ref) || hass.config?.unit_system?.temperature || '';
@@ -968,9 +968,9 @@ class HaagIdleCard extends HTMLElement {
         icon(fs(k), value, READING_ICONS[k]);
       }
 
-      // The temperature's icon shows the HVAC status (D47, D83), or the
-      // error icon when the temperature itself is bad (D88). A floor with
-      // no thermostat shows a thermometer (D84).
+      // The temperature's icon shows the HVAC status, or the
+      // error icon when the temperature itself is bad. A floor with
+      // no thermostat shows a thermometer.
       const box = fs('temp').querySelector('.ico');
       const status = temp === 'Err' ? 'err' : (hvacStatus(hass, f.climate) || '');
       if (box.dataset.status !== status) {
@@ -1103,7 +1103,7 @@ class HaagIdleCard extends HTMLElement {
   }
 
   // Visible top/bottom of a cluster (cap height to baseline; graphics by box),
-  // relative to its top, so every gap looks the same (D56).
+  // relative to its top, so every gap looks the same.
   _opticalEdges(cluster) {
     const base = cluster.getBoundingClientRect().top;
     let top = Infinity, bottom = -Infinity;
@@ -1120,7 +1120,7 @@ class HaagIdleCard extends HTMLElement {
           top = Math.min(top, this._baselineY(el) - this._capHeight(el));
           // data-descender="f" counts that fraction of the text's actual
           // descender as part of its visible bottom (the date's "y" hangs
-          // toward the clock; D56 exception).
+          // toward the clock).
           const share = parseFloat(el.dataset.descender) || 0;
           bottom = Math.max(bottom, this._baselineY(el, true) + share * this._descent(el));
         }
@@ -1164,7 +1164,7 @@ class HaagIdleCard extends HTMLElement {
   // Make person icons exactly as tall as the medium digits (cap top to
   // baseline, border included), and sit each row of them inside its
   // temperature's digits, so a row with people is no taller than one
-  // without (D49, D96).
+  // without.
   _fitPortraits() {
     const stage = this.shadowRoot.querySelector('.stage');
     const rows = [...this.shadowRoot.querySelectorAll('.status-line')];
@@ -1185,7 +1185,7 @@ class HaagIdleCard extends HTMLElement {
   }
 
   // Size the clock so its numerals are exactly as tall as the top floor block
-  // (cap top to baseline), so the two line up across the divide (D58). The
+  // (cap top to baseline), so the two line up across the divide. The
   // clock is a unique element, so it doesn't have to follow the size steps.
   _fitTime() {
     const time = this.shadowRoot.querySelector('.time');
@@ -1269,7 +1269,7 @@ class HaagIdleCard extends HTMLElement {
     let inStart = cy + half + cgap;
     if (!alertOn && this._out[0] && this._in[0]) {
       // No alert: the time and the top floor sit side by side at the same
-      // height (D58), centered on the middle if they fit there. If the
+      // height, centered on the middle if they fit there. If the
       // clock is too wide to clear the line that low, or to keep at least
       // PAIR_LEFT_MARGIN from the card's left edge, the pair slides up only
       // as far as needed. If no height works, fall back to stacking from
@@ -1281,7 +1281,7 @@ class HaagIdleCard extends HTMLElement {
       // Slide the pair up the line until the clock clears the left margin.
       // The margin is a preference: if the top floor would hit the right edge
       // first, keep the furthest slide where both still sit on the line
-      // (D58: side by side wins over the margin, for square displays).
+      // (side by side wins over the margin, for square displays).
       let best = null;
       for (let shift = 0; shift <= H / 2; shift += step) {
         const tBottom = cy + tH / 2 - shift, fTop = cy - fH / 2 - shift;
@@ -1322,7 +1322,7 @@ class HaagIdleCard extends HTMLElement {
     }
 
     // Not enough room above the outdoor stack: drop the furthest appointment
-    // and lay out again (D94).
+    // and lay out again.
     const shown = this.shadowRoot.querySelectorAll('.appointments > .appt').length;
     if (outTop < edge && shown > 1) {
       this._apptLimit = shown - 1;
