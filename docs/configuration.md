@@ -2,7 +2,7 @@
 
 Håg needs no settings: it finds what to show on its own (see [discovery](discovery.md)). Settings are for when it picks the wrong thing, or for things it can't know.
 
-All settings go in the dashboard's `strategy` block. A visual editor is planned for 0.4.
+All settings go in the dashboard's `strategy` block. A visual editor is planned for 0.6.
 
 ```yaml
 strategy:

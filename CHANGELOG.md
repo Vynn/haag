@@ -2,9 +2,9 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, patch versions for fixes.
 
-## 0.1.0 · unreleased
+## 0.1.0 · 2026-10-26
 
-The idle screen (pre-alpha). In progress.
+The idle screen (pre-alpha). First release.
 
 ### Added
 

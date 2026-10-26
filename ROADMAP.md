@@ -4,7 +4,7 @@ Håg grows one milestone at a time. Each milestone is a minor version (0.2, 0.3,
 
 The criteria under each milestone are a working list. They'll be refined as each milestone is worked on, and this file is kept in step with the GitHub milestones and issues.
 
-## 0.1 · The idle screen (pre-alpha) · in progress
+## 0.1 · The idle screen (pre-alpha) · released
 
 The default screen when nothing else needs attention.
 
@@ -16,18 +16,23 @@ The default screen when nothing else needs attention.
 - [x] One row per indoor floor: heating and cooling status, temperature, humidity, air quality, and who is on that floor
 - [x] People away from home, and the next appointments from Home Assistant calendars
 - [x] Icons from Home Assistant's built-in icon set
+- [ ] Installs through HACS (and the Home Assistant Marketplace from 2026.11)
+
+## 0.2 · Weather and color
+
+The idle screen's illustrated look.
+
 - [ ] Animated weather background for all 15 Home Assistant weather conditions
 - [ ] Day and night colors, switching at sunrise and sunset
 - [ ] Bundled typeface
-- [ ] Installs through HACS (and the Home Assistant Marketplace from 2026.11)
 
-## 0.2 · Alerts and notices
+## 0.3 · Alerts and notices
 
 - [ ] The alert row shows real alerts, with clear severity (information, warning, critical)
 - [ ] Notices for doors and garage doors left open, low batteries, water leaks and available updates
 - [ ] Priority and rotation when several notices are active
 
-## 0.3 · Laundry card
+## 0.4 · Laundry card
 
 The first card, which also sets up how every card works.
 
@@ -42,7 +47,7 @@ The first card, which also sets up how every card works.
 - [ ] A finished load waiting to be emptied (until the door opens, where a door sensor exists)
 - [ ] Errors shown clearly
 
-## 0.4 · 3D printer card
+## 0.5 · 3D printer card
 
 - [ ] Shows while a print is running, and for a while after it finishes or fails
 - [ ] Progress, time remaining and estimated finish time
@@ -51,14 +56,14 @@ The first card, which also sets up how every card works.
 - [ ] Nozzle and bed temperatures
 - [ ] More than one printer
 
-## 0.5 · Configuration editor
+## 0.6 · Configuration editor
 
 - [ ] A visual settings editor in Home Assistant's dashboard editor, matching the YAML
 - [ ] Settings for people and calendars, including colors and linked people
 - [ ] Settings for each card
 - [ ] Versioned settings format, with import and export
 
-## 0.6 · Irrigation card
+## 0.7 · Irrigation card
 
 - [ ] Shows while watering, and shortly before a scheduled run
 - [ ] Active zone and time remaining
@@ -66,7 +71,7 @@ The first card, which also sets up how every card works.
 - [ ] Skipped or delayed runs (rain, wind, freeze) with the reason
 - [ ] Controller offline or in error
 
-## 0.7 · EV charging card
+## 0.8 · EV charging card
 
 - [ ] Shows while a car is plugged in or charging
 - [ ] Charging power, and energy added this session
@@ -75,7 +80,7 @@ The first card, which also sets up how every card works.
 - [ ] More than one charger
 - [ ] Charger faults shown clearly
 
-## 0.8 · Doorbell and deliveries card
+## 0.9 · Doorbell and deliveries card
 
 - [ ] Shows when someone is at the door, with a camera snapshot
 - [ ] A package detected at the door, until it's picked up
@@ -83,14 +88,14 @@ The first card, which also sets up how every card works.
 - [ ] Only people, packages and rings, not routine motion
 - [ ] Snapshots only, nothing stored, and each camera can be turned off
 
-## 0.9 · Display care
+## 0.10 · Display care
 
 - [ ] Night dimming
 - [ ] Burn-in protection
 - [ ] Light theme option
 - [ ] Settings per display
 
-## 0.10 · Reach
+## 0.11 · Reach
 
 - [ ] 24-hour time and translations
 - [ ] Accessibility review (contrast, motion, readability at a distance)

@@ -6,18 +6,17 @@
     - the dashboard strategy  `custom:haag`  (ll-strategy-dashboard-haag)
     - the idle-screen card    `custom:haag-idle-card`
 
-  Status: v0.1.0 in development. Live so far: date, time, build version,
-  outdoor conditions, and one row per indoor floor (HVAC status,
-  temperature, air quality, people), next appointments, people away.
-  Everything else shows wireframe placeholder values until it's wired to
-  discovery.
+  Status: v0.1.0, pre-alpha. Shows the date and time, outdoor conditions,
+  one row per indoor floor (HVAC status, temperature, air quality, people),
+  the next appointments and people away. The alert row shows the version
+  until real alerts arrive.
 
   Plain JavaScript, no build step. Sizes use container query units
   (cqmin = 1% of the card's shorter side), so one layout scales from a
   phone to a 4K screen.
 */
 
-const VERSION = '0.1.0-dev';
+const VERSION = '0.1.0';
 const MANIFEST = 'haag/v1';   // config format marker
 
 /* ------------------------------------------------------------------------
