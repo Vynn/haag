@@ -16,7 +16,7 @@ The default screen when nothing else needs attention.
 - [x] One row per indoor floor: heating and cooling status, temperature, humidity, air quality, and who is on that floor
 - [x] People away from home, and the next appointments from Home Assistant calendars
 - [x] Icons from Home Assistant's built-in icon set
-- [ ] Installs through HACS (and the Home Assistant Marketplace from 2026.11)
+- [x] Installs through HACS
 
 ## 0.2 · Weather and color
 
@@ -25,6 +25,8 @@ The idle screen's illustrated look.
 - [ ] Animated weather background for all 15 Home Assistant weather conditions
 - [ ] Day and night colors, switching at sunrise and sunset
 - [ ] Bundled typeface
+- [ ] Icon refinements to suit the new backgrounds
+- [ ] Installs through the Home Assistant Marketplace (2026.11)
 
 ## 0.3 · Alerts and notices
 
