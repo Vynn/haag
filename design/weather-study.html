@@ -81,6 +81,12 @@
 
     /* Fog: two tones, plus its wash */
     --n-wind: #9FB4D2;      --d-wind: #FFFFFF;      /* wind streaks */
+    /* Exceptional: tornado tones, the monster, a green-tinged storm wash */
+    --n-tor-a: #46524B;     --d-tor-a: #B4BCB6;
+    --n-tor-b: #3A443F;     --d-tor-b: #98A29C;
+    --n-tor-hl: #5B675F;    --d-tor-hl: #D2D9D4;
+    --n-kaiju: #10151F;     --d-kaiju: #3E4A5C;
+    --n-w-exc: #0E1A14;     --d-w-exc: #5E7A64;
     --n-fog-light: #5D6A86; --d-fog-light: #EEF3F7;
     --n-fog-base: #46526C;  --d-fog-base: #D7E0E9;
     --n-w-fog: #2B3348;     --d-w-fog: #DDE5EC;
@@ -136,6 +142,11 @@
     --snow-near: color-mix(in oklab, var(--d-snow-near) var(--p), var(--n-snow-near));
     --snow-sh:   color-mix(in oklab, var(--d-snow-sh) var(--p), var(--n-snow-sh));
     --wind:      color-mix(in oklab, var(--d-wind) var(--p), var(--n-wind));
+    --tor-a:     color-mix(in oklab, var(--d-tor-a) var(--p), var(--n-tor-a));
+    --tor-b:     color-mix(in oklab, var(--d-tor-b) var(--p), var(--n-tor-b));
+    --tor-hl:    color-mix(in oklab, var(--d-tor-hl) var(--p), var(--n-tor-hl));
+    --kaiju:     color-mix(in oklab, var(--d-kaiju) var(--p), var(--n-kaiju));
+    --w-exc:     color-mix(in oklab, var(--d-w-exc) var(--p), var(--n-w-exc));
     --fog-light: color-mix(in oklab, var(--d-fog-light) var(--p), var(--n-fog-light));
     --fog-base:  color-mix(in oklab, var(--d-fog-base) var(--p), var(--n-fog-base));
     --w-fog:     color-mix(in oklab, var(--d-w-fog) var(--p), var(--n-w-fog));
@@ -205,6 +216,15 @@
   .stage[data-wash="storm"]  { --wash: var(--w-storm);  --wash-a: .55; }
   .stage[data-wash="snow"]   { --wash: var(--w-snow);   --wash-a: .35; }
   .stage[data-wash="fog"]    { --wash: var(--w-fog);    --wash-a: .45; }
+  .stage[data-wash="exc"]    { --wash: var(--w-exc);    --wash-a: .5; }
+  /* Secondary text on the outdoor side gets darker by day under the darker
+     washes, so it keeps at least 4.5:1 (it follows --daylight, so nights
+     are unchanged): a touch darker on a clear day, partway toward the main
+     text color in rain, all the way in pouring rain, storms, hail and the
+     exceptional sky. */
+  .stage { --text-2-out: color-mix(in oklab, var(--text) calc(var(--daylight) * 7%), var(--text-2)); }   /* clear day: just enough for 4.5:1 */
+  .stage[data-wash="rain"] { --text-2-out: color-mix(in oklab, var(--text) calc(var(--daylight) * 60%), var(--text-2)); }
+  .stage:is([data-wash="pour"], [data-wash="storm"], [data-wash="exc"]) { --text-2-out: color-mix(in oklab, var(--text) calc(var(--daylight) * 100%), var(--text-2)); }
   .stage.fast-snow { --snow-in: 16s; --snow-out: 32s; }   /* study only: no waiting */
 
   /* ---------- Shared elements: in or out per condition ----------
@@ -260,6 +280,7 @@
   /* While day/night switches, cloud colors follow it directly (a fill
      transition would restart on every frame and lag behind the sky). */
   .stage.theming .cloud :is(.bd, .sh, .hl, .us) { transition: none; }
+  .stage.theming .out :is(.t3, .appt) { transition: none; }
   .cloud[data-v="fair"]       { --c: var(--cf);  --c-sh: var(--cf-sh);  --c-hl: var(--cf-hl); }
   .cloud[data-v="grey"]       { --c: var(--cg);  --c-sh: var(--cg-sh);  --c-hl: var(--cg-hl); }
   .cloud[data-v="storm"]      { --c: var(--cs);  --c-sh: var(--cs-sh);  --c-hl: var(--cs-hl); }
@@ -305,12 +326,51 @@
      after (back to 0 over --snow-out). Reversing midway is smooth. */
   .accum { --snow: 0; transition: --snow var(--snow-out) linear; }
   .stage[data-snowing="1"] .accum { --snow: 1; transition-duration: var(--snow-in); }
-  .accum path { fill: var(--snow-near); }
+  .accum :is(.acc-corner, .acc-alert) { fill: var(--snow-near); }   /* settled snow only */
   .acc-alert { transform: scaleY(var(--snow)); }      /* grows up from the banner's top */
   .alert-snow { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
-  .alert-snow path { fill: var(--snow-near); }
+  .alert-snow .acc-alert { fill: var(--snow-near); }   /* the snow only (the dragon's flames share this layer) */
   .acc-corner { transform: scale(var(--snow)); }      /* grows out of the corner */
   .stage[data-alert="0"] :is(.alert-snow, .band, .band-bg) { display: none; }
+
+  /* Exceptional: serious and a bit funny. A twisting tornado of streaks
+     touching down on the split, cows,
+     a dinosaur and junk circling it, and a giant spider crawling in the
+     bottom corner. */
+  .tor-streak { opacity: .55; }                       /* translucent: overlaps darken, like marker */
+  .tor-streak.a { fill: var(--tor-a); }
+  .tor-streak.b { fill: var(--tor-b); }
+  .tor-streak.hl { fill: var(--tor-hl); opacity: .45; }
+  .twist { animation: twist var(--t) ease-in-out var(--d) infinite alternate; }
+  @keyframes twist { from { transform: translateX(calc(var(--w) * -1)); } to { transform: translateX(var(--w)); } }
+  .funnel { transform-origin: 15px 85px; animation: sway 5.5s ease-in-out infinite alternate; }
+  @keyframes sway { from { transform: rotate(-3deg); } to { transform: rotate(3deg); } }
+  .dust { fill: var(--tor-b); animation: dust 1.6s ease-in-out var(--d) infinite alternate; transform-box: fill-box; transform-origin: center; }
+  @keyframes dust { from { transform: scale(.8); opacity: .7; } to { transform: scale(1.2); opacity: 1; } }
+  /* Giant spider: climbing in over the corner, pulling forward and easing
+     back, legs stepping in two alternating sets, eyes blinking. */
+  .spider { animation: creep 9s ease-in-out infinite alternate; }
+  @keyframes creep { from { transform: translateY(.6px); } to { transform: translateY(-1.2px); } }
+  .spider .bd { fill: var(--kaiju); }
+  .spider .hl { fill: color-mix(in oklab, var(--kaiju), #fff 16%); }
+  .spider .mark { fill: #B8373F; }
+  .spider .leg { fill: none; stroke: var(--kaiju); stroke-width: .65; stroke-linecap: round; stroke-linejoin: round; }
+  .spider .step { transform-box: fill-box; animation: step .9s ease-in-out var(--d) infinite alternate; }
+  .spider .step.l { transform-origin: 100% 50%; }
+  .spider .step.r { transform-origin: 0% 50%; }
+  @keyframes step { from { transform: rotate(-7deg); } to { transform: rotate(7deg); } }
+  .spider .eye { fill: #F2C14E; animation: blink 5s step-end infinite; }
+  @keyframes blink { 0%, 92%, 100% { opacity: 1; } 93%, 96% { opacity: 0; } }
+  /* Dragon: swoops by now and then, wings flapping, breathing fire on the
+     way down; flames flicker briefly along the alert bar's top edge. */
+  .wing { transform-box: fill-box; transform-origin: 50% 100%; animation: flap .46s ease-in-out infinite alternate; }
+  .wing.far { animation-delay: -.23s; }
+  @keyframes flap { from { transform: scaleY(1); } to { transform: scaleY(-.35); } }
+  .breath { transform-box: fill-box; transform-origin: 0% 50%; animation: flick .11s ease-in-out infinite alternate; }
+  .lick { transform-box: fill-box; transform-origin: 50% 100%; animation: lick .16s ease-in-out var(--d) infinite alternate; }
+  @keyframes lick { from { transform: scaleY(.85); } to { transform: scaleY(1.08); } }
+  @keyframes flick { from { transform: scale(.9, .85); } to { transform: scale(1.08, 1.1); } }
+  @media (prefers-reduced-motion: reduce) { .twist, .funnel, .dust, .spider, .spider .step, .spider .eye { animation-play-state: paused; } }
 
   /* Wind: thin streaks with a small upturned whoosh at the front, a few
      all the time, plus gusts (JS) carrying seasonal detritus and, now and
@@ -346,6 +406,10 @@
      them toward the fog's color, not the sky's), not by transparency. */
   .fog-veil { fill: var(--fog-light); opacity: .55; }
   @media (prefers-reduced-motion: reduce) { .fog-shift { animation-play-state: paused; } }
+  /* Some fog (exceptional): only the lower ribbons and the wisps; no veil
+     and no ribbon over the clock. */
+  .stage[data-fog="some"] :is(.fog-veil, .fog-over),
+  .stage[data-fog="some"] .fog-ribbons > g:nth-child(-n+5) { display: none; }
 
   /* Hail: small pellets with a white glint and a long faint streak, falling
      fast. About 1 in 6 hop off the split (or the frame's left edge). */
@@ -374,6 +438,7 @@
   .t1 { font-size: 15.11cqmin; line-height: .8; }     /* auto-fitted in the card */
   .t2 { font-size: 4.95cqmin; }
   .t3 { font-size: 2.52cqmin; color: var(--text-2); }
+  .out .t3 { color: var(--text-2-out); transition: color calc(var(--change) * .6) ease-in-out; }   /* outdoor side */
   .ico { display: inline-block; width: .8em; height: .8em; margin-right: .2em; vertical-align: -.05em; }
   .ico svg { display: block; width: 100%; height: 100%; fill: currentColor; }
   .ico.coral { color: var(--coral); }
@@ -452,6 +517,7 @@
     <button id="station">Space station now</button>
     <button id="gust">Wind gust now</button>
     <button id="egg">Easter egg now</button>
+    <button id="dragon">Dragon now</button>
   </div>
 </div>
 
@@ -484,6 +550,7 @@
     'pouring':         { label: 'Pouring',            wash: 'pour', rain: 2, clouds: { f1: 'storm', f2: 'storm', f3: 'storm', f4: 'storm', f5: 'storm', b1: 'back-storm', b2: 'back-storm', b3: 'back-storm', b4: 'back-storm' } },
     'lightning':       { label: 'Lightning',          wash: 'storm', lightning: 1, clouds: { t1: 'storm', t2: 'storm', f1: 'storm', f3: 'storm', t3: 'back-storm', b2: 'back-storm', b4: 'back-storm' } },
     'lightning-rainy': { label: 'Lightning + rain',   wash: 'storm', lightning: 1, rain: 1, clouds: { t1: 'storm', t2: 'storm', f1: 'storm', f3: 'storm', t3: 'back-storm', b2: 'back-storm', b4: 'back-storm' } },
+    'exceptional':     { label: 'Exceptional',        wash: 'exc', exc: 1, lightning: 1, fog: 'some', clouds: { f1: 'storm', b1: 'back-storm', b2: 'back-storm', t3: 'back-storm' } },
     'windy':           { label: 'Windy',              sun: 1, moon: 1, stars: 1, wind: 1, clouds: {} },
     'windy-variant':   { label: 'Windy + clouds',     sun: 1, moon: 1, stars: 1, wind: 1, clouds: { s1: 'fair', s2: 'fair', s3: 'back', s4: 'back' } },
     'fog':             { label: 'Fog',                sun: 1, moon: 1, fog: 1, wash: 'fog', clouds: {} },
@@ -637,6 +704,73 @@
       svgEl('path', { d: 'M0 -.6Q1.8 -1 3.5 -2L2.6 -2.6Q1.2 -1.2 0 -.9Z', fill: '#2F5690' }, g);
     },
   };
+  // Things the tornado carries (the tin can and umbrella come from EGGS).
+  const EXCEPTIONAL_THINGS = {
+    cow(g) {
+      for (const x of [-2.2, -1.1, 1.2, 2.2]) svgEl('rect', { x: x - .3, y: .8, width: .6, height: 1.8, fill: '#E9E4D8' }, g);
+      for (const x of [-2.2, -1.1, 1.2, 2.2]) svgEl('rect', { x: x - .3, y: 2.2, width: .6, height: .5, fill: '#3A3A3A' }, g);
+      svgEl('path', { d: 'M-3 -1.2Q-3.9 -.4 -3.7 1', fill: 'none', stroke: '#3A3A3A', 'stroke-width': .25, 'stroke-linecap': 'round' }, g);
+      svgEl('rect', { x: -3, y: -1.6, width: 6, height: 3.2, rx: 1.2, fill: '#F4F1EA' }, g);
+      svgEl('rect', { x: -3, y: .2, width: 6, height: 1.4, rx: .7, fill: '#D9D3C6' }, g);
+      svgEl('ellipse', { cx: -1.2, cy: -.6, rx: 1, ry: .7, fill: '#2A2A2A' }, g);
+      svgEl('ellipse', { cx: 1.1, cy: .4, rx: .7, ry: .5, fill: '#2A2A2A' }, g);
+      svgEl('rect', { x: 2.4, y: -2.4, width: 2.2, height: 1.9, rx: .7, fill: '#F4F1EA' }, g);
+      svgEl('rect', { x: 3.4, y: -1.3, width: 1.4, height: 1, rx: .5, fill: '#E9A3A3' }, g);
+      svgEl('path', { d: 'M2.8 -2.4l-.4 -.7M4 -2.4l.4 -.7', stroke: '#CFC6B4', 'stroke-width': .3, 'stroke-linecap': 'round' }, g);
+      svgEl('circle', { cx: 3.3, cy: -1.8, r: .22, fill: '#2A2A2A' }, g);
+    },
+    dino(g) {                                  // a small, friendly T-rex
+      svgEl('path', { d: 'M-4 1Q-6 0 -7.5 -1.5Q-5 -.5 -3 -1Q-1 -3 1.5 -2.5L3.8 -3.2Q5 -3 5 -2L4.2 -1.2L2.6 -1.4Q2.4 0 1.6 .6L2 3L1 3L.6 1L-1.2 1.2L-1 3L-2 3L-2.2 1.2Z', fill: '#6FA35A' }, g);
+      svgEl('path', { d: 'M-4 1Q-2 1.6 -.6 1.1L-1.2 1.2L-2.2 1.2Z', fill: '#4E7D3E' }, g);
+      svgEl('path', { d: 'M1.9 -.8l.8 .6', stroke: '#4E7D3E', 'stroke-width': .35, 'stroke-linecap': 'round' }, g);
+      svgEl('circle', { cx: 3.3, cy: -2.5, r: .25, fill: '#1E2A18' }, g);
+    },
+  };
+
+  // The dragon (after a reference image), facing right (+x): big bat wings
+  // spread wide with finger bones and a scalloped trailing edge, a long
+  // S-curved neck, a horned head with an open jaw, tucked legs and a long
+  // tail ending in a curl. Bronze body, gold details, warm grey wings.
+  const drawDragon = g => {
+    const BONE = '#5B4636', MEM = '#9C8C7A', MEM_FAR = '#6F6357', BODY = '#7A4A22', GOLD = '#C8923E', BELLY = '#D8B06A';
+    const wing = (cls, fill, k, dx, dy) => {
+      const flap = svgEl('g', { class: `wing ${cls}` }, svgEl('g', { transform: `translate(${dx} ${dy}) scale(${k})` }, g));
+      svgEl('path', { d: 'M0 0L3 -9.6L-3 -17Q-4.6 -13 -9 -14Q-10 -9.4 -13 -8Q-11 -4.6 -12 -2.5Q-7 -2.2 -4 .6Z', fill }, flap);
+      svgEl('path', { d: 'M0 0L3 -9.6M3 -9.6L-3 -17M3 -9.6L-9 -14M3 -9.6L-13 -8M3 -9.6L-12 -2.5M3 -9.6L4.4 -10.6', fill: 'none', stroke: BONE, 'stroke-width': .45, 'stroke-linecap': 'round' }, flap);
+    };
+    wing('far', MEM_FAR, .78, 1.6, -2.2);
+    svgEl('path', { d: 'M-3.4 .4Q-8 2.6 -12 2Q-15 1.6 -15.4 -.6Q-15.4 -2.4 -13.6 -2.2Q-12.6 -2 -13 -1', fill: 'none', stroke: BODY, 'stroke-width': 1.2, 'stroke-linecap': 'round' }, g);
+    svgEl('path', { d: 'M-1.6 1.4L-2.8 3.4L-1.6 3.6M2 1.2L3 2.9L4 2.8', fill: 'none', stroke: BODY, 'stroke-width': .7, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, g);
+    svgEl('ellipse', { cx: 0, cy: 0, rx: 4, ry: 2.1, fill: BODY }, g);
+    svgEl('path', { d: 'M-3.4 .8Q0 2.6 3.6 .6Q0 1.5 -3.4 .8Z', fill: BELLY }, g);
+    svgEl('path', { d: 'M2.6 -1.2Q5 -1.4 6 -3.4Q6.8 -5.2 8.6 -5.2L9 -3.8Q7.6 -3.6 7.2 -2.2Q6.4 .2 3.2 .8Z', fill: BODY }, g);
+    svgEl('path', { d: 'M7.6 -5.9Q9.6 -6.4 11.2 -5Q11.8 -4.4 11.4 -4L9.6 -3.6Q8.4 -3.4 7.8 -4.2Z', fill: BODY }, g);
+    svgEl('path', { d: 'M9.8 -3.7L11.4 -3.3L10 -2.9Z', fill: BODY }, g);
+    svgEl('path', { d: 'M8 -6L6.4 -7.6L8.4 -6.4ZM8.8 -6.2L7.8 -8.2L9.4 -6.4Z', fill: GOLD }, g);
+    svgEl('circle', { cx: 9.4, cy: -5, r: .28, fill: '#FFD447' }, g);
+    svgEl('path', { d: 'M-3 -1.3Q0 -2.4 2.8 -1.6M3.4 -1.6Q5.6 -2.2 6.4 -4', fill: 'none', stroke: GOLD, 'stroke-width': .4, 'stroke-linecap': 'round' }, g);
+    wing('', MEM, 1, 0, -1.2);
+    // Fire from the open jaw, angled down: red, orange, then a brighter orange core.
+    const breath = svgEl('g', { class: 'breath' }, svgEl('g', { transform: `translate(${MOUTH[0]} ${MOUTH[1]}) rotate(${BREATH_TILT})` }, g));
+    svgEl('path', { d: 'M0 0Q4.5 -2.6 10.5 -1.2Q7 -.2 11.6 .8Q5.8 2 0 0Z', fill: '#D9381E' }, breath);
+    svgEl('path', { d: 'M0 0Q3.6 -1.6 8 -.6Q5.6 0 8.6 .6Q4.2 1.3 0 0Z', fill: '#F26A1B' }, breath);
+    svgEl('path', { d: 'M0 0Q2.4 -.8 5 -.2Q3.4 .2 5.4 .4Q2.6 .7 0 0Z', fill: '#F57A1F' }, breath);
+    return breath.parentNode;
+  };
+  const MOUTH = [11.2, -3.5], BREATH_TILT = 30, BREATH_LEN = 11.6;
+  // A patch of the flame trail on the alert bar (after the reference): a
+  // glowing orange base with jagged tongues, deep red at the back and red-orange in front.
+  const TONGUE = 'M-1 0C-1.2 -1 -.6 -1.8 -.2 -3.4C.1 -2.4 .6 -2 .5 -1.4C1 -1.7 1.2 -2.2 1.3 -2.6C1.6 -1.6 1.3 -.6 1 0Z';
+  const drawFlamePatch = g => {
+    svgEl('rect', { x: -3.2, y: -.5, width: 6.4, height: .7, rx: .35, fill: '#F26A1B' }, g);
+    const tongue = (dx, k, fill) => {
+      const at = svgEl('g', { transform: `translate(${dx} 0) scale(${k.toFixed(2)})` }, g);
+      svgEl('path', { class: 'lick', d: TONGUE, fill, style: `--d:${(-Math.random() * .3).toFixed(2)}s` }, at);
+    };
+    for (const dx of [-1.8, 0, 1.8]) tongue(dx, rnd(.8, 1.35), '#C8281E');
+    for (const dx of [-1, 1]) tongue(dx, rnd(.6, .9), '#E8481C');
+  };
+
   // A thin wind streak (length 10), with a small upturned whoosh at the front.
   const WSTREAK = 'M0 0Q5 -.7 8.6 -.45Q9.8 -.4 10 -1.5Q10.1 -.2 8.6 .25Q5 .5 0 0Z';
 
@@ -689,12 +823,15 @@
       <g class="vis rain rain-h" data-on="0"><g class="drops" clip-path="url(#${id}-out)"></g><g class="splashes"></g></g>
       <g class="vis rain hail" data-on="0"><g class="drops" clip-path="url(#${id}-out)"></g><g class="bounces"></g></g>
       <g class="vis rain snow-full" data-on="0"><g class="drops" clip-path="url(#${id}-out)"></g><g class="splashes"></g></g>
+      <g class="vis excv" data-on="0"><g class="spider-at"></g><g class="dragon-at"></g></g>
       <g class="vis rain snow-mix" data-on="0"><g class="drops" clip-path="url(#${id}-out)"></g><g class="splashes"></g></g>
       <g class="accum" clip-path="url(#${id}-out)">
         <g transform="translate(0 100)"><path class="acc-corner"/></g>
       </g>
       <g mask="url(#${id}-fade)">
+        <g class="vis excv" data-on="0"><g class="funnel"></g></g>
         <g class="clouds-front"></g>
+        <g class="vis excv" data-on="0"><g class="orbit"></g></g>
         <g class="vis windv" data-on="0"><g class="streaks"></g><g class="gusts"></g></g>
         <g class="vis fogv" data-on="0"><rect class="fog-veil" width="100" height="100"/><g class="fog-ribbons"></g><g class="fog-wisps"></g></g>
         <rect class="flash" width="100" height="100" opacity="0"/>
@@ -706,13 +843,13 @@
          card at square with the alert shown, measured 2026-10-25: outdoor
          blocks by their right edges (nearest the line), floors by their left. -->
     <div class="mock" aria-label="Mock card text">
-      <div class="appts" style="top:6cqmin; right:17.48cqmin">
+      <div class="appts out" style="top:6cqmin; right:17.48cqmin">
         <div class="t3 appt" style="--i:1"><span class="ico" data-i="CalendarArrowRight"></span>Mon 9:00 AM Dentist</div>
         <div class="t3 appt" style="--i:1"><span class="ico" data-i="CalendarArrowRight"></span>Mon 7:30 AM Swim club</div>
         <div class="t3 appt" style="--i:0"><span class="ico" data-i="CalendarClock"></span>6:30 PM Dinner</div>
         <div class="t3 appt" style="--i:0"><span class="ico" data-i="CalendarClock"></span>3:00 PM Soccer practice</div>
       </div>
-      <div class="row-c" style="top:19.04cqmin; right:27.12cqmin">
+      <div class="row-c out" style="top:19.04cqmin; right:27.12cqmin">
         <span class="people away"><span class="person"></span><span class="person"></span><span class="person"></span></span>
         <span class="t2"><span class="ico" data-i="Thermometer"></span>68°</span>
         <span class="t3"><span class="ico" data-i="WaterPercent"></span>54%</span>
@@ -730,6 +867,7 @@
            little "fourth wall" break): over the banner, under its text. -->
       <svg class="accum alert-snow" viewBox="0 0 100 100" aria-hidden="true">
         <g transform="translate(0 45.33)"><path class="acc-alert"/></g>
+        <g class="bar-flames"></g>
       </svg>
       <div class="band t2"><span class="ico" data-i="Information"></span>Håg · design study</div>
       <div class="floor" style="top:56.73cqmin; left:46.45cqmin">
@@ -906,6 +1044,7 @@
       this.buildHail();
       this.buildFog();
       this.buildWind();
+      this.buildExceptional();
       this.buildAccumulation();
       this.el.dataset.alert = '1';
       this.lightningOn = false;
@@ -953,6 +1092,143 @@
             made++;
           }
         }
+      }
+    }
+
+    // Exceptional: everything is drawn once; CSS and a few looping
+    // animations keep it going while the scene is on.
+    buildExceptional() {
+      const rand = seeded(71), f = v => v.toFixed(2);
+      // Tornado: translucent marker strokes (like an alcohol pen or a
+      // highlighter: flat, slanted ends) stacked into a funnel narrowing to
+      // a tip on the split at (15, 85). Rows are thicker than their spacing,
+      // so strokes overlap; each slides side to side at its own pace, so
+      // the overlaps keep shifting and darkening where they cross.
+      const funnel = this.q('.funnel');
+      funnel.replaceChildren();
+      const cxAt = t => 30 - 15 * t + 3 * Math.sin(t * Math.PI);
+      const wAt = t => 36 * (1 - t) ** 1.15 + 2;
+      const yAt = t => 18 + t * 67;
+      const stroke = (x0, x1, y, h) => {                      // a marker stroke with chisel ends
+        const k = h * .55;
+        return `M${f(x0 + k)} ${f(y - h / 2)}L${f(x1 + k)} ${f(y - h / 2)}L${f(x1 - k)} ${f(y + h / 2)}L${f(x0 - k)} ${f(y + h / 2)}Z`;
+      };
+      const ROWS = 28;
+      for (let i = 0; i < ROWS; i++) {
+        const t = i / (ROWS - 1), cy = yAt(t), w = wAt(t), cx = cxAt(t), h = 4.4 - 2.3 * t;
+        const g = svgEl('g', { class: 'twist', style: `--w:${f(w * .16)}px;--t:${f(rand(.9, 1.7))}s;--d:${f(-rand(0, 1.7))}s` }, funnel);
+        const x0 = cx - w / 2 * rand(.85, 1.05), x1 = cx + w / 2 * rand(.85, 1.05);
+        svgEl('path', { class: `tor-streak ${i % 2 ? 'b' : 'a'}`, d: stroke(x0, x1, cy + rand(-.4, .4), h * rand(.85, 1.1)) }, g);
+        // Now and then a second, shorter stroke in the other tone or the light one.
+        if (rand(0, 1) < .45) {
+          const a = rand(0, .5), b = a + rand(.25, .5);
+          svgEl('path', { class: `tor-streak ${rand(0, 1) < .5 ? 'hl' : (i % 2 ? 'a' : 'b')}`, d: stroke(x0 + (x1 - x0) * a, x0 + (x1 - x0) * b, cy + rand(-.8, .8), h * rand(.5, .8)) }, g);
+        }
+      }
+      for (const [dx, dy, r] of [[-2.5, -.6, 1.6], [2, -.4, 1.3], [0, -1.6, 1.1], [-4, .4, .9], [3.8, .5, .8]]) {
+        svgEl('circle', { class: 'dust', cx: 15 + dx, cy: 85 + dy, r: r * 1.3, style: `--d:${f(-rand(0, 1.6))}s` }, funnel);
+      }
+      // Things caught in it, circling the funnel (smaller and dimmer behind it).
+      const orbit = this.q('.orbit');
+      orbit.replaceChildren();
+      this.orbitAnims = [];
+      const ITEMS = [['cow', .38, 0, 5.2], ['cow', .62, .45, 6.1], ['dino', .22, .7, 4.6], ['tincan', .78, .2, 3.8], ['umbrella', .5, .85, 5.6]];
+      for (const [kind, t, phase, secs] of ITEMS) {
+        const cy = yAt(t), rx = wAt(t) / 2 + 4;
+        const g = svgEl('g', {}, orbit), spin = svgEl('g', {}, g);
+        (EGGS[kind] || EXCEPTIONAL_THINGS[kind])(spin);
+        if (reduced.matches) { g.setAttribute('transform', `translate(${f(cxAt(t) + rx)} ${f(cy)})`); continue; }
+        const frames = [];
+        for (let k = 0; k <= 36; k++) {
+          const th = (k / 36 + phase) * Math.PI * 2, front = Math.cos(th);
+          frames.push({ transform: `translate(${f(cxAt(t) + rx * Math.sin(th))}px, ${f(cy + 2.4 * front)}px) scale(${f(.7 + .3 * front)})`, opacity: f(.55 + .45 * (front + 1) / 2) });
+        }
+        this.orbitAnims.push(g.animate(frames, { duration: secs * 1000, iterations: Infinity }));
+        this.orbitAnims.push(spin.animate([{ transform: 'rotate(0deg)' }, { transform: `rotate(${rand(0, 1) < .5 ? -360 : 360}deg)` }], { duration: secs * 700, iterations: Infinity }));
+      }
+      // A giant spider climbing in over the bottom-left corner of the frame:
+      // its abdomen still outside the card, front legs reaching in, one foot
+      // on the frame's left edge and one on the split. It's drawn outside
+      // the weather fade, so it can climb across onto the indoor side.
+      const spiderAt = this.q('.spider-at');
+      spiderAt.replaceChildren();
+      const spider = svgEl('g', { class: 'spider' }, svgEl('g', { transform: 'translate(8 90) rotate(35) scale(2.8)' }, spiderAt));
+      // Legs, climbing: [attach y, knee, foot] on the left side; mirrored on the right.
+      const LEGS = [[-2.6, [-4, -9], [-3.2, -14]], [-1.6, [-6.5, -5], [-9.5, -8.5]], [-.6, [-6.5, 1], [-10, 4]], [.4, [-4.8, 4.5], [-6.5, 10]]];
+      LEGS.forEach(([ay, knee, foot], i) => {
+        for (const side of [-1, 1]) {
+          const step = svgEl('g', { class: `step ${side < 0 ? 'l' : 'r'}`, style: `--d:${((i + (side > 0 ? 1 : 0)) % 2) * -.9}s` }, spider);
+          svgEl('path', { class: 'leg', d: `M${f(side * 1.2)} ${ay}Q${f(side * -knee[0] * .6)} ${f(knee[1] - 1.4)} ${f(side * -knee[0])} ${f(knee[1])}L${f(side * -foot[0])} ${f(foot[1])}` }, step);
+        }
+      });
+      svgEl('ellipse', { class: 'bd', cx: 0, cy: 4.2, rx: 3.6, ry: 4.4 }, spider);           // abdomen
+      svgEl('ellipse', { class: 'hl', cx: -1.2, cy: 2.6, rx: 1.4, ry: 2 }, spider);
+      svgEl('path', { class: 'mark', d: 'M-.9 3.2L.9 3.2L0 4.4Z M-.9 5.6L.9 5.6L0 4.4Z' }, spider);   // hourglass
+      svgEl('ellipse', { class: 'bd', cx: 0, cy: -1.4, rx: 2.4, ry: 2.3 }, spider);           // head and thorax
+      svgEl('ellipse', { class: 'hl', cx: -.8, cy: -2, rx: .8, ry: .7 }, spider);
+      for (const [x, y, r] of [[-.75, -3, .38], [.75, -3, .38], [-1.35, -2.4, .26], [1.35, -2.4, .26], [-.35, -2.3, .2], [.35, -2.3, .2]]) {
+        svgEl('circle', { class: 'eye', cx: x, cy: y, r }, spider);
+      }
+    }
+
+    // Dragon: every 30–60 s while the scene is on. It swoops along a curve
+    // from the upper left, dipping behind the clock, then climbs off the top
+    // right. Fire is on during the dive; where it reaches the alert bar's
+    // top, a trail of small flames flickers out over about two seconds.
+    scheduleDragon(sec) {
+      clearTimeout(this.dragonTimer);
+      this.dragonTimer = setTimeout(() => {
+        if (!SCENES[this.cond].exc) return;
+        this.dragon();
+        this.scheduleDragon(rnd(30, 60));
+      }, sec * 1000);
+    }
+    dragon() {
+      if (reduced.matches) return;
+      const f = v => v.toFixed(2), S = 1.3, MS = 4200;
+      const P0 = [-28, 6], P1 = [30, 76], P2 = [112, -2];
+      const at = t => [0, 1].map(i => (1 - t) ** 2 * P0[i] + 2 * (1 - t) * t * P1[i] + t * t * P2[i]);
+      const heading = t => { const d = [0, 1].map(i => 2 * (1 - t) * (P1[i] - P0[i]) + 2 * t * (P2[i] - P1[i])); return Math.atan2(d[1], d[0]); };
+      const host = this.q('.dragon-at');
+      const flyer = svgEl('g', {}, host);
+      const body = svgEl('g', { transform: `scale(${S})` }, flyer);
+      const mouth = drawDragon(body);
+      const frames = [];
+      for (let k = 0; k <= 40; k++) {
+        const t = k / 40, [x, y] = at(t);
+        frames.push({ transform: `translate(${f(x)}px, ${f(y)}px) rotate(${f(heading(t) * 180 / Math.PI)}deg)` });
+      }
+      flyer.animate(frames, { duration: MS, easing: 'linear' }).onfinish = () => flyer.remove();
+      const FIRE = [.2, .5];                                   // during the dive
+      mouth.animate([
+        { opacity: 0 }, { opacity: 0, offset: FIRE[0] }, { opacity: 1, offset: FIRE[0] + .02 },
+        { opacity: 1, offset: FIRE[1] - .02 }, { opacity: 0, offset: FIRE[1] }, { opacity: 0 },
+      ], { duration: MS, fill: 'both' });
+      // Flames on the alert bar where the fire reaches it (only shown with the alert row).
+      if (this.el.dataset.alert === '0') return;
+      const bar = this.q('.bar-flames');
+      for (let t = FIRE[0]; t <= FIRE[1]; t += .02) {
+        const [x, y] = at(t), a = heading(t), b = a + BREATH_TILT * Math.PI / 180;
+        const mx = x + S * (MOUTH[0] * Math.cos(a) - MOUTH[1] * Math.sin(a)), my = y + S * (MOUTH[0] * Math.sin(a) + MOUTH[1] * Math.cos(a));
+        const tx = mx + S * BREATH_LEN * Math.cos(b), ty = my + S * BREATH_LEN * Math.sin(b);
+        if (ty < 40 || tx < -2 || tx > 102) continue;         // the fire doesn't reach the bar here
+        setTimeout(() => {
+          const g = svgEl('g', { transform: `translate(${f(tx + rnd(-1, 1))} 45.33)` }, bar);
+          const patch = svgEl('g', {}, g);
+          drawFlamePatch(patch);
+          // Flares up, then burns low and flickering for a few seconds, then dies out.
+          patch.animate([
+            { transform: 'scale(.2, .1)', opacity: 0 },
+            { transform: 'scale(1, 1)', opacity: 1, offset: .05 },
+            { transform: 'scale(1, .55)', offset: .15 },
+            { transform: 'scale(1, .42)', offset: .3 },
+            { transform: 'scale(1, .52)', offset: .45 },
+            { transform: 'scale(1, .4)', offset: .6 },
+            { transform: 'scale(1, .47)', offset: .75 },
+            { transform: 'scale(1, .32)', opacity: .9, offset: .88 },
+            { transform: 'scale(.8, .05)', opacity: 0 },
+          ], { duration: rnd(6000, 7000), easing: 'ease-in-out' }).onfinish = () => g.remove();
+        }, t * MS);
       }
     }
 
@@ -1243,8 +1519,12 @@
       on('.rain-h', sc.rain === 2);
       on('.hail', !!sc.hail);
       this.el.querySelectorAll('.fogv').forEach(f => { f.dataset.on = sc.fog ? '1' : '0'; });
-      this.el.dataset.fog = sc.fog ? '1' : '0';
+      this.el.dataset.fog = sc.fog === 'some' ? 'some' : sc.fog ? '1' : '0';
       on('.windv', sc.wind);
+      this.el.querySelectorAll('.excv').forEach(g => { g.dataset.on = sc.exc ? '1' : '0'; });
+      this.orbitAnims?.forEach(a => sc.exc ? a.play() : a.pause());
+      clearTimeout(this.dragonTimer);
+      if (sc.exc) this.scheduleDragon(rnd(4, 8));
       clearTimeout(this.gustTimer);
       if (sc.wind) this.scheduleGust(rnd(3, 6));
       on('.snow-full', sc.snow === 'full');
@@ -1385,7 +1665,7 @@
       const w = getComputedStyle(this.q('.wash'));
       const wa = parseFloat(w.opacity) || 0, wc = rgb(w.fill);
       const sky = rgb(tok('sky')).map((v, i) => v * (1 - wa) + wc[i] * wa);
-      const t1 = rgb(tok('text')), t2 = rgb(tok('text-2'));
+      const t1 = rgb(tok('text')), t2 = rgb(tok('text-2-out'));   // outdoor secondary text
       const cloud = this.q('.clouds-front .cloud[data-on="1"] .bd');
       const fmt = r => `<span class="${r < 4.5 ? 'bad' : ''}">${r.toFixed(1)}:1</span>`;
       let out = `On the sky: text ${fmt(ratio(t1, sky))}, secondary ${fmt(ratio(t2, sky))}`;
@@ -1467,6 +1747,7 @@
   $('station').addEventListener('click', () => each(s => s.station()));
   $('gust').addEventListener('click', () => each(s => { if (SCENES[s.cond].wind) s.gust(); }));
   $('egg').addEventListener('click', () => each(s => { if (SCENES[s.cond].wind) s.gust(true); }));
+  $('dragon').addEventListener('click', () => each(s => { if (SCENES[s.cond].exc) s.dragon(); }));
   $('season').addEventListener('change', e => { seasonPick = e.target.value; });
 
   // Shooting stars at random every 1–2 minutes; the station every 5 minutes.
