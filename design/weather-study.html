@@ -620,16 +620,26 @@
   };
 
   // Height on the arc (0 at the horizon, 1 at the peak; -1 below the horizon).
-  const arc = (t, rise, peak, set) => {
+  // Sun and moon height over the day, at a steady speed: they climb at a
+  // constant rate for most of the way, ease only near the top, and keep the
+  // same rate below the horizon, so nothing speeds up as it sinks out of
+  // view. At rising and setting the body is centered just below the bottom
+  // edge, so it's out of view about 45 minutes after setting.
+  const HORIZON_Y = 110, PEAK_Y = 13, SPAN = HORIZON_Y - PEAK_Y;
+  const ease = u => u <= .6 ? 1.25 * u : .75 + 1.25 * (u - .6) - 1.5625 * (u - .6) ** 2;   // constant, then easing to the peak
+  const bodyAt = (t, rise, peak, set) => {
     const n = x => ((x % 24) + 24) % 24;
     const T = n(t - rise), P = n(peak - rise), S = n(set - rise);
-    if (T > S) return -1;
-    return T <= P ? Math.sin(Math.PI / 2 * T / P) : Math.sin(Math.PI / 2 * (S - T) / (S - P));
+    if (T <= S) return { up: true, y: HORIZON_Y - SPAN * ease(T <= P ? T / P : (S - T) / (S - P)) };
+    const [dt, side] = T - S < 24 - T ? [T - S, S - P] : [24 - T, P];   // hours since setting, or until rising
+    return { up: false, y: Math.min(240, HORIZON_Y + SPAN * 1.25 / side * dt) };
   };
   const SUN_TIMES = [7, 13, 19];          // sunrise, solar noon, sunset
-  const MOON_TIMES = [19, 1, 7];          // mirrored: sunset, solar midnight, sunrise
+  // The moon mirrors the sun, offset so the two are never in view together:
+  // it comes up after the sun has sunk out of view, and is gone before the
+  // sun comes up.
+  const MOON_TIMES = [20.6, 1, 5.4];
   const BODY_SCALE = 2;                   // sun and moon drawings (radius 12 / 13) at 200%
-  const bodyY = h => h < 0 ? 110 : 74 - 61 * h;  // slides down the left edge; at the peak, half a radius is cropped at the top
   const BODY_X = 13;                      // a quarter of the moon's width is cropped on the left (D100)
 
   const fmtTime = t => {
@@ -1466,10 +1476,10 @@
     }
 
     setTime(t) {
-      const hs = arc(t, ...SUN_TIMES), hm = arc(t, ...MOON_TIMES);
-      this.q('.sun-pos').setAttribute('transform', `translate(${BODY_X} ${bodyY(hs).toFixed(2)})`);
-      this.q('.moon-pos').setAttribute('transform', `translate(${BODY_X} ${bodyY(hm).toFixed(2)})`);
-      const day = hs >= 0;
+      const sun = bodyAt(t, ...SUN_TIMES), moon = bodyAt(t, ...MOON_TIMES);
+      this.q('.sun-pos').setAttribute('transform', `translate(${BODY_X} ${sun.y.toFixed(2)})`);
+      this.q('.moon-pos').setAttribute('transform', `translate(${BODY_X} ${moon.y.toFixed(2)})`);
+      const day = sun.up;
       if (day !== this.day) {
         this.el.classList.toggle('animate', this.day !== null);   // no fade on first paint
         this.el.classList.add('theming');
@@ -1505,8 +1515,8 @@
       const sc = SCENES[this.cond];
       const night = !this.day;
       const on = (sel, v) => { this.q(sel).dataset.on = v ? '1' : '0'; };
-      on('.sunv', sc.sun && this.day);
-      on('.moonv', sc.moon && night);
+      on('.sunv', sc.sun);                     // below the horizon it's simply out of view
+      on('.moonv', sc.moon);
       on('.stars-a', night && sc.stars >= 1);
       on('.stars-b', night && sc.stars >= 2);
       for (const s of SLOTS) {
