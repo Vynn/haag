@@ -24,7 +24,7 @@ The idle screen's illustrated look.
 
 - [ ] Animated weather background for all 15 Home Assistant weather conditions
 - [ ] Day and night colors, switching at sunrise and sunset
-- [ ] Bundled typeface
+- [x] Bundled typeface (shipped in 0.1.1)
 - [ ] Icon refinements to suit the new backgrounds
 - [ ] Installs through the Home Assistant Marketplace (2026.11)
 

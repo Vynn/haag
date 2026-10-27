@@ -2,6 +2,12 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, patch versions for fixes.
 
+## 0.1.1 · 2026-10-27
+
+### Added
+
+- Open Sans, bundled with Håg, as the typeface for all text (SIL Open Font License 1.1). No external font service is used. Where it can't load, the system font is used instead.
+
 ## 0.1.0 · 2026-10-26
 
 The idle screen (pre-alpha). First release.

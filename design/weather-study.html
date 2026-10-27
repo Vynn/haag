@@ -42,6 +42,15 @@
     initial-value: 0;
   }
 
+  /* The card's bundled typeface (D91), so the mock text matches the card. */
+  @font-face {
+    font-family: 'Haag Open Sans';
+    src: url('../dist/assets/open-sans.ttf') format('truetype');
+    font-weight: 300 800;
+    font-stretch: 75% 100%;
+    font-display: swap;
+  }
+
   :root {
     /* Base palette (palette study): night / day */
     --n-sky: #10162A;       --d-sky: #7CC8F2;
@@ -433,7 +442,7 @@
 
   /* ---------- Mock card text (made-up data) ----------
      Sizes and spacing match the real card (measured at square, scale 0.9). */
-  .mock { position: absolute; inset: 0; font-size: 2.52cqmin; line-height: 1.05; }
+  .mock { position: absolute; inset: 0; font-family: 'Haag Open Sans', system-ui, sans-serif; font-size: 2.52cqmin; line-height: 1.05; }
   .mock > div { position: absolute; }
   .t1 { font-size: 15.11cqmin; line-height: .8; }     /* auto-fitted in the card */
   .t2 { font-size: 4.95cqmin; }

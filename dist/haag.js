@@ -16,7 +16,7 @@
   phone to a 4K screen.
 */
 
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 const MANIFEST = 'haag/v1';   // config format marker
 
 /* ------------------------------------------------------------------------
@@ -28,6 +28,25 @@ const MANIFEST = 'haag/v1';   // config format marker
 try {
   CSS.registerProperty({ name: '--haag-split', syntax: '<angle>', inherits: true, initialValue: '135deg' });
 } catch { /* already registered, or not supported */ }
+
+// Bundled typeface: Open Sans, variable weight and width (SIL Open Font
+// License 1.1, in assets/OFL.txt). Font rules inside shadow DOM aren't used
+// by Chromium, so the font is registered on the document. It has its own
+// family name so it can't clash with an Open Sans installed on the device.
+// The file URL keeps this module's query string (the cache tag HACS or the
+// Marketplace adds), so an update also refreshes the font.
+const FONT_FAMILY = 'Haag Open Sans';
+const fontReady = (() => {
+  try {
+    const url = new URL('./assets/open-sans.ttf', import.meta.url);
+    url.search = new URL(import.meta.url).search;
+    const face = new FontFace(FONT_FAMILY, `url("${url}")`, { weight: '300 800', stretch: '75% 100%', display: 'swap' });
+    document.fonts.add(face);
+    return face.load().catch(err => console.warn('Håg: typeface failed to load; using the system font', err));
+  } catch (err) {
+    return Promise.resolve();
+  }
+})();
 
 /* ------------------------------------------------------------------------
    Dashboard strategy: `strategy: type: custom:haag`
@@ -470,7 +489,7 @@ const STYLE = `
     width: 100%;
     height: var(--haag-height, 100vh);
     container-type: size;
-    font-family: system-ui, sans-serif;   /* Open Sans once bundled */
+    font-family: 'Haag Open Sans', system-ui, sans-serif;
     color: #222;
   }
 
@@ -809,6 +828,8 @@ class HaagIdleCard extends HTMLElement {
 
     this._resize = new ResizeObserver(() => { this._resetApptLimit(); this._layout(); });
     this._resize.observe(this._stage);
+    // Layout measures text, so lay out again once the typeface has loaded.
+    fontReady.then(() => { if (this.isConnected) { this._resetApptLimit(); this._layout(); } });
     // Enable motion only after the first layout, so nothing slides in on load.
     requestAnimationFrame(() => requestAnimationFrame(() => this._stage.classList.add('animate')));
   }

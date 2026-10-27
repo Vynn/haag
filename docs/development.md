@@ -30,6 +30,10 @@ The test page can preview square, portrait and landscape shapes, toggle the aler
 
 ## Third-party code
 
+The plugin bundles one third-party file:
+
+- `dist/assets/open-sans.ttf`: Open Sans, variable weight (300–800) and width (75–100%), unmodified. Source: [googlefonts/opensans](https://github.com/googlefonts/opensans) at commit `bd7e376`, `fonts/variable/OpenSans[wdth,wght].ttf`, renamed. SHA-256 `36643644f318a812aab2d2ed3bb98f8cf0872527f835fe9398d95fe6b9adb878`. License: SIL Open Font License 1.1, in `dist/assets/OFL.txt`.
+
 Development tools vendor two packages. Each has its source, version, integrity hash and license next to it:
 
 - `tools/vendor/home-assistant-js-websocket/`: Home Assistant's WebSocket client (Apache-2.0).

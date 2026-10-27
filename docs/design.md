@@ -16,6 +16,7 @@ Håg is meant to be read from across a room in a second or two, then left alone.
 - Content sits in small blocks, each lined up against the diagonal, with the most important nearest the center.
 - One unit of size (a share of the screen's shorter side) scales everything together, so proportions hold on any display.
 - Three text sizes: the clock, a medium size and a small size.
+- One typeface for every card: Open Sans, bundled with Håg, so no font service is needed.
 
 ## Weather
 
