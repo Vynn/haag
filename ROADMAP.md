@@ -22,11 +22,11 @@ The default screen when nothing else needs attention.
 
 The idle screen's illustrated look, and how glances work.
 
-- [ ] Glance architecture: how glances are installed, turned on and configured, documented
-- [ ] Glances appear only when relevant and give way to the default glance (Overview Glance) afterwards
-- [ ] Several glances take turns on a 30-second timer, adjustable in YAML
+- [x] Glance architecture: how glances are installed, turned on and configured, documented (shipped in 0.1.2)
+- [x] Glances appear only when relevant and give way to the default glance (Overview Glance) afterwards (shipped in 0.1.2)
+- [x] Several glances take turns on a 30-second timer, adjustable in YAML (shipped in 0.1.2)
 - [ ] Animated weather background for all 15 Home Assistant weather conditions
-- [ ] Day and night colors, switching at sunrise and sunset
+- [x] Day and night colors, switching at sunrise and sunset (shipped in 0.1.2)
 - [x] Bundled typeface (shipped in 0.1.1)
 - [ ] Icon refinements to suit the new backgrounds
 - [ ] Installs through the Home Assistant Marketplace (2026.11)
