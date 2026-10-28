@@ -36,3 +36,4 @@ When several entities could supply the same reading, Håg prefers, in order:
 - Appointments come from every calendar Home Assistant shows, unless you list calendars in the settings.
 - Håg shows the next four within 30 days, refreshed every five minutes. If space runs short, the furthest ones are dropped first.
 - Anything more than 24 hours away also shows its day.
+- An appointment that's soon shows where it is, up to the first comma or parenthesis, under its title. Soon means starting within the hour, or started within the last two hours and still on; an all-day event today counts when nothing else does.

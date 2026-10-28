@@ -39,8 +39,9 @@ const PAIR_LEFT_MARGIN = 0.105;
 const APPT_COUNT = 4;                 // appointments shown
 const APPT_REFRESH = 5 * 60 * 1000;   // refetch every 5 minutes
 const APPT_DAYS = 30;                 // look-ahead window
-const APPT_MAX_CH = 28;               // no appointment line is ever wider than this
-const APPT_TOLERANCE_CH = 2;          // how far a line may pass the second-longest
+const HOUR = 60 * 60 * 1000;
+const SOON_AHEAD = 1 * HOUR;          // soon: starts within this...
+const SOON_SINCE = 2 * HOUR;          // ...or started within this and still on
 // Shown when nothing is scheduled in the window (not an error).
 const APPT_EMPTY = { day: "Looks like it's YOU time", night: "Shouldn't you be asleep?" };
 
@@ -67,7 +68,7 @@ async function fetchEvents(hass, calendars) {
       return_response: true,
     });
     return Object.entries(res.response || {}).flatMap(([calendar, { events = [] }]) =>
-      events.map(e => ({ calendar, summary: e.summary || '', start: e.start, end: e.end,
+      events.map(e => ({ calendar, summary: e.summary || '', location: e.location || '', start: e.start, end: e.end,
                          allDay: isAllDay(e.start), startAt: toDate(e.start), endAt: toDate(e.end) })));
   };
   const events = await get(APPT_DAYS);
@@ -206,13 +207,15 @@ const STYLE = `
   @media (prefers-reduced-motion: reduce) { .appt.soon { animation: none; opacity: 1; } }
   .appt-error .ico { color: var(--coral); }   /* calendar error (calendar-alert icon) */
 
-  /* Each appointment: icon, then text. Each later day steps in by one
-     indent, following the diagonal. */
+  /* Each appointment: icon, then its lines (the title, and the location
+     when it's soon). Each later day steps in by one indent, following the
+     diagonal. */
   .appt { display: flex; align-items: baseline; margin-left: calc(var(--indent, 0) * var(--t2)); }   /* one step = the medium line */
-  /* Width is set per line by _fitAppointments(): no line reaches past the
-     second-longest by more than a small tolerance. Lines are cut off with
-     "…"; only the soonest appointment may wrap to a second line first. */
-  .appt .text {
+  .appt .lines { display: flex; flex-direction: column; min-width: 0; }
+  /* Width is set per line by _capAppointments(): each line stops one gap
+     short of the split, at its own height, and is cut off with "…". Only
+     the soonest appointment may wrap to a second line first. */
+  .appt .text, .appt .where {
     display: block;
     white-space: nowrap;
     overflow: hidden;
@@ -428,8 +431,8 @@ class SinnesroGlance extends HTMLElement {
 
   // Next appointments, soonest at the bottom (nearest the center).
   // Within 24 hours: time only. Later: day and time, with the "later" cue.
-  // Ongoing or within the hour: the "soon" breathing. None, or the calendars
-  // failed: an error line.
+  // Soon (see below): the breathing, and the location under the title.
+  // None, or the calendars failed: an error line.
   _renderAppointments() {
     const list = this.shadowRoot.querySelector('.appointments');
     if (!list || this._events === undefined) return;
@@ -448,18 +451,28 @@ class SinnesroGlance extends HTMLElement {
     } else if (!upcoming.length) {
       rows = [{ cls: 'appt-empty', icon: APPT_ICONS.empty, text: APPT_EMPTY[this._haag.daylight ? 'day' : 'night'] }];   // nothing in the window
     } else {
+      // Soon: starts within the hour, or started within the last 2 hours and
+      // is still on. All-day events covering today are soon only when no
+      // timed event is.
+      const timedSoon = e => !e.allDay &&
+        (e.startAt > now ? e.startAt - now <= SOON_AHEAD : now - e.startAt <= SOON_SINCE);
+      const anyTimedSoon = this._events.some(e => e.endAt > now && timedSoon(e));
+      const isSoon = e => timedSoon(e) || (e.allDay && e.startAt <= now && !anyTimedSoon);
       // Indent level = how many distinct days come before this one's day.
       const days = [...new Set(upcoming.map(e => dateKey(e.startAt)))];
       rows = upcoming.map(e => {
         const later = e.startAt - now > DAY;
-        const soon = e.startAt <= now || e.startAt - now <= 60 * 60 * 1000;
+        const soon = isSoon(e);
+        const where = soon ? e.location.split(/[,(]/)[0].trim() : '';   // up to the first comma or "("
         let when;
         if (e.allDay) when = dateKey(e.startAt) === dateKey(now) ? 'Today' : day(e.startAt);
         else when = later ? `${day(e.startAt)} ${time(e.startAt)}` : time(e.startAt);
         return {
-          cls: `appt${later ? ' later' : ''}${soon && !later ? ' soon' : ''}${e === upcoming[0] ? ' wrap' : ''}`,
+          // The soonest may wrap, unless its location takes the second line.
+          cls: `appt${later ? ' later' : ''}${soon ? ' soon' : ''}${e === upcoming[0] && !where ? ' wrap' : ''}`,
           icon: later ? APPT_ICONS.later : APPT_ICONS.soon,
           text: `${when} ${e.summary}`,
+          where,
           indent: days.indexOf(dateKey(e.startAt)),
         };
       }).reverse();   // soonest last = nearest the center
@@ -472,12 +485,16 @@ class SinnesroGlance extends HTMLElement {
       const div = document.createElement('div');
       div.className = `t3 ${r.cls}`;
       div.style.setProperty('--indent', r.indent || 0);
-      const text = document.createElement('span');
-      text.className = 'text';
-      text.textContent = r.text;   // event titles are never parsed as HTML
-      div.innerHTML = '<span class="ico"></span>';
+      div.innerHTML = '<span class="ico"></span><span class="lines"><span class="text"></span></span>';
       this._haag.icon(div.firstElementChild, r.icon);
-      div.append(text);
+      // Event text is never parsed as HTML.
+      div.querySelector('.text').textContent = r.text;
+      if (r.where) {
+        const where = document.createElement('span');
+        where.className = 'where';
+        where.textContent = r.where;
+        div.lastElementChild.append(where);
+      }
       return div;
     }));
     this._layout();
@@ -715,34 +732,34 @@ class SinnesroGlance extends HTMLElement {
     return { top: top - base, bottom: bottom - base };
   }
 
-  // Keep the appointment block's right edge even: measure each line at full
-  // length (minus its day indent), then cap every line at the second-longest
-  // plus a small tolerance, shifted back by its own indent (and never more
-  // than APPT_MAX_CH). Lines past the cap are cut off; the soonest wraps to
-  // a second line first.
-  _fitAppointments() {
-    const rows = [...this.shadowRoot.querySelectorAll('.appointments > .appt')];
-    if (!rows.length) return;
-    const texts = rows.map(r => r.querySelector('.text'));
-    texts.forEach(t => { t.style.maxWidth = 'none'; t.style.whiteSpace = 'nowrap'; t.style.display = 'inline-block'; });
-    const listLeft = rows[0].parentElement.getBoundingClientRect().left;
-    const right = texts.map(t => t.getBoundingClientRect().right - listLeft);   // natural right edges
-    const lefts = texts.map(t => t.getBoundingClientRect().left - listLeft);
-    texts.forEach(t => { t.style.whiteSpace = ''; t.style.display = ''; });
+  // Before placing the appointments: let the soonest wrap only if its title
+  // doesn't fit on one line. The block's left edge goes at `left` and its
+  // visible bottom on `bottom`, which wrapping doesn't move;
+  // `room(top, bottom)` is the furthest right a line may reach.
+  _wrapSoonest(cluster, left, bottom, room) {
+    const t = cluster.querySelector('.appt.wrap .text');
+    if (!t) return;
+    Object.assign(t.style, { maxWidth: 'none', whiteSpace: 'nowrap', display: 'inline-block' });
+    const r = t.getBoundingClientRect(), base = cluster.getBoundingClientRect();
+    const boxBottom = bottom + (r.bottom - base.top) - this._opticalEdges(cluster).bottom;
+    const max = room(boxBottom - r.height, boxBottom) - (left + r.left - base.left);
+    t.style.display = '';
+    if (r.width > max) {                       // too long: wrap at the room it has
+      t.style.whiteSpace = '';
+      t.style.maxWidth = `${Math.max(0, max)}px`;
+    }
+  }
 
-    const cs = getComputedStyle(texts[0]);
-    this._measure.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-    const ch = this._measure.measureText('0').width;
-    // Stagger-aware: compare lines with their day indent taken out, so the
-    // right edges step down the diagonal the same way the left edges do.
-    const indent = rows.map(r => parseFloat(getComputedStyle(r).marginLeft) || 0);
-    const unstaggered = right.map((r, i) => r - indent[i]);
-    const sorted = [...unstaggered].sort((a, b) => b - a);
-    const cap = rows.length > 1 ? sorted[1] + APPT_TOLERANCE_CH * ch : Infinity;
-
-    texts.forEach((t, i) => {
-      t.style.maxWidth = `${Math.min(cap + indent[i] - lefts[i], APPT_MAX_CH * ch)}px`;
-    });
+  // Each appointment line runs until it would come within one gap of the
+  // split, at its own height, and is cut off there with "…". The block's
+  // top-left is at (tx, ty).
+  _capAppointments(cluster, tx, ty, room) {
+    const base = cluster.getBoundingClientRect();
+    for (const t of cluster.querySelectorAll('.appt .text, .appt .where')) {
+      const r = t.getBoundingClientRect();
+      const max = room(ty + r.top - base.top, ty + r.bottom - base.top) - (tx + r.left - base.left);
+      t.style.maxWidth = `${Math.max(0, max)}px`;
+    }
   }
 
   // Make person icons exactly as tall as the medium digits (cap top to
@@ -829,7 +846,6 @@ class SinnesroGlance extends HTMLElement {
     this._fitPortraits();
     this._fitTime();
     this._alignAmPm();
-    this._fitAppointments();
 
     // Horizontal position for a cluster at height ty, with its nearest
     // visible corner at signed distance `target` from the line. `clamped` is
@@ -844,8 +860,14 @@ class SinnesroGlance extends HTMLElement {
       return { tx, left: tx + minX, clamped: Math.abs(tx - want) > 0.5 };
     };
     const place = (el, ty, target, pick) => {
-      el.style.transform = `translate(${solveX(el, ty, target, pick).tx}px, ${ty}px)`;
+      const { tx } = solveX(el, ty, target, pick);
+      el.style.transform = `translate(${tx}px, ${ty}px)`;
+      return tx;
     };
+    // The furthest right a line spanning top..bottom may reach on the
+    // outdoor side and still stay one gap from the split.
+    const room = (top, bottom) => Math.min(W - edge,
+      ...[top, bottom].map(Y => cx + (-gap - ca * (Y - cy)) / sa));
 
     // Visible bottom of the first outdoor cluster, and visible top of the
     // first indoor cluster.
@@ -886,14 +908,28 @@ class SinnesroGlance extends HTMLElement {
 
     let y = outStart;                          // visible bottom of next outdoor cluster
     let outTop = Infinity;                     // final top of the outdoor stack's ink
+    let anchor = edge;                         // where appointment lines start
     for (const el of this._out) {
+      // Appointments start at the first reading's left edge, rather than
+      // following the line; each of their lines is cut at the split instead.
+      const appts = !!el.querySelector('.appointments');
+      if (appts) this._wrapSoonest(el, anchor, y, room);
       const o = this._opticalEdges(el);
       const ty = y - o.bottom;
-      place(el, ty, -gap, Math.max);
+      let tx;
+      if (appts) {
+        tx = anchor;
+        el.style.transform = `translate(${tx}px, ${ty}px)`;
+        this._capAppointments(el, tx, ty, room);
+      } else {
+        tx = place(el, ty, -gap, Math.max);
+      }
       // Measured relative to the cluster, so a running transition doesn't skew it.
-      const base = el.getBoundingClientRect().top;
-      const inkTop = Math.min(...this._inkParts(el).map(p => p.getBoundingClientRect().top - base));
+      const base = el.getBoundingClientRect();
+      const inkTop = Math.min(...this._inkParts(el).map(p => p.getBoundingClientRect().top - base.top));
       outTop = Math.min(outTop, ty + inkTop);
+      const reading = el.querySelector('.status-line .line > [data-slot]:not([hidden])');
+      if (reading) anchor = tx + reading.getBoundingClientRect().left - base.left;
       y = ty + o.top - cgap;
     }
 

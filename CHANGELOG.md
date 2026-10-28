@@ -2,6 +2,17 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
+## Unreleased
+
+### Added
+
+- Appointments that are soon show their location (up to the first comma or parenthesis) under the title.
+
+### Changed
+
+- Appointment lines start at the outdoor temperature and each runs to the split, cut off where it would cross it, instead of being trimmed to the second-longest line.
+- "Soon" (the breathing) now means starting within the hour, or started within the last two hours and still on; an all-day event today counts when nothing else does.
+
 ## 0.1.2 · 2026-10-28
 
 A pre-release build of work toward 0.2.
