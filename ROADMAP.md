@@ -1,6 +1,6 @@
 # Roadmap
 
-Håg grows one milestone at a time. Each milestone is a minor version (0.2, 0.3, …) until 1.0, which is feature complete. Bug fixes are patch versions (0.1.1, …).
+Håg grows one milestone at a time. Each milestone is a minor version (0.2, 0.3, …) until 1.0, which is feature complete. Until then every build is a pre-release, and builds between milestones are patch versions (0.1.1, 0.1.2, …). From 1.0, pre-releases are marked as such and patch versions are bug fixes.
 
 The criteria under each milestone are a working list. They'll be refined as each milestone is worked on, and this file is kept in step with the GitHub milestones and issues.
 

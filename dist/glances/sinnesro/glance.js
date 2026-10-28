@@ -83,11 +83,9 @@ const STYLE = `
     container-type: size;
   }
 
-  /* Wireframe placeholder colours; the real palette comes later. */
+  /* Colours come from Håg's palette. */
   .stage {
-    --out: #d6d6d6;
-    --in: #ececec;
-    --line: #999;
+    --line: var(--text-2);
     --gap: calc(2.5 * var(--u));          /* perpendicular distance from the split line to clusters */
     --cluster-gap: calc(2.7 * var(--u));  /* visible gap between clusters (see opticalEdges) */
     /* Medium text step. Also sizes AM/PM and the appointment stagger,
@@ -102,17 +100,18 @@ const STYLE = `
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: linear-gradient(var(--haag-split), var(--out) 50%, var(--in) 50%);
+    background: var(--home);
   }
   .stage.paused * { animation-play-state: paused !important; }
 
-  /* Weather background (placeholder hatch); fades across the split. */
-  .weather-bg {
+  /* Outdoor side: sky with a soft horizon glow, cut at the split. The
+     weather background goes here. */
+  .sky {
     position: absolute;
     inset: 0;
-    background: repeating-linear-gradient(45deg, transparent 0 calc(1.2 * var(--u)), rgba(0,0,0,.09) calc(1.2 * var(--u)) calc(1.6 * var(--u)));
-    -webkit-mask-image: linear-gradient(var(--haag-split), #000 38%, transparent 56%);
-            mask-image: linear-gradient(var(--haag-split), #000 38%, transparent 56%);
+    background: radial-gradient(120% 90% at 30% 85%, var(--horizon), transparent 60%), var(--sky);
+    -webkit-mask-image: linear-gradient(var(--haag-split), #000 50%, transparent 50%);
+            mask-image: linear-gradient(var(--haag-split), #000 50%, transparent 50%);
   }
 
   /* Clusters: positioned by layout(). Content inside is left-aligned; the
@@ -134,7 +133,8 @@ const STYLE = `
   /* Three text sizes. */
   .t1 { font-size: calc(14 * var(--u)); }
   .t2 { font-size: var(--t2); }
-  .t3 { font-size: calc(2.8 * var(--u)); }
+  .t3 { font-size: calc(2.8 * var(--u)); color: var(--text-2); }
+  .outdoor .t3 { color: var(--text-2-out); }
 
   .line { display: flex; gap: calc(1.2 * var(--u)); align-items: baseline; }
 
@@ -164,13 +164,12 @@ const STYLE = `
     vertical-align: -.05em;
   }
   .ico > ha-icon { display: flex; width: 100%; height: 100%; --mdc-icon-size: 100%; }
-  /* HVAC status on the floor's temperature icon. Placeholder colours
-     until the palette arrives. */
-  .ico.heat { color: #d29a68; }
-  .ico.cool { color: #7fa6c8; }
-  .ico.fan  { color: #9aa; }
-  .ico.off  { opacity: .35; }
-  .ico.err  { color: #c0392b; }
+  /* HVAC status on the floor's temperature icon. */
+  .ico.heat { color: var(--coral); }
+  .ico.cool { color: var(--seaglass); }
+  .ico.fan  { color: var(--text-2); }
+  .ico.off  { color: var(--text-2); opacity: .35; }
+  .ico.err  { color: var(--coral); }
   /* HVAC motion: slow and gentle. Heat flickers from its base, cool
      turns very slowly, fan spins slowly. */
   .ico.heat > ha-icon { transform-origin: 50% 90%; animation: flicker 4s ease-in-out infinite; }
@@ -186,7 +185,7 @@ const STYLE = `
   /* Slot with no entity on this install: hidden, not labelled. */
   [data-slot][hidden] { display: none; }
   /* Bad or missing value: "Err", icon becomes an alert. */
-  [data-slot].err > .ico { color: #c0392b; }
+  [data-slot].err > .ico { color: var(--coral); }
 
   .status-line { display: flex; align-items: center; }
   .status-line .people { margin-left: calc(2.4 * var(--u)); }
@@ -205,7 +204,7 @@ const STYLE = `
     50%      { opacity: 1; }
   }
   @media (prefers-reduced-motion: reduce) { .appt.soon { animation: none; opacity: 1; } }
-  .appt-error .ico { color: #c0392b; }   /* calendar error (calendar-alert icon) */
+  .appt-error .ico { color: var(--coral); }   /* calendar error (calendar-alert icon) */
 
   /* Each appointment: icon, then text. Each later day steps in by one
      indent, following the diagonal. */
@@ -268,7 +267,7 @@ const STYLE = `
 // Markup. Values marked data-live are filled in by the glance.
 const TEMPLATE = `
   <div class="stage">
-    <div class="weather-bg"></div>
+    <div class="sky"></div>
 
     <section class="side outdoor" aria-label="Outdoor">
       <!-- Time and date are separate blocks, each following the line on its

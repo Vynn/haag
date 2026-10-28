@@ -14,7 +14,7 @@ Version 0.1 is the idle screen, split diagonally into outdoors and indoors:
 - **Indoors:** one row per floor with its heating or cooling status, temperature, humidity, air quality, and who's on that floor.
 - **Alert row:** a full-width band through the middle. Real alerts arrive in 0.3.
 
-It's designed square-first and also works in portrait and landscape, from a Raspberry Pi kiosk to a tablet or a 4K screen. The illustrated weather backgrounds and day and night colors arrive in 0.2.
+It's designed square-first and also works in portrait and landscape, from a Raspberry Pi kiosk to a tablet or a 4K screen. Day and night colors arrived in 0.1.2; the illustrated weather backgrounds arrive in 0.2.
 
 ## Requirements
 

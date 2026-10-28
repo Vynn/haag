@@ -49,6 +49,18 @@ strategy:
 | `cycle` | Seconds per turn when several glances want the screen. 30 if left out. |
 | `glances.<name>.enabled` | `true` turns a glance on. Entry order is the order glances take turns. |
 
+## Day and night
+
+```yaml
+strategy:
+  type: custom:haag
+  theme: auto
+```
+
+| Setting | Value |
+|---|---|
+| `theme` | `auto` follows the sun: day colors from sunrise to sunset, or 6:00 to 18:00 without Home Assistant's sun entity. `dark` or `light` keeps one. `auto` if left out. |
+
 ## Outdoor
 
 `providers.outdoor` picks the entity for each outdoor reading. Any you leave out are found automatically.

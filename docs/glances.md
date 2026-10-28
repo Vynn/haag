@@ -1,6 +1,6 @@
 # Glances
 
-> **Not built yet.** This is the agreed design for 0.2. ◇ marks what's still a proposal.
+> **Pre-release.** Built in 0.1.2, ahead of 0.2. ◇ marks what's still a proposal.
 
 Håg is its own glanceable dashboard framework, built as a Home Assistant dashboard strategy. Everything it shows is a glance.
 
@@ -156,12 +156,22 @@ Switching between glances is a crossfade until transitions arrive in 0.4.
 | | |
 |---|---|
 | `haag.providers` | Discovery results (`outdoor`, `floors`, `people`, `calendars`), with settings applied, and readers for their current state: `value(ref)`, `unit(ref)`, `hvac(climate)`, `locate()`. |
-| `haag.daylight` | Day or night. |
+| `haag.daylight` | Whether day colors are showing: the `theme` setting, or the sun when it's `auto`. |
 | `haag.layout` | The shared geometry: the split's `angle` (the line runs through the center). Helpers for placing content along it move here with the second glance (0.4). |
 | `haag.icon(element, name)` | Draws a Home Assistant icon. |
 | `haag.alert` | Whether the alert row shows, and where. |
 
-Inherited through CSS: the typeface, day and night colors as CSS variables, and the size unit `cqmin` (1% of the shorter side).
+Inherited through CSS: the typeface, the size unit `cqmin` (1% of the shorter side), and the palette:
+
+| Color | Use |
+|---|---|
+| `--sky`, `--horizon` | The outdoor side and its glow near the split. |
+| `--home` | The indoor side. |
+| `--text`, `--text-2` | Text and secondary text. `--text-2-out` is secondary text on the sky. |
+| `--coral`, `--seaglass` | Accents: heating and alerts, cooling. |
+| `--band`, `--mist` | The alert row's wash, and haze. |
+
+Each mixes a night and a day value (`--n-sky`, `--d-sky`, …) by `--haag-daylight`, 0 at night and 1 by day, which switches over 2.5 seconds.
 
 ### Alert row
 

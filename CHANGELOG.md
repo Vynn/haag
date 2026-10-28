@@ -1,18 +1,23 @@
 # Changelog
 
-All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, patch versions for fixes.
+All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
-## Unreleased
+## 0.1.2 · 2026-10-28
+
+A pre-release build of work toward 0.2.
 
 ### Added
 
 - Glances: Håg's own units of display, distinct from Home Assistant cards. Each is turned on in settings, asks for the screen when it has something to show, and takes turns with others on a 30-second cycle (`cycle`). See [glances](docs/glances.md).
 - The default glance (`default`), shown when nothing else needs the screen: Overview Glance, the idle screen from 0.1.
 - A startup alert with a countdown, which turns critical with troubleshooting links if nothing can show after 60 seconds.
+- Day and night colors, switching over 2.5 seconds at sunrise and sunset. The `theme` setting keeps one instead (`dark` or `light`).
 
 ### Changed
 
 - The idle screen is now Overview Glance, in its own files under `glances/`. The alert row belongs to Håg itself, above every glance.
+- The wireframe greys and the placeholder weather hatch are replaced by the palette: sky with a horizon glow outdoors, a calm base indoors.
+- Without Home Assistant's sun entity, night now starts at 18:00 (was 20:00).
 
 ## 0.1.1 · 2026-10-27
 

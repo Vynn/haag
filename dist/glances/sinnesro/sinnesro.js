@@ -4,7 +4,7 @@ const manifest = {
   name: 'sinnesro',
   element: 'haag-sinnesro',
   title: 'Overview Glance',
-  version: '0.1.1',
+  version: '0.1.2',
 };
 
 (window.haagGlances ||= []).push({

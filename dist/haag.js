@@ -10,18 +10,22 @@
   phone to a 4K screen.
 */
 
-const VERSION = '0.1.1';
+const VERSION = '0.1.2';
 const MANIFEST = 'haag/v1';   // config format marker
 
 /* ------------------------------------------------------------------------
    Shared setup
    ------------------------------------------------------------------------ */
 
-// Registering the split angle as an <angle> lets the browser animate it.
-// (@property rules don't apply inside shadow DOM, so register it globally.)
-try {
-  CSS.registerProperty({ name: '--haag-split', syntax: '<angle>', inherits: true, initialValue: '135deg' });
-} catch { /* already registered, or not supported */ }
+// Registered properties can be animated: the split angle, and daylight
+// (0 night, 1 day), which mixes the palette. @property rules don't apply
+// inside shadow DOM, so they're registered globally.
+for (const prop of [
+  { name: '--haag-split', syntax: '<angle>', inherits: true, initialValue: '135deg' },
+  { name: '--haag-daylight', syntax: '<number>', inherits: true, initialValue: '0' },
+]) {
+  try { CSS.registerProperty(prop); } catch { /* already registered, or not supported */ }
+}
 
 // Bundled typeface: Open Sans, variable weight and width (SIL Open Font
 // License 1.1, in assets/OFL.txt). Font rules inside shadow DOM aren't used
@@ -382,12 +386,12 @@ function linkGroups(people) {
    [entity_id, ...]`, or every visible calendar when unset.
    ------------------------------------------------------------------------ */
 
-// Day or night from HA's sun entity; by the clock if there isn't one.
+// Day or night from HA's sun entity; without one, day is 6:00 to 18:00.
 function isNight(hass, now = new Date()) {
   const sun = Object.keys(hass?.states || {}).find(id => id.startsWith('sun.'));
   if (sun) return hass.states[sun].state === 'below_horizon';
   const h = now.getHours();
-  return h < 6 || h >= 20;
+  return h < 6 || h >= 18;
 }
 
 function discoverCalendars(hass, reg, overrides = {}) {
@@ -409,6 +413,7 @@ const CYCLE = 30;           // seconds per turn when several glances want the sc
 const STARTUP_LIMIT = 60;   // seconds before an empty screen turns critical
 const SPLIT_ANGLE = 45;     // the diagonal, from horizontal
 const NAME = /^[a-z][a-z0-9_-]*$/;
+const THEMES = ['auto', 'dark', 'light'];   // auto follows the sun
 const BUILT_IN_BASE = new URL('./glances/', import.meta.url).href;
 const HELP_URL = 'https://github.com/Vynn/haag/blob/main/docs/glances.md';
 
@@ -474,12 +479,18 @@ function readSettings(config) {
     notice(`cycle must be a number of seconds; using ${CYCLE}`);
     cycle = CYCLE;
   }
+  let theme = String(config.theme ?? 'auto');
+  if (!THEMES.includes(theme)) {
+    notice(`theme must be auto, dark or light; using auto`);
+    theme = 'auto';
+  }
   return {
     glances,
     def,
     defOn: glances[def]?.enabled !== false,
     order: Object.keys(glances).filter(n => NAME.test(n) && n !== def && glances[n]?.enabled === true),
     cycle,
+    theme,
   };
 }
 
@@ -501,17 +512,43 @@ const HOST_STYLE = `
     height: var(--haag-height, 100vh);
     container-type: size;
     font-family: 'Haag Open Sans', system-ui, sans-serif;
-    color: #222;
   }
 
-  /* Wireframe placeholder colours; the real palette comes later. */
+  /* Palette: night and day values, mixed in OKLab by --haag-daylight
+     (0 night, 1 day). Glances inherit the mixed colours. Values are
+     placeholders until the text pass. */
   .stage {
+    --n-sky: #10162A;       --d-sky: #7CC8F2;        /* outdoor base */
+    --n-horizon: #1D3442;   --d-horizon: #FFD6E7;    /* outdoor glow */
+    --n-home: #1E2433;      --d-home: #F6FAFF;       /* indoor base */
+    --n-band: #FFFFFF14;    --d-band: #FFFFFFB3;     /* alert row */
+    --n-text: #F1EADC;      --d-text: #0E1F3A;
+    --n-text-2: #A9B0C2;    --d-text-2: #34537A;     /* secondary */
+    --n-coral: #FF7A68;     --d-coral: #D6336C;      /* heating, alerts */
+    --n-seaglass: #72D8C6;  --d-seaglass: #0B8A5E;   /* cooling */
+    --n-mist: #8FA6C8;      --d-mist: #FFFFFF;       /* haze */
+    --day-mix: calc(var(--haag-daylight) * 100%);
+    --sky: color-mix(in oklab, var(--d-sky) var(--day-mix), var(--n-sky));
+    --horizon: color-mix(in oklab, var(--d-horizon) var(--day-mix), var(--n-horizon));
+    --home: color-mix(in oklab, var(--d-home) var(--day-mix), var(--n-home));
+    --band: color-mix(in oklab, var(--d-band) var(--day-mix), var(--n-band));
+    --text: color-mix(in oklab, var(--d-text) var(--day-mix), var(--n-text));
+    --text-2: color-mix(in oklab, var(--d-text-2) var(--day-mix), var(--n-text-2));
+    --coral: color-mix(in oklab, var(--d-coral) var(--day-mix), var(--n-coral));
+    --seaglass: color-mix(in oklab, var(--d-seaglass) var(--day-mix), var(--n-seaglass));
+    --mist: color-mix(in oklab, var(--d-mist) var(--day-mix), var(--n-mist));
+    /* Secondary text on the sky: a touch darker by day, for 4.5:1. */
+    --text-2-out: color-mix(in oklab, var(--text) calc(var(--haag-daylight) * 7%), var(--text-2));
+
     position: relative;
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: linear-gradient(var(--haag-split), #d6d6d6 50%, #ececec 50%);
+    background: linear-gradient(var(--haag-split), var(--sky) 50%, var(--home) 50%);
+    color: var(--text);
   }
+  /* Day and night switch quickly, at sunrise and sunset. */
+  .stage.animate { transition: --haag-daylight 2.5s ease-in-out; }
 
   /* Glances fill the screen; switching crossfades. */
   .glances > * {
@@ -539,15 +576,16 @@ const HOST_STYLE = `
   }
   .stage.animate .alert-row { transition: opacity var(--move), visibility var(--move), background-color var(--move); }
   .alert-row.hidden { opacity: 0; visibility: hidden; }
-  /* Severity. Placeholder colours from the day palette until the text pass. */
-  .alert-row.info { background: #FFFFFFB3; color: #0E1F3A; }
-  .alert-row.info .ico { color: #34537A; }
-  /* Troubleshooting can run long, so a critical alert wraps inside the row. */
+  /* Severity. */
+  .alert-row.info { background: var(--band); }
+  .alert-row.info .ico { color: var(--text-2); }
+  /* Troubleshooting can run long, so a critical alert wraps inside the row.
+     Coral, with white text by day and night-sky text at night. */
   .alert-row.critical {
     display: block;
     padding-inline: calc(4 * var(--u));
-    background: #D6336C;
-    color: #FFFFFF;
+    background: var(--coral);
+    color: color-mix(in oklab, #FFFFFF var(--day-mix), var(--n-sky));
     text-align: center;
     white-space: normal;
   }
@@ -586,11 +624,13 @@ class HaagHost extends HTMLElement {
   setConfig(config) {
     this._config = config;
     this._settings = readSettings(config);
+    this._updateDaylight();
   }
 
   set hass(hass) {
     const first = !this._hass;
     this._hass = hass;
+    this._updateDaylight();
     if (first) this._discover();
     for (const { el } of this._running.values()) el.hass = hass;
   }
@@ -704,7 +744,7 @@ class HaagHost extends HTMLElement {
     const host = this;
     return {
       providers: this._providers,
-      get daylight() { return !isNight(host._hass); },
+      get daylight() { return host._daylight; },
       layout: { angle: SPLIT_ANGLE },
       icon: setIcon,
       get alert() { return host._alertBand(); },
@@ -744,6 +784,15 @@ class HaagHost extends HTMLElement {
       entry.el.classList.toggle('on', on);
       entry.el.dispatchEvent(new Event('haag-visible'));
     }
+  }
+
+  // ----- Day and night -----
+
+  // The theme setting, or the sun when it's auto.
+  _updateDaylight() {
+    const theme = this._settings?.theme;
+    this._daylight = theme === 'light' || (theme !== 'dark' && !isNight(this._hass));
+    this._stage.style.setProperty('--haag-daylight', this._daylight ? 1 : 0);
   }
 
   // ----- Alert row -----
