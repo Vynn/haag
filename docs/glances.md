@@ -57,9 +57,9 @@ Shared settings are in [configuration](configuration.md).
 
 ## Starting up
 
-At startup, the alert row shows an information alert: Håg is starting up.
+At startup, the alert row shows an information alert: Håg is starting up, with a countdown in seconds so it doesn't look frozen.
 
-If after ◇ a set time the default glance is still missing, off or failing to load, and no other glance has the screen, the alert turns critical. It says what's wrong, with troubleshooting steps and shortcuts to fix it, such as a link to settings.
+If after 60 seconds the default glance is still missing, off or failing to load, and no other glance has the screen, the alert turns critical. It says what's wrong, with links to settings (edit mode, for administrators) and to this page.
 
 ## Notices
 
@@ -97,6 +97,7 @@ const manifest = {
 
 (window.haagGlances ||= []).push({
   manifest,
+  url: import.meta.url,
   // Load with this file's cache tag, so an update refreshes both files.
   load() {
     const url = new URL('./glance.js', import.meta.url);
@@ -107,7 +108,7 @@ const manifest = {
 ```
 
 - **The bootstrap loads the glance** because only it knows its cache tag; relative imports drop it.
-- **Registration goes through a shared list,** so Håg and its glances can load in any order.
+- **Registration goes through a shared list,** so Håg and its glances can load in any order. `url` lets notices name the file.
 - **Glances never import Håg.** A different address would load a second copy; Håg passes glances what they need.
 
 ### Manifest
@@ -138,21 +139,25 @@ customElements.define('my-glance', MyGlance);
 
 `setConfig` and `hass` work as in Home Assistant's own cards. If the tag is already taken, the glance fails to load and Håg gives a notice.
 
+Every glance fills its screen with at least a background color. It can use Håg's colors or a palette of its own.
+
 ### Asking for the screen
 
 The default glance never asks. Other glances:
 
 - `haag.request()`: something to show.
 - `haag.release()`: done.
-- `haag.visible`: whether the glance is on screen. The glance hears when it changes and pauses animation while hidden.
+- `haag.visible`: whether the glance is on screen. A `haag-visible` event on the glance says when it changes; the glance pauses animation while hidden.
+
+Switching between glances is a crossfade until transitions arrive in 0.4.
 
 ### What Håg provides
 
 | | |
 |---|---|
-| `haag.providers` | Discovery results (outdoor readings, floors, people, calendars), with settings applied. |
+| `haag.providers` | Discovery results (`outdoor`, `floors`, `people`, `calendars`), with settings applied, and readers for their current state: `value(ref)`, `unit(ref)`, `hvac(climate)`, `locate()`. |
 | `haag.daylight` | Day or night. |
-| `haag.layout` | Helpers for the diagonal layout. |
+| `haag.layout` | The shared geometry: the split's `angle` (the line runs through the center). Helpers for placing content along it move here with the second glance (0.4). |
 | `haag.icon(element, name)` | Draws a Home Assistant icon. |
 | `haag.alert` | Whether the alert row shows, and where. |
 
@@ -163,11 +168,10 @@ Inherited through CSS: the typeface, day and night colors as CSS variables, and 
 Håg draws it above every glance, by the same rules for every glance:
 
 - **When and where:** Håg decides. A full-width band through the middle.
-- **What the glance is told:** `haag.alert`.
+- **What the glance is told:** `haag.alert` gives `showing`, and the band's `top` and `bottom` in pixels. A `haag-alert` event on the glance says when it changes.
 - **What the glance does:** keeps its content out of the band, or moves it aside as the default glance's center blocks do.
 - **Touch:** only the row takes touches. What touching an alert does comes in 0.3.
 
 ## Not decided yet
 
 - **Behavior rules and cooldown,** drafted with the second glance (0.4): priority, how long a glance keeps the screen after it's done, and a limit for one that never lets go.
-- **The switch between glances** until transitions arrive in 0.4.

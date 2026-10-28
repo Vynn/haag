@@ -2,6 +2,18 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, patch versions for fixes.
 
+## Unreleased
+
+### Added
+
+- Glances: Håg's own units of display, distinct from Home Assistant cards. Each is turned on in settings, asks for the screen when it has something to show, and takes turns with others on a 30-second cycle (`cycle`). See [glances](docs/glances.md).
+- The default glance (`default`), shown when nothing else needs the screen: Overview Glance, the idle screen from 0.1.
+- A startup alert with a countdown, which turns critical with troubleshooting links if nothing can show after 60 seconds.
+
+### Changed
+
+- The idle screen is now Overview Glance, in its own files under `glances/`. The alert row belongs to Håg itself, above every glance.
+
 ## 0.1.1 · 2026-10-27
 
 ### Added

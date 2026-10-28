@@ -6,7 +6,7 @@ Håg has no build step. The plugin is plain JavaScript, CSS and HTML in `dist/`,
 
 | Folder | Contents | Installed? |
 |---|---|---|
-| `dist/` | The plugin: `haag.js` and its assets | Yes |
+| `dist/` | The plugin: `haag.js`, its glances and assets | Yes |
 | `design/` | Design studies | No |
 | `tools/` | Local development tools | No |
 | `docs/` | Documentation | No |
@@ -27,6 +27,8 @@ The test page shows Håg live against your Home Assistant, outside Home Assistan
 The URL and token are stored only in that browser, and **Forget** removes them. The server listens on this machine only and never caches, so a reload shows the latest code.
 
 The test page can preview square, portrait and landscape shapes, toggle the alert row, and try settings as JSON.
+
+It also loads Test Glance (`tools/glances/test/`), a stand-in second glance that isn't shipped. Turned on, it asks for the screen for 5 seconds, then lets go for 25.
 
 ## Third-party code
 

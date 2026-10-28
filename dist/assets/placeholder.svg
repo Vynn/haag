@@ -1,5 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-  <!-- Placeholder asset: checks that HACS/Marketplace installs files from dist/ subfolders. -->
-  <rect x="4" y="4" width="56" height="56" rx="14" fill="none" stroke="#999" stroke-width="4"/>
-  <path d="M4 60 L60 4" stroke="#999" stroke-width="4"/>
-</svg>

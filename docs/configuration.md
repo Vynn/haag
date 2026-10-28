@@ -29,6 +29,26 @@ strategy:
         - calendar.school
 ```
 
+## Glances
+
+What shows, and when. See [glances](glances.md).
+
+```yaml
+strategy:
+  type: custom:haag
+  default: sinnesro
+  cycle: 30
+  glances:
+    laundry:
+      enabled: true
+```
+
+| Setting | Value |
+|---|---|
+| `default` | The glance shown when nothing else needs the screen. Overview Glance (`sinnesro`) if left out. |
+| `cycle` | Seconds per turn when several glances want the screen. 30 if left out. |
+| `glances.<name>.enabled` | `true` turns a glance on. Entry order is the order glances take turns. |
+
 ## Outdoor
 
 `providers.outdoor` picks the entity for each outdoor reading. Any you leave out are found automatically.

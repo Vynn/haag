@@ -6,7 +6,7 @@
 <title>Håg Test Page</title>
 <!--
   Håg dev test page. Connects to a live Home Assistant over WebSocket and
-  shows what Håg will see. Later it will also render the Håg card itself.
+  shows what Håg will see, and Håg itself.
 
   Run tools/dev-server.py, then open http://127.0.0.1:8117/tools/
   The HA URL and token are kept only in this browser (localStorage) and are
@@ -33,9 +33,9 @@
   ul { margin: 4px 0; padding-left: 18px; }
   .shapes { display: flex; gap: 6px; margin: 6px 0; }
   .shapes button[aria-pressed="true"] { background: #222; color: #fff; border-color: #222; }
-  /* Card preview: a fixed-shape frame; the card fills it. */
+  /* Preview: a fixed-shape frame; Håg fills it. */
   .frame { --ar: 1; aspect-ratio: var(--ar); width: min(100%, calc((100vh - 60px) * var(--ar))); border: 1px solid #222; }
-  .frame haag-idle-card { --haag-height: 100%; }
+  .frame haag-host { --haag-height: 100%; }
 </style>
 </head>
 <body>
@@ -55,7 +55,7 @@
 
 <div id="status">Not connected.</div>
 <div id="preview" hidden>
-  <h2>Idle card</h2>
+  <h2>Håg</h2>
   <div class="shapes" id="shapes">
     <button data-ar="1" aria-pressed="true">Square</button>
     <button data-ar="0.5625" aria-pressed="false">Portrait</button>
@@ -64,7 +64,7 @@
   </div>
   <div class="frame" id="frame"></div>
   <h2>Strategy config</h2>
-  <p class="muted" style="margin:0 0 6px">The same options a <code>strategy:</code> block would hold, as JSON (e.g. <code>{"providers": {"calendar": {"calendars": ["calendar.example"]}}}</code>). Kept in this browser only, never in a file.</p>
+  <p class="muted" style="margin:0 0 6px">The same options a <code>strategy:</code> block would hold, as JSON (e.g. <code>{"providers": {"calendar": {"calendars": ["calendar.example"]}}}</code>). <code>{"glances": {"test": {"enabled": true}}}</code> turns on Test Glance. Kept in this browser only, never in a file.</p>
   <textarea id="config" rows="6" spellcheck="false" style="width:min(100%,640px);font:12px/1.4 ui-monospace,monospace"></textarea>
   <div><button type="button" id="apply">Apply config</button> <span id="config-msg" class="muted"></span></div>
 </div>
@@ -74,6 +74,7 @@
   import { connectHass } from './hass-shim.js';
   import './ha-icon-standin.js';   // HA's ha-icon isn't here outside HA
   import '../dist/haag.js';   // the Håg plugin itself (registers its elements)
+  import './glances/test/test.js';   // Test Glance; off until turned on in settings
 
   const KEY = 'haag-dev-connection';
   const $ = id => document.getElementById(id);
@@ -94,11 +95,11 @@
     session?.close();
     status('Connecting…');
     try {
-      session = await connectHass(url, token, hass => { window.hass = hass; if (card) card.hass = hass; });
+      session = await connectHass(url, token, hass => { window.hass = hass; if (host) host.hass = hass; });
       save({ url, token });
       const { hass } = session;
       status(`Connected to Home Assistant ${hass.config.version} as ${hass.user.name}${hass.user.is_admin ? ' (admin)' : ''}.`, 'ok');
-      await mountCard(hass);
+      await mountHost(hass);
       await inspect(hass);
     } catch (err) {
       // The client library rejects with numeric codes (e.g. 1 = can't
@@ -108,19 +109,19 @@
     }
   }
 
-  // Build the card the same way HA would: ask the strategy for the dashboard,
+  // Build Håg the same way HA would: ask the strategy for the dashboard,
   // then create the card it lists, with the config it gives.
-  let card = null;
-  async function mountCard(hass) {
+  let host = null;
+  async function mountHost(hass) {
     const Strategy = customElements.get('ll-strategy-dashboard-haag');
     const options = JSON.parse($('config').value || '{}');
     const dashboard = await Strategy.generate({ type: 'custom:haag', ...options }, hass);
     const cardConfig = dashboard.views[0].cards[0];
-    card = document.createElement(cardConfig.type.replace('custom:', ''));
-    card.setConfig(cardConfig);
-    card.hass = hass;
-    $('frame').replaceChildren(card);
-    card.setAlertVisible(alertVisible);
+    host = document.createElement(cardConfig.type.replace('custom:', ''));
+    host.setConfig(cardConfig);
+    host.hass = hass;
+    $('frame').replaceChildren(host);
+    host.setAlertVisible(alertVisible);
     $('preview').hidden = false;
   }
 
@@ -129,7 +130,7 @@
   $('alert-toggle').addEventListener('click', e => {
     alertVisible = !alertVisible;
     e.currentTarget.setAttribute('aria-pressed', alertVisible);
-    card?.setAlertVisible(alertVisible);
+    host?.setAlertVisible(alertVisible);
   });
 
   $('shapes').addEventListener('click', e => {
@@ -204,7 +205,7 @@
     }
     saveConfig($('config').value);
     $('config-msg').textContent = 'Applied.';
-    if (session) await mountCard(window.hass || session.hass);   // latest hass
+    if (session) await mountHost(window.hass || session.hass);   // latest hass
   });
 
   const saved = load();
