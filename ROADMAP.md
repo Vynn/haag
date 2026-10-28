@@ -20,8 +20,11 @@ The default screen when nothing else needs attention.
 
 ## 0.2 · Weather and color
 
-The idle screen's illustrated look.
+The idle screen's illustrated look, and how glances work.
 
+- [ ] Glance architecture: how glances are installed, turned on and configured, documented
+- [ ] Glances appear only when relevant and give way to the default glance (Overview Glance) afterwards
+- [ ] Several glances take turns on a 30-second timer, adjustable in YAML
 - [ ] Animated weather background for all 15 Home Assistant weather conditions
 - [ ] Day and night colors, switching at sunrise and sunset
 - [x] Bundled typeface (shipped in 0.1.1)
@@ -34,14 +37,13 @@ The idle screen's illustrated look.
 - [ ] Notices for doors and garage doors left open, low batteries, water leaks and available updates
 - [ ] Priority and rotation when several notices are active
 
-## 0.4 · Laundry card
+## 0.4 · Laundry glance
 
-The first card, which also sets up how every card works.
+The first glance after Overview Glance.
 
-- [ ] Card architecture: how cards are added, documented
-- [ ] Cards appear only when relevant and give way to the idle screen afterwards
-- [ ] Transitions between the idle screen and cards
-- [ ] Touch to move between cards or pause
+- [ ] Rules for priority and cooldown when several glances want the screen
+- [ ] Transitions between glances
+- [ ] Touch to move between glances or pause
 - [ ] Shows while the washer or dryer is running, and when a load is done
 - [ ] Cycle progress, time remaining and finish time
 - [ ] Current phase (wash, rinse, spin, dry) where available
@@ -49,7 +51,7 @@ The first card, which also sets up how every card works.
 - [ ] A finished load waiting to be emptied (until the door opens, where a door sensor exists)
 - [ ] Errors shown clearly
 
-## 0.5 · 3D printer card
+## 0.5 · 3D printer glance
 
 - [ ] Shows while a print is running, and for a while after it finishes or fails
 - [ ] Progress, time remaining and estimated finish time
@@ -62,10 +64,10 @@ The first card, which also sets up how every card works.
 
 - [ ] A visual settings editor in Home Assistant's dashboard editor, matching the YAML
 - [ ] Settings for people and calendars, including colors and linked people
-- [ ] Settings for each card
+- [ ] Settings for each glance
 - [ ] Versioned settings format, with import and export
 
-## 0.7 · Irrigation card
+## 0.7 · Irrigation glance
 
 - [ ] Shows while watering, and shortly before a scheduled run
 - [ ] Active zone and time remaining
@@ -73,7 +75,7 @@ The first card, which also sets up how every card works.
 - [ ] Skipped or delayed runs (rain, wind, freeze) with the reason
 - [ ] Controller offline or in error
 
-## 0.8 · EV charging card
+## 0.8 · EV charging glance
 
 - [ ] Shows while a car is plugged in or charging
 - [ ] Charging power, and energy added this session
@@ -82,7 +84,7 @@ The first card, which also sets up how every card works.
 - [ ] More than one charger
 - [ ] Charger faults shown clearly
 
-## 0.9 · Doorbell and deliveries card
+## 0.9 · Doorbell and deliveries glance
 
 - [ ] Shows when someone is at the door, with a camera snapshot
 - [ ] A package detected at the door, until it's picked up
@@ -106,7 +108,7 @@ The first card, which also sets up how every card works.
 
 ## 1.0 · Feature complete
 
-- [ ] Cards and notices share one priority order
+- [ ] Glances and notices share one priority order
 - [ ] Stable settings format
 - [ ] Complete documentation
 - [ ] Listed in the default HACS and Home Assistant Marketplace catalog

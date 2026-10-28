@@ -40,6 +40,7 @@ Håg finds everything else. To change what it picks, see [configuration](docs/co
 ## Documentation
 
 - [Configuration](docs/configuration.md): every setting.
+- [Glances](docs/glances.md): how Håg's glances work, and how to make one.
 - [Discovery](docs/discovery.md): how Håg finds your sensors, people and calendars.
 - [Design](docs/design.md): the visual language.
 - [Development](docs/development.md): working on Håg locally.

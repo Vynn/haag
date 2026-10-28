@@ -13,7 +13,7 @@ Håg has no build step. The plugin is plain JavaScript, CSS and HTML in `dist/`,
 
 ## Local test page
 
-The test page shows the live card against your Home Assistant, outside Home Assistant itself.
+The test page shows Håg live against your Home Assistant, outside Home Assistant itself.
 
 1. Start the local server (Python 3, standard library only):
 
