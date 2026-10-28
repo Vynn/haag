@@ -280,6 +280,23 @@ function setIcon(box, name) {
   else icon.removeAttribute('icon');
 }
 
+// The alert row's icons, fitted to its digits: drawn top and bottom in
+// MDI's 24-unit grid (@mdi/js 7.4.47). Glances fit their own icons.
+const ALERT_INK = { 'mdi:information': [2, 22], 'mdi:alert-octagon': [3, 21] };
+const FIGURE = .719 * 30;   // Open Sans digit height, in grid units (1em = 30)
+
+// Scale an alert icon so its drawn part runs from the baseline (22.5 units
+// down its .8em box) to the digit tops, about its center.
+function fitAlertIcon(box, name) {
+  const icon = box.firstElementChild, ink = ALERT_INK[name];
+  if (!icon) return;
+  if (!ink) { icon.style.scale = icon.style.translate = ''; return; }
+  const [top, bottom] = ink;
+  const s = FIGURE / (bottom - top);
+  icon.style.scale = s.toFixed(3);
+  icon.style.translate = `0 ${((10.5 - s * (bottom - 12)) / 24 * 100).toFixed(2)}%`;
+}
+
 /* ------------------------------------------------------------------------
    People
    Who's on which floor, and who's away. People are HA `person`
@@ -560,7 +577,8 @@ const HOST_STYLE = `
   }
   .glances > .on { opacity: 1; visibility: visible; }
 
-  /* Alert row: full width through the center, above every glance. */
+  /* Alert row: full width through the center, above every glance. One
+     line of text, so the icon sits on its baseline. */
   .alert-row {
     position: absolute;
     left: 0;
@@ -568,10 +586,8 @@ const HOST_STYLE = `
     top: 50%;
     translate: 0 -50%;
     padding: calc(1.2 * var(--u)) 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     font-size: calc(5.5 * var(--u));
+    text-align: center;
     white-space: nowrap;
   }
   .stage.animate .alert-row { transition: opacity var(--move), visibility var(--move), background-color var(--move); }
@@ -582,11 +598,9 @@ const HOST_STYLE = `
   /* Troubleshooting can run long, so a critical alert wraps inside the row.
      Coral, with white text by day and night-sky text at night. */
   .alert-row.critical {
-    display: block;
     padding-inline: calc(4 * var(--u));
     background: var(--coral);
     color: color-mix(in oklab, #FFFFFF var(--day-mix), var(--n-sky));
-    text-align: center;
     white-space: normal;
   }
   .alert-row a { color: inherit; margin-left: .8em; }
@@ -856,7 +870,9 @@ class HaagHost extends HTMLElement {
     const { level, icon, text, help = false, hidden = false } = state;
     const row = this._row;
     row.className = `alert-row ${level}${hidden ? ' hidden' : ''}`;
-    setIcon(row.querySelector('.ico'), icon);
+    const box = row.querySelector('.ico');
+    setIcon(box, icon);
+    fitAlertIcon(box, icon);
     row.querySelector('.msg').textContent = text;
     // Settings opens edit mode (admins, storage-mode dashboards).
     row.querySelector('.links').innerHTML = help

@@ -5,9 +5,10 @@
 */
 
 const ERR_ICON = 'mdi:alert';
+// Idle has no icon of its own: it shows the thermometer.
 const HVAC_ICONS = {
   heat: 'mdi:fire', cool: 'mdi:snowflake', fan: 'mdi:fan',
-  idle: 'mdi:thermostat', off: 'mdi:power-off', err: ERR_ICON,
+  off: 'mdi:power-off', err: ERR_ICON,
 };
 const READING_ICONS = {
   hum: 'mdi:water-percent', co2: 'mdi:sprout', pm25: 'mdi:molecule',
@@ -17,6 +18,33 @@ const APPT_ICONS = {
   soon: 'mdi:calendar-clock', later: 'mdi:calendar-arrow-right',
   err: 'mdi:calendar-alert', empty: 'mdi:party-popper',
 };
+
+// Each icon's drawn top and bottom in MDI's 24-unit grid, measured from
+// @mdi/js 7.4.47. Re-measure if HA's icons change.
+const ICON_INK = {
+  'mdi:alert': [2, 21], 'mdi:fire': [3, 21], 'mdi:snowflake': [2, 22],
+  'mdi:fan': [2, 22], 'mdi:power-off': [3, 21],
+  'mdi:thermometer': [2, 22], 'mdi:thermometer-low': [2, 22], 'mdi:thermometer-high': [2, 22],
+  'mdi:water-percent': [3.26, 20], 'mdi:sprout': [3.94, 22], 'mdi:molecule': [3, 21],
+  'mdi:radioactive': [2.3, 20.9], 'mdi:molecule-co': [7, 17], 'mdi:leaf': [3, 22],
+  'mdi:calendar-clock': [1, 23], 'mdi:calendar-arrow-right': [1, 21],
+  'mdi:calendar-alert': [1, 21], 'mdi:party-popper': [1.45, 22],
+};
+const FIGURE = .719 * 30;   // Open Sans digit height, in grid units (1em = 30)
+
+// Fit an icon to the digits: its drawn part runs from the baseline to the
+// digit tops. The icon fills its 24-unit box, with the baseline 22.5 units
+// down, and scales about its center; the box itself, which layout
+// measures, never changes. Unlisted icons draw as they are.
+function fitIcon(box, name) {
+  const icon = box.firstElementChild, ink = ICON_INK[name];
+  if (!icon) return;
+  if (!ink) { icon.style.scale = icon.style.translate = ''; return; }
+  const [top, bottom] = ink;
+  const s = FIGURE / (bottom - top);
+  icon.style.scale = s.toFixed(3);
+  icon.style.translate = `0 ${((10.5 - s * (bottom - 12)) / 24 * 100).toFixed(2)}%`;
+}
 
 // Temperature icon: low at or below freezing, high at or above
 // 85 °F / 29 °C, in the reading's own unit.
@@ -154,9 +182,10 @@ const STYLE = `
     line-height: 1;
   }
 
-  /* Icon box: a fixed .8em square holding HA's ha-icon. The box sets
-     the spacing, so icons never change the layout; motion runs on the icon
-     inside, never on the box. */
+  /* Icon box: a fixed .8em square holding HA's ha-icon, its bottom .05em
+     below the baseline. The box sets the spacing, so icons never change the
+     layout; fitIcon() fits the icon inside to the digits (scale, translate),
+     and motion runs on it too (transform). */
   .ico {
     display: inline-block;
     width: .8em;
@@ -164,6 +193,8 @@ const STYLE = `
     margin-right: .2em;
     vertical-align: -.05em;
   }
+  /* In a flex row the box's bottom lands on the baseline; lower it to match. */
+  .appt > .ico { position: relative; top: .05em; }
   .ico > ha-icon { display: flex; width: 100%; height: 100%; --mdc-icon-size: 100%; }
   /* HVAC status on the floor's temperature icon. */
   .ico.heat { color: var(--coral); }
@@ -172,14 +203,16 @@ const STYLE = `
   .ico.off  { color: var(--text-2); opacity: .35; }
   .ico.err  { color: var(--coral); }
   /* HVAC motion: slow and gentle. Heat flickers from its base, cool
-     turns very slowly, fan spins slowly. */
-  .ico.heat > ha-icon { transform-origin: 50% 90%; animation: flicker 4s ease-in-out infinite; }
+     turns very slowly, fan spins slowly. The flicker scales about its base
+     by translating (40% = center to 90%), not by transform-origin, which
+     would move the fit's scale too. */
+  .ico.heat > ha-icon { animation: flicker 4s ease-in-out infinite; }
   .ico.cool > ha-icon { animation: turn 40s linear infinite; }
   .ico.fan  > ha-icon { animation: turn 12s linear infinite; }
   @keyframes flicker {
-    0%, 100% { transform: scale(1, 1);     opacity: 1; }
-    35%      { transform: scale(.97, .92); opacity: .85; }
-    60%      { transform: scale(1, .97);   opacity: .95; }
+    0%, 100% { transform: translateY(40%) scale(1, 1)     translateY(-40%); opacity: 1; }
+    35%      { transform: translateY(40%) scale(.97, .92) translateY(-40%); opacity: .85; }
+    60%      { transform: translateY(40%) scale(1, .97)   translateY(-40%); opacity: .95; }
   }
   @keyframes turn { to { transform: rotate(1turn); } }
   @media (prefers-reduced-motion: reduce) { .ico > ha-icon { animation: none; } }
@@ -322,6 +355,11 @@ class SinnesroGlance extends HTMLElement {
 
   set haag(haag) {
     this._haag = haag;
+  }
+
+  _icon(box, name) {
+    this._haag.icon(box, name);
+    fitIcon(box, name);
   }
 
   set hass(hass) {
@@ -486,7 +524,7 @@ class SinnesroGlance extends HTMLElement {
       div.className = `t3 ${r.cls}`;
       div.style.setProperty('--indent', r.indent || 0);
       div.innerHTML = '<span class="ico"></span><span class="lines"><span class="text"></span></span>';
-      this._haag.icon(div.firstElementChild, r.icon);
+      this._icon(div.firstElementChild, r.icon);
       // Event text is never parsed as HTML.
       div.querySelector('.text').textContent = r.text;
       if (r.where) {
@@ -539,7 +577,7 @@ class SinnesroGlance extends HTMLElement {
 
     // A slot's icon: its own, or the alert icon when its value is bad.
     // Icons don't change any size, so they never need a re-layout.
-    const icon = (slot, value, name) => this._haag.icon(slot.querySelector('.ico'), value === 'Err' ? ERR_ICON : name);
+    const icon = (slot, value, name) => this._icon(slot.querySelector('.ico'), value === 'Err' ? ERR_ICON : name);
     const tempUnit = ref => p.unit(ref) || hass.config?.unit_system?.temperature || '';
 
     // Outdoor
@@ -569,15 +607,15 @@ class SinnesroGlance extends HTMLElement {
       }
 
       // The temperature's icon shows the HVAC status, or the
-      // error icon when the temperature itself is bad. A floor with
-      // no thermostat shows a thermometer.
+      // error icon when the temperature itself is bad. Idle, or a floor
+      // with no thermostat, shows a thermometer.
       const box = fs('temp').querySelector('.ico');
       const status = temp === 'Err' ? 'err' : (p.hvac(f.climate) || '');
       if (box.dataset.status !== status) {
         box.className = `ico ${status}`;
         box.dataset.status = status;
       }
-      this._haag.icon(box, status ? HVAC_ICONS[status] : thermometerIcon(temp, tempUnit(f.slots.temp)));
+      this._icon(box, HVAC_ICONS[status] || thermometerIcon(temp, tempUnit(f.slots.temp)));
     });
 
     changed = this._renderPeople() || changed;

@@ -158,7 +158,7 @@ Switching between glances is a crossfade until transitions arrive in 0.4.
 | `haag.providers` | Discovery results (`outdoor`, `floors`, `people`, `calendars`), with settings applied, and readers for their current state: `value(ref)`, `unit(ref)`, `hvac(climate)`, `locate()`. |
 | `haag.daylight` | Whether day colors are showing: the `theme` setting, or the sun when it's `auto`. |
 | `haag.layout` | The shared geometry: the split's `angle` (the line runs through the center). Helpers for placing content along it move here with the second glance (0.4). |
-| `haag.icon(element, name)` | Draws a Home Assistant icon. |
+| `haag.icon(element, name)` | Draws a Home Assistant icon, filling the element. Fitting it to the text is up to the glance. |
 | `haag.alert` | Whether the alert row shows, and where. |
 
 Inherited through CSS: the typeface, the size unit `cqmin` (1% of the shorter side), and the palette:
