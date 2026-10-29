@@ -1,6 +1,6 @@
 # Glances
 
-> **Pre-release.** Built in 0.1.2, ahead of 0.2. ◇ marks what's still a proposal.
+> **Pre-release.** Built in 0.1.2. ◇ marks what's still a proposal.
 
 Håg is its own glanceable dashboard framework, built as a Home Assistant dashboard strategy. Everything it shows is a glance.
 
@@ -121,7 +121,7 @@ const manifest = {
 | `title` | The name people see: *Subject* Glance. |
 | `version` | The glance's version, shown in notices. |
 
-Fields for the glance's settings (defaults, labels for the 0.6 editor) come later.
+Fields for the glance's settings (defaults, labels for the 0.4 editor) come later.
 
 ### The glance
 
@@ -149,7 +149,7 @@ The default glance never asks. Other glances:
 - `haag.release()`: done.
 - `haag.visible`: whether the glance is on screen. A `haag-visible` event on the glance says when it changes; the glance pauses animation while hidden.
 
-Switching between glances is a crossfade until transitions arrive in 0.4.
+Switching between glances is a crossfade until transitions arrive in 0.5.
 
 ### What Håg provides
 
@@ -157,7 +157,7 @@ Switching between glances is a crossfade until transitions arrive in 0.4.
 |---|---|
 | `haag.providers` | Discovery results (`outdoor`, `floors`, `people`, `calendars`), with settings applied, and readers for their current state: `value(ref)`, `unit(ref)`, `hvac(climate)`, `locate()`. |
 | `haag.daylight` | Whether day colors are showing: the `theme` setting, or the sun when it's `auto`. |
-| `haag.layout` | The shared geometry: the split's `angle` (the line runs through the center). Helpers for placing content along it move here with the second glance (0.4). |
+| `haag.layout` | The shared geometry: the split's `angle` (the line runs through the center). Helpers for placing content along it move here with the second glance (0.5). |
 | `haag.icon(element, name)` | Draws a Home Assistant icon, filling the element. Fitting it to the text is up to the glance. |
 | `haag.alert` | Whether the alert row shows, and where. |
 
@@ -184,4 +184,4 @@ Håg draws it above every glance, by the same rules for every glance:
 
 ## Not decided yet
 
-- **Behavior rules and cooldown,** drafted with the second glance (0.4): priority, how long a glance keeps the screen after it's done, and a limit for one that never lets go.
+- **Behavior rules and cooldown,** drafted with the second glance (0.5): priority, how long a glance keeps the screen after it's done, and a limit for one that never lets go.

@@ -8,7 +8,7 @@ const ON = 5;    // seconds asking
 const OFF = 25;  // seconds letting go
 
 const STYLE = `
-  :host { display: block; background: #c8c8c8; color: #222; }   /* its own colours, not Håg's */
+  :host { display: block; background: #c8c8c8; color: #222; }   /* its own colors, not Håg's */
   /* Upper half, clear of the alert row. */
   p { position: absolute; inset: 0 0 50%; display: grid; place-items: center; margin: 0; font-size: calc(8 * var(--u)); }
 `;

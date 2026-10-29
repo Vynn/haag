@@ -240,7 +240,7 @@ const drawDragon = g => {
   svgEl('path', { d: 'M0 0Q2.4 -.8 5 -.2Q3.4 .2 5.4 .4Q2.6 .7 0 0Z', fill: '#F57A1F' }, breath);
   return breath.parentNode;
 };
-// A patch of the flame trail on the alert bar: a glowing orange base with
+// A patch of the flame trail on the alert row: a glowing orange base with
 // jagged tongues, deep red at the back and red-orange in front.
 const TONGUE = 'M-1 0C-1.2 -1 -.6 -1.8 -.2 -3.4C.1 -2.4 .6 -2 .5 -1.4C1 -1.7 1.2 -2.2 1.3 -2.6C1.6 -1.6 1.3 -.6 1 0Z';
 const drawFlamePatch = g => {
@@ -478,7 +478,7 @@ export const WEATHER_STYLE = `
   .wx .accum { --wx-snow: 0; transition: --wx-snow var(--snow-out) linear; }
   .stage[data-snowing="1"] .wx .accum { --wx-snow: 1; transition-duration: var(--snow-in); }
   .wx :is(.acc-corner, .acc-alert) { fill: var(--snow-near); }
-  .wx .acc-alert { transform: scaleY(var(--wx-snow)); }      /* grows up from the banner's top */
+  .wx .acc-alert { transform: scaleY(var(--wx-snow)); }      /* grows up from the alert row's top */
   .wx .acc-corner { transform: scale(var(--wx-snow)); }      /* grows out of the corner */
   .wx .acc-corner.wide { transform: scaleY(var(--wx-snow)); }   /* wide screens: grows up from the bottom */
   .stage[data-alert="0"] .wx .alert-snow { display: none; }
@@ -511,7 +511,7 @@ export const WEATHER_STYLE = `
   .wx .spider .eye { fill: #F2C14E; animation: wx-blink calc(5s * var(--slow)) step-end infinite; }
   @keyframes wx-blink { 0%, 92%, 100% { opacity: 1; } 93%, 96% { opacity: 0; } }
   /* Dragon: wings flapping, fire on the way down; flames flicker along
-     the alert bar's top edge. */
+     the alert row's top edge. */
   .wx .wing { transform-box: fill-box; transform-origin: 50% 100%; animation: wx-flap .46s ease-in-out infinite alternate; }
   .wx .wing.far { animation-delay: -.23s; }
   @keyframes wx-flap { from { transform: scaleY(1); } to { transform: scaleY(-.35); } }
@@ -1015,7 +1015,7 @@ export class Weather {
 
   // Dragon: every 30–60 s while the scene is on. It swoops along a curve
   // from the upper left, dipping behind the clock, then climbs off the top
-  // right. Fire is on during the dive; where it reaches the alert bar's
+  // right. Fire is on during the dive; where it reaches the alert row's
   // top, a trail of small flames flickers out.
   scheduleDragon(sec) {
     clearTimeout(this.dragonTimer);
@@ -1044,7 +1044,7 @@ export class Weather {
       { opacity: 0 }, { opacity: 0, offset: FIRE[0] }, { opacity: 1, offset: FIRE[0] + .02 },
       { opacity: 1, offset: FIRE[1] - .02 }, { opacity: 0, offset: FIRE[1] }, { opacity: 0 },
     ], { duration: MS, fill: 'both' });
-    // Flames on the alert bar where the fire reaches it (only with the alert row shown).
+    // Flames on the alert row where the fire reaches it (only while it's shown).
     const bar = this.marks?.band;
     if (bar == null) return;
     const flames = this.q('.bar-flames');
@@ -1052,7 +1052,7 @@ export class Weather {
       const [x, y] = at(t), a = heading(t), c = a + BREATH_TILT * Math.PI / 180;
       const mx = x + S * (MOUTH[0] * Math.cos(a) - MOUTH[1] * Math.sin(a)), my = y + S * (MOUTH[0] * Math.sin(a) + MOUTH[1] * Math.cos(a));
       const tx = mx + S * BREATH_LEN * Math.cos(c), ty = my + S * BREATH_LEN * Math.sin(c);
-      if (ty < bar - 5.33 || tx < b.x0 - 2 || tx > b.x1 + 2) continue;   // the fire doesn't reach the bar here
+      if (ty < bar - 5.33 || tx < b.x0 - 2 || tx > b.x1 + 2) continue;   // the fire doesn't reach the row here
       setTimeout(() => {
         const g = svgEl('g', { transform: `translate(${f(tx + rnd(-1, 1))} ${f(bar)})` }, flames);
         const patch = svgEl('g', {}, g);

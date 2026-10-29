@@ -115,7 +115,7 @@ async function fetchEvents(hass, calendars) {
 }
 
 const STYLE = `
-  /* Size unit, typeface and colour come from Håg. */
+  /* Size unit, typeface and color come from Håg. */
   :host {
     display: block;
     width: 100%;
@@ -123,11 +123,11 @@ const STYLE = `
     container-type: size;
   }
 
-  /* Colours come from Håg's palette. */
+  /* Colors come from Håg's palette. */
   .stage {
     --line: var(--text-2);
     --gap: calc(2.5 * var(--u));          /* perpendicular distance from the split line to clusters */
-    --cluster-gap: calc(2.7 * var(--u));  /* visible gap between clusters (see opticalEdges) */
+    --cluster-gap: calc(2.7 * var(--u));  /* visible gap between clusters (see _opticalEdges) */
     /* Medium text step. Also sizes AM/PM and the appointment stagger,
        which are defined as "the medium line". 5.5 makes date + conditions as
        tall as a floor block. */
@@ -145,7 +145,7 @@ const STYLE = `
   .stage.paused * { animation-play-state: paused !important; }
 
   /* Outdoor side: sky with a soft horizon glow, cut at the split. The
-     weather background goes here. */
+     weather draws over it. */
   .sky {
     position: absolute;
     inset: 0;
@@ -154,7 +154,7 @@ const STYLE = `
             mask-image: linear-gradient(var(--haag-split), #000 50%, transparent 50%);
   }
 
-  /* Clusters: positioned by layout(). Content inside is left-aligned; the
+  /* Clusters: positioned by _layout(). Content inside is left-aligned; the
      cluster as a whole is justified toward the split line. */
   .side { display: contents; }
   .cluster {
@@ -179,7 +179,7 @@ const STYLE = `
   .line { display: flex; gap: calc(1.2 * var(--u)); align-items: baseline; }
 
   /* Clock: tight box around the numerals; AM/PM hangs outside it, top-aligned
-     by alignAmPm(), so layout() can tuck it toward the line. */
+     by _alignAmPm(), so _layout() can tuck it toward the line. */
   .time { position: relative; line-height: .8; }
   /* The numerals' own box must be as tight as the line (inline boxes include
      the font's full height, which would push the layout around). */
@@ -227,7 +227,7 @@ const STYLE = `
   }
   @keyframes turn { to { transform: rotate(1turn); } }
   @media (prefers-reduced-motion: reduce) { .ico > ha-icon { animation: none; } }
-  /* Slot with no entity on this install: hidden, not labelled. */
+  /* Slot with no entity on this install: hidden, not labeled. */
   [data-slot][hidden] { display: none; }
   /* Bad or missing value: "Err", icon becomes an alert. */
   [data-slot].err > .ico { color: var(--coral); }

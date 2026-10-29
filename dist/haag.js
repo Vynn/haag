@@ -10,7 +10,7 @@
   phone to a 4K screen.
 */
 
-const VERSION = '0.1.2';
+const VERSION = '0.2.0';
 const MANIFEST = 'haag/v1';   // config format marker
 
 /* ------------------------------------------------------------------------
@@ -105,9 +105,9 @@ async function loadRegistries(hass) {
 }
 
 /**
- * Outdoor slots from the Exterior floor: temperature, humidity, AQI,
- * weather condition. The weather may come from anywhere when the Exterior
- * floor has none, and the moon phase does (it belongs to no floor).
+ * Outdoor slots: temperature, humidity and AQI from the Exterior floor;
+ * the weather from there, or from anywhere when it has none; the moon
+ * phase from anywhere (it belongs to no floor).
  * Returns { slot: entity_id | null }.
  */
 const isExterior = floor => /exterior|outdoor|outside/i.test(floor.name);
@@ -540,7 +540,7 @@ const HOST_STYLE = `
   }
 
   /* Palette: night and day values, mixed in OKLab by --haag-daylight
-     (0 night, 1 day). Glances inherit the mixed colours. Values are
+     (0 night, 1 day). Glances inherit the mixed colors. Values are
      placeholders until the text pass. */
   .stage {
     --n-sky: #10162A;       --d-sky: #7CC8F2;        /* outdoor base */

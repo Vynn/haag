@@ -214,7 +214,6 @@
     status('Forgotten. Not connected.');
   });
 
-  // Reconnect automatically if this browser remembers a connection.
   $('config').value = loadConfig();
   $('apply').addEventListener('click', async () => {
     try {
@@ -228,6 +227,7 @@
     if (session) await mountHost(window.hass || session.hass);   // latest hass
   });
 
+  // Reconnect automatically if this browser remembers a connection.
   const saved = load();
   if (saved) {
     $('url').value = saved.url;

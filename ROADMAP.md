@@ -18,7 +18,7 @@ The default screen when nothing else needs attention.
 - [x] Icons from Home Assistant's built-in icon set
 - [x] Installs through HACS
 
-## 0.2 · Weather and color
+## 0.2 · Weather and color · released
 
 The idle screen's illustrated look, and how glances work.
 
@@ -28,7 +28,7 @@ The idle screen's illustrated look, and how glances work.
 - [x] Animated weather background for all 15 Home Assistant weather conditions
 - [x] Day and night colors, switching at sunrise and sunset (shipped in 0.1.2)
 - [x] Bundled typeface (shipped in 0.1.1)
-- [ ] Icon refinements to suit the new backgrounds
+- [x] Icon refinements to suit the new backgrounds
 
 ## 0.3 · Alerts and notices
 
@@ -37,7 +37,14 @@ The idle screen's illustrated look, and how glances work.
 - [ ] Priority and rotation when several notices are active
 - [ ] Installs through the Home Assistant Marketplace (2026.11)
 
-## 0.4 · Laundry glance
+## 0.4 · Configuration editor (alpha)
+
+- [ ] A visual settings editor in Home Assistant's dashboard editor, matching the YAML
+- [ ] Settings for people and calendars, including colors and linked people
+- [ ] Settings for each glance
+- [ ] Versioned settings format, with import and export
+
+## 0.5 · Laundry glance
 
 The first glance after Overview Glance.
 
@@ -51,7 +58,7 @@ The first glance after Overview Glance.
 - [ ] A finished load waiting to be emptied (until the door opens, where a door sensor exists)
 - [ ] Errors shown clearly
 
-## 0.5 · 3D printer glance
+## 0.6 · 3D printer glance
 
 - [ ] Shows while a print is running, and for a while after it finishes or fails
 - [ ] Progress, time remaining and estimated finish time
@@ -59,13 +66,6 @@ The first glance after Overview Glance.
 - [ ] Print name, and a model preview or camera image where available
 - [ ] Nozzle and bed temperatures
 - [ ] More than one printer
-
-## 0.6 · Configuration editor
-
-- [ ] A visual settings editor in Home Assistant's dashboard editor, matching the YAML
-- [ ] Settings for people and calendars, including colors and linked people
-- [ ] Settings for each glance
-- [ ] Versioned settings format, with import and export
 
 ## 0.7 · Irrigation glance
 

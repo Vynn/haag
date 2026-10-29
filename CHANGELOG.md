@@ -2,7 +2,9 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
-## Unreleased
+## 0.2.0 · 2026-10-28
+
+Weather and color. A pre-release.
 
 ### Added
 
