@@ -25,17 +25,17 @@ The idle screen's illustrated look, and how glances work.
 - [x] Glance architecture: how glances are installed, turned on and configured, documented (shipped in 0.1.2)
 - [x] Glances appear only when relevant and give way to the default glance (Overview Glance) afterwards (shipped in 0.1.2)
 - [x] Several glances take turns on a 30-second timer, adjustable in YAML (shipped in 0.1.2)
-- [ ] Animated weather background for all 15 Home Assistant weather conditions
+- [x] Animated weather background for all 15 Home Assistant weather conditions
 - [x] Day and night colors, switching at sunrise and sunset (shipped in 0.1.2)
 - [x] Bundled typeface (shipped in 0.1.1)
 - [ ] Icon refinements to suit the new backgrounds
-- [ ] Installs through the Home Assistant Marketplace (2026.11)
 
 ## 0.3 · Alerts and notices
 
 - [ ] The alert row shows real alerts, with clear severity (information, warning, critical)
-- [ ] Notices for doors and garage doors left open, low batteries, water leaks and available updates
+- [ ] Alerts for water leaks; smoke, CO and gas; doors, windows, garage doors and gates left open; locks; and air quality
 - [ ] Priority and rotation when several notices are active
+- [ ] Installs through the Home Assistant Marketplace (2026.11)
 
 ## 0.4 · Laundry glance
 
