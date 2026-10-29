@@ -6,10 +6,13 @@ All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a mi
 
 ### Added
 
+- Weather backgrounds: an illustrated, animated scene for each of Home Assistant's 15 weather conditions, changing smoothly from one to the next. The sun and moon cross the sky with the day, the moon shows its phase, and clouds, rain and snow follow the wind.
+- The moon's phase from Home Assistant's Moon integration, found automatically (`providers.outdoor.moon`).
 - Appointments that are soon show their location (up to the first comma or parenthesis) under the title.
 
 ### Changed
 
+- The weather comes from any weather entity when the Exterior floor has none.
 - Appointment lines start at the outdoor temperature and each runs to the split, cut off where it would cross it, instead of being trimmed to the second-longest line.
 - "Soon" (the breathing) now means starting within the hour, or started within the last two hours and still on; an all-day event today counts when nothing else does.
 - Icons are sized to the digits beside them, from the baseline to the digit tops, so they no longer look uneven. Spacing is unchanged.

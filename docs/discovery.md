@@ -8,6 +8,13 @@ Håg reads Home Assistant's floors, areas, devices and entities, and decides wha
 - Indoor floors are shown from the center outward: the ground floor first (the lowest floor at level 0 or above), then the floors above it going up, then the floors below it going down.
 - A floor with nothing to show is left out.
 
+## Weather
+
+- The weather entity comes from the Exterior floor, or from anywhere when that floor has none (chosen by the rules below).
+- The moon's phase comes from Home Assistant's Moon integration, found by its phases. Without it, the moon is drawn waxing gibbous.
+- The sun and moon follow Home Assistant's sun entity; without it, day is 6:00 to 18:00.
+- The home's latitude sets the hemisphere: south of the equator the moon is seen upside down and the seasons flip.
+
 ## Choosing between sources
 
 When several entities could supply the same reading, Håg prefers, in order:

@@ -26,7 +26,7 @@ The test page shows Håg live against your Home Assistant, outside Home Assistan
 
 The URL and token are stored only in that browser, and **Forget** removes them. The server listens on this machine only and never caches, so a reload shows the latest code.
 
-The test page can preview square, portrait and landscape shapes, toggle the alert row, and try settings as JSON.
+The test page can preview square, portrait and landscape shapes, toggle the alert row, pick a weather condition (on the test page only), and try settings as JSON.
 
 It also loads Test Glance (`tools/glances/test/`), a stand-in second glance that isn't shipped. Turned on, it asks for the screen for 5 seconds, then lets go for 25.
 

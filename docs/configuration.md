@@ -13,6 +13,7 @@ strategy:
       humidity: sensor.backyard_humidity
       aqi: sensor.city_air_quality_index
       weather: weather.home
+      moon: sensor.moon_phase
     floors:
       first_floor:                    # a floor ID from Home Assistant
         monitors:                     # air-quality devices, most trusted first
@@ -70,7 +71,8 @@ strategy:
 | `temperature` | A temperature sensor |
 | `humidity` | A humidity sensor |
 | `aqi` | An air quality index sensor |
-| `weather` | A weather entity (its condition drives the background) |
+| `weather` | A weather entity (its condition and wind drive the background) |
+| `moon` | The Moon integration's phase sensor (the moon's shape at night) |
 
 ## Floors
 

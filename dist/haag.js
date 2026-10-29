@@ -106,17 +106,21 @@ async function loadRegistries(hass) {
 
 /**
  * Outdoor slots from the Exterior floor: temperature, humidity, AQI,
- * weather condition. Returns { slot: entity_id | null }.
+ * weather condition. The weather may come from anywhere when the Exterior
+ * floor has none, and the moon phase does (it belongs to no floor).
+ * Returns { slot: entity_id | null }.
  */
 const isExterior = floor => /exterior|outdoor|outside/i.test(floor.name);
+const MOON_PHASES = ['new_moon', 'waxing_crescent', 'first_quarter', 'waxing_gibbous',
+  'full_moon', 'waning_gibbous', 'last_quarter', 'waning_crescent'];
 
 function discoverOutdoor(hass, reg, overrides = {}) {
   const exterior = reg.floors.find(isExterior);
-  const pool = reg.entities.filter(e =>
-    exterior && e.floor === exterior.floor_id && !e.disabled_by && !e.hidden_by && hass.states[e.entity_id]);
+  const all = reg.entities.filter(e => !e.disabled_by && !e.hidden_by && hass.states[e.entity_id]);
+  const pool = all.filter(e => exterior && e.floor === exterior.floor_id);
 
-  const best = match => {
-    const candidates = pool.filter(e => {
+  const best = (match, from = pool) => {
+    const candidates = from.filter(e => {
       const st = hass.states[e.entity_id];
       return match(e, st) && !DERIVED.test(`${e.translation_key || ''} ${e.original_name || ''} ${e.entity_id}`);
     });
@@ -128,12 +132,16 @@ function discoverOutdoor(hass, reg, overrides = {}) {
     return candidates[0]?.entity_id ?? null;
   };
   const dc = cls => (e, st) => e.entity_id.startsWith('sensor.') && st.attributes.device_class === cls;
+  const weather = e => e.entity_id.startsWith('weather.');
+  // HA's Moon integration: an enum sensor with the eight phases as options.
+  const moon = (e, st) => dc('enum')(e, st) && MOON_PHASES.every(p => st.attributes.options?.includes(p));
 
   return {
     temperature: overrides.temperature ?? best(dc('temperature')),
     humidity:    overrides.humidity    ?? best(dc('humidity')),
     aqi:         overrides.aqi         ?? best(dc('aqi')),
-    weather:     overrides.weather     ?? best(e => e.entity_id.startsWith('weather.')),
+    weather:     overrides.weather     ?? best(weather) ?? best(weather, all),
+    moon:        overrides.moon        ?? best(moon, all),
   };
 }
 

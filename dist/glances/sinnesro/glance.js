@@ -4,6 +4,17 @@
   License: GPL-3.0
 */
 
+// The weather background, loaded with this file's cache tag (a relative
+// import would drop it). If it fails, the glance shows a plain sky.
+let weather = null;
+try {
+  const url = new URL('./weather.js', import.meta.url);
+  url.search = new URL(import.meta.url).search;
+  weather = await import(url.href);
+} catch (err) {
+  console.error('Håg: the weather background failed to load', err);
+}
+
 const ERR_ICON = 'mdi:alert';
 // Idle has no icon of its own: it shows the thermometer.
 const HVAC_ICONS = {
@@ -304,6 +315,7 @@ const STYLE = `
 const TEMPLATE = `
   <div class="stage">
     <div class="sky"></div>
+    <svg class="wx wx-under" aria-hidden="true"></svg>
 
     <section class="side outdoor" aria-label="Outdoor">
       <!-- Time and date are separate blocks, each following the line on its
@@ -332,6 +344,9 @@ const TEMPLATE = `
     <!-- One cluster per indoor floor, built from discovery. -->
     <section class="side indoor" aria-label="Indoor"></section>
 
+    <!-- Weather that crosses the text: fog over the clock, snow on the alert row. -->
+    <svg class="wx wx-over" aria-hidden="true"></svg>
+
   </div>
 `;
 
@@ -339,12 +354,17 @@ const TEMPLATE = `
 class SinnesroGlance extends HTMLElement {
   constructor() {
     super();
-    this.attachShadow({ mode: 'open' }).innerHTML = `<style>${STYLE}</style>${TEMPLATE}`;
+    const root = this.attachShadow({ mode: 'open' });
+    root.innerHTML = `<style>${STYLE}${weather?.WEATHER_STYLE ?? ''}</style>${TEMPLATE}`;
     this._measure = document.createElement('canvas').getContext('2d');
-    this._stage = this.shadowRoot.querySelector('.stage');
+    this._stage = root.querySelector('.stage');
+    if (weather) this._wx = new weather.Weather(this._stage, root.querySelector('.wx-under'), root.querySelector('.wx-over'));
     this.addEventListener('haag-alert', () => this._relayout());
     // Off screen: animations pause.
-    this.addEventListener('haag-visible', () => this._stage.classList.toggle('paused', !this._haag.visible));
+    this.addEventListener('haag-visible', () => {
+      this._stage.classList.toggle('paused', !this._haag.visible);
+      this._wx?.setVisible(this._haag.visible);
+    });
   }
 
   // ----- Glance API (docs/glances.md) -----
@@ -355,6 +375,7 @@ class SinnesroGlance extends HTMLElement {
 
   set haag(haag) {
     this._haag = haag;
+    this._wx?.setVisible(haag.visible);
   }
 
   _icon(box, name) {
@@ -372,6 +393,37 @@ class SinnesroGlance extends HTMLElement {
       this._render();
       if (this._calendars && this._calendarStamp !== this._calendarStates()) this._refreshEvents();
     }
+    this._updateWeather();
+  }
+
+  // The weather background: condition, wind, moon, hemisphere, day colors,
+  // and where the sun and moon are.
+  _updateWeather() {
+    const wx = this._wx, hass = this._hass;
+    if (!wx || !hass || !this._slots) return;
+    const w = hass.states[this._slots.weather];
+    wx.setCondition(w?.state);                  // unknown or unavailable: plain sky
+    wx.setWind(w?.attributes.wind_bearing);
+    wx.setPhase(hass.states[this._slots.moon]?.state);
+    wx.setSouth((hass.config?.latitude ?? 0) < 0);
+    wx.setDaylight(!!this._haag.daylight);
+    wx.setSky(this._skyHours());
+  }
+
+  // Hours of the day in HA's time zone: now, and sunrise, solar noon,
+  // sunset and solar midnight from sun.sun (6:00–18:00 without it).
+  _skyHours() {
+    const tz = this._hass.config?.time_zone;
+    this._hourFmt ??= new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: 'numeric', hourCycle: 'h23', timeZone: tz });
+    const hourOf = d => {
+      const parts = this._hourFmt.formatToParts(d), v = t => Number(parts.find(p => p.type === t).value);
+      return v('hour') + v('minute') / 60;
+    };
+    const a = this._hass.states['sun.sun']?.attributes || {};
+    const [rise, noon, set, midnight] = ['next_rising', 'next_noon', 'next_setting', 'next_midnight']
+      .map(k => a[k] ? hourOf(new Date(a[k])) : null);
+    const sun = rise != null && noon != null && set != null ? [rise, noon, set] : [6, 12, 18];
+    return { now: hourOf(new Date()), sun, midnight: midnight ?? (sun[1] + 12) % 24 };
   }
 
   // Build from what Håg discovered.
@@ -441,6 +493,7 @@ class SinnesroGlance extends HTMLElement {
     this._resize?.disconnect();
     clearTimeout(this._timer);
     clearTimeout(this._eventsTimer);
+    this._wx?.setVisible(false);
   }
 
   // ----- Live content -----
@@ -464,6 +517,7 @@ class SinnesroGlance extends HTMLElement {
 
     this._renderAppointments();   // relative labels (within 24 h, soon) move with the clock
     this._layout();
+    this._updateWeather();        // the sun and moon move with the clock
     this._timer = setTimeout(() => this._tick(), 60000 - (now.getSeconds() * 1000 + now.getMilliseconds()) + 50);
   }
 
@@ -947,6 +1001,7 @@ class SinnesroGlance extends HTMLElement {
     let y = outStart;                          // visible bottom of next outdoor cluster
     let outTop = Infinity;                     // final top of the outdoor stack's ink
     let anchor = edge;                         // where appointment lines start
+    let clock = null;                          // the clock numerals' baseline
     for (const el of this._out) {
       // Appointments start at the first reading's left edge, rather than
       // following the line; each of their lines is cut at the split instead.
@@ -968,8 +1023,14 @@ class SinnesroGlance extends HTMLElement {
       outTop = Math.min(outTop, ty + inkTop);
       const reading = el.querySelector('.status-line .line > [data-slot]:not([hidden])');
       if (reading) anchor = tx + reading.getBoundingClientRect().left - base.left;
+      const time = el.querySelector('.time');
+      if (time) clock = ty + this._baselineY(time) - base.top;
       y = ty + o.top - cgap;
     }
+
+    // The weather follows the screen, the clock and the alert row.
+    this._wx?.resize(W, H);
+    this._wx?.place({ band: alertOn ? alert.top : null, clock });
 
     y = inStart;                               // visible top of next indoor cluster
     for (const el of this._in) {
