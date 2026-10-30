@@ -34,6 +34,7 @@ The idle screen's illustrated look, and how glances work.
 
 - [ ] The alert row shows real alerts, with clear severity (information, warning, critical)
 - [ ] Alerts for water leaks; smoke, CO and gas; doors, windows, garage doors and gates left open; locks; and air quality
+- [ ] Weather alerts from MeteoAlarm, DWD, Environment Canada, NINA, NWS Alerts, Weather Alerts and CAP Alerts
 - [ ] Priority and rotation when several notices are active
 - [ ] Installs through the Home Assistant Marketplace (2026.11)
 
@@ -43,6 +44,7 @@ The idle screen's illustrated look, and how glances work.
 - [ ] Settings for people and calendars, including colors and linked people
 - [ ] Settings for each glance
 - [ ] Versioned settings format, with import and export
+- [ ] Warnings for entities missing an area or other fields Håg uses
 
 ## 0.5 · Laundry glance
 
