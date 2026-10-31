@@ -180,7 +180,7 @@ Håg draws it above every glance, by the same rules for every glance:
 - **When and where:** Håg decides. A full-width band through the middle.
 - **What the glance is told:** `haag.alert` gives `showing`, and the band's `top` and `bottom` in pixels. A `haag-alert` event on the glance says when it changes.
 - **What the glance does:** keeps its content out of the band, or moves it aside as the default glance's center blocks do.
-- **Touch:** only the row takes touches. What touching an alert does comes in 0.3.
+- **Touch:** only the row takes touches. What touching an alert does comes in 0.5.
 
 ## Not decided yet
 
