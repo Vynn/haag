@@ -726,6 +726,7 @@ const DWD_LEVELS = { 2: 'info', 3: 'warning', 4: 'critical' };                  
 const ECCC_LEVELS = { yellow: 'info', orange: 'warning', red: 'critical' };        // no colour: hidden
 const ECCC_SHOWN = ['warnings', 'watches', 'advisories'];   // not statements or endings
 const METEOALARM = 'Information provided by MeteoAlarm';
+const AMTLICH = /^Amtliche\s+\S*WARNUNG\s+vor\s+/i;   // NINA headline lead, dropped so the time fits
 
 // Sources in the order they're used (core, then custom), with their names.
 const WX_SOURCES = {
@@ -789,7 +790,7 @@ function readWeather(hass, src, fetched) {
       for (const id of src.entities.filter(on)) {
         const { headline, severity } = src.slots[id] || {};
         const d = fetched.get(id) || {};
-        add({ key: `${id}|${attrs(id).id}`, event: hass.states[headline]?.state ?? d.headline,
+        add({ key: `${id}|${attrs(id).id}`, event: (hass.states[headline]?.state ?? d.headline)?.replace(AMTLICH, ''),
           severity: hass.states[severity]?.state ?? d.severity, start: d.start, end: d.expires });
       }
       break;
@@ -806,7 +807,7 @@ function readWeather(hass, src, fetched) {
       for (const id of src.entities) {
         const a = attrs(id), w = (i, k) => a[`warning_${i}_${k}`];
         for (let i = 1; i <= (a.warning_count || 0); i++) {
-          add({ key: `${w(i, 'headline')}|${w(i, 'start')}`, event: w(i, 'headline') || w(i, 'name'),
+          add({ key: `${w(i, 'headline')}|${w(i, 'start')}`, event: w(i, 'name') || w(i, 'headline'),
             level: DWD_LEVELS[w(i, 'level')] ?? null, start: w(i, 'start'), end: w(i, 'end') });
         }
       }

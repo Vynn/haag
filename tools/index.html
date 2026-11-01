@@ -64,6 +64,9 @@
     <label style="flex-direction:row;align-items:center;gap:6px;margin-left:12px">Weather
       <select id="weather"><option value="">Live</option></select>
     </label>
+    <label style="flex-direction:row;align-items:center;gap:6px;margin-left:12px">Weather alerts
+      <select id="wx-alerts"><option value="">Live</option></select>
+    </label>
   </div>
   <div class="frame" id="frame"></div>
   <h2>Strategy config</h2>
@@ -98,7 +101,7 @@
     session?.close();
     status('Connecting…');
     try {
-      session = await connectHass(url, token, hass => { window.hass = hass; if (host) host.hass = withCondition(hass); });
+      session = await connectHass(url, token, hass => { window.hass = hass; if (host) host.hass = withTestState(hass); });
       save({ url, token });
       const { hass } = session;
       status(`Connected to Home Assistant ${hass.config.version} as ${hass.user.name}${hass.user.is_admin ? ' (admin)' : ''}.`, 'ok');
@@ -122,7 +125,7 @@
     const cardConfig = dashboard.views[0].cards[0];
     host = document.createElement(cardConfig.type.replace('custom:', ''));
     host.setConfig(cardConfig);
-    host.hass = withCondition(hass);
+    host.hass = withTestState(hass);
     $('frame').replaceChildren(host);
     host.setSampleAlert(sampleAlert);
     $('preview').hidden = false;
@@ -143,16 +146,158 @@
     'pouring', 'rainy', 'snowy', 'snowy-rainy', 'sunny', 'windy', 'windy-variant'];
   for (const c of CONDITIONS) $('weather').add(new Option(c, c));
   let condition = '';
-  function withCondition(hass) {
-    if (!condition || !hass) return hass;
-    const states = { ...hass.states };
-    for (const id in states) if (id.startsWith('weather.')) states[id] = { ...states[id], state: condition };
-    return { ...hass, states };
-  }
   $('weather').addEventListener('change', e => {
     condition = e.target.value;
-    if (host) host.hass = withCondition(window.hass || session.hass);
+    if (host) host.hass = withTestState(window.hass || session.hass);
   });
+
+  // Weather alerts picker: sample alerts in one alert integration's own
+  // shape (entities, attributes, actions), so the whole path is tested:
+  // discovery, reading, rules and wording. The sample source replaces any
+  // real one. Times are set when picked.
+  const WX_SOURCES = { nina: 'NINA', environment_canada: 'Environment Canada', dwd_weather_warnings: 'DWD',
+    meteoalarm: 'MeteoAlarm', cap_alerts: 'CAP Alerts', nws_alerts: 'NWS Alerts', weatheralerts: 'Weather Alerts' };
+  const METEOALARM = 'Information provided by MeteoAlarm';
+  for (const [value, name] of Object.entries(WX_SOURCES)) $('wx-alerts').add(new Option(name, value));
+  let sample = null;
+  $('wx-alerts').addEventListener('change', e => {
+    sample = e.target.value ? weatherSample(e.target.value) : null;
+    if (session) mountHost(window.hass || session.hass);   // discovery runs again
+  });
+
+  // [event, CAP severity, start, end (hours from now), dropped by]. Shown:
+  // an extreme, a severe and a moderate alert, and one starting later
+  // today. The rest should be dropped; each source gets only those its
+  // shape can carry.
+  const SAMPLE_ALERTS = [
+    ['Tornado Warning', 'Extreme', -1, 2],
+    ['Severe Thunderstorm Warning', 'Severe', -1, 1],
+    ['Wind Advisory', 'Moderate', -1, 3],
+    ['Winter Storm Watch', 'Severe', 6, 20],
+    ['Frost Advisory', 'Minor', -1, 3],
+    ['Flood Watch', 'Severe', 30, 40],
+    ['Heat Advisory', 'Severe', -5, -1],
+    ['Dense Fog Advisory', 'Severe', -1, 3, { type: 'Cancel' }],
+    ['Test Message', 'Severe', -1, 3, { status: 'Test' }],
+    ['Blizzard Warning', 'Severe', -1, 3, { urgency: 'Past' }],
+  ];
+
+  function weatherSample(platform) {
+    const now = Date.now(), at = h => new Date(now + h * 3600e3).toISOString();
+    const entries = [], states = {}, actions = {};
+    const entity = (entity_id, more = {}) => entries.push({ entity_id, platform, area_id: null, device_id: null,
+      disabled_by: null, hidden_by: null, translation_key: null, unique_id: entity_id, ...more });
+    const state = (id, value, attributes = {}) => {
+      states[id] = { entity_id: id, state: String(value), attributes, last_changed: at(-1), last_updated: at(-1), context: {} };
+    };
+    const carried = fields => SAMPLE_ALERTS.filter(([, , , , by = {}]) => Object.keys(by).every(k => fields.includes(k)));
+    switch (platform) {
+      case 'weatheralerts': {
+        // The second has no hazard end ("null"), so its expiry is shown.
+        const list = carried(['type', 'status', 'urgency']);
+        entity('sensor.sample_weather_alerts');
+        state('sensor.sample_weather_alerts', list.length, { alerts: list.map(([event, severity, s, e, by = {}], i) => ({
+          id: `wa${i}`, event, severity, urgency: by.urgency || 'Immediate', status: by.status || 'Actual',
+          messageType: by.type || 'Alert', onset: at(s), ends: i === 1 ? 'null' : at(e), expires: at(e) })) });
+        break;
+      }
+      case 'nws_alerts': {
+        const list = carried(['type', 'status']);   // no urgency
+        entity('sensor.sample_nws_alerts');
+        state('sensor.sample_nws_alerts', list.length, { Alerts: list.map(([Event, Severity, s, e, by = {}], i) => ({
+          ID: `nws${i}`, Event, Severity, Status: by.status || 'Actual', Type: by.type || 'Alert',
+          Onset: at(s), Expires: at(e), Ends: i === 1 ? null : at(e) })) });
+        break;
+      }
+      case 'cap_alerts':
+        // One sensor per alert, outside the registry; the count sensor marks the integration.
+        entity('sensor.sample_cap_alerts_alert_count');
+        state('sensor.sample_cap_alerts_alert_count', SAMPLE_ALERTS.length);
+        SAMPLE_ALERTS.forEach(([event, severity, s, e, by = {}], i) => state(`sensor.sample_cap_alert_${i}`, severity.toLowerCase(), {
+          incident_platform_version: '2.0', id: `cap${i}`, event, severity, severity_normalized: severity.toLowerCase(),
+          urgency: by.urgency || 'Immediate', status: by.status || 'Actual', msg_type: by.type || 'Alert',
+          phase: by.type === 'Cancel' ? 'cancel' : 'new', onset: at(s), expires: at(e), ...(i === 2 && { stale: true }) }));
+        break;
+      case 'meteoalarm':
+        // YAML only: one alert per entity, found by its attribution.
+        carried(['urgency']).forEach(([event, severity, s, e, by = {}], i) => state(`binary_sensor.sample_meteoalarm_${i}`, 'on', {
+          attribution: METEOALARM, identifier: `ma${i}`, event, headline: event, severity,
+          urgency: by.urgency || 'Immediate', onset: at(s), expires: at(e) }));
+        break;
+      case 'dwd_weather_warnings': {
+        // [name, DWD level 1–4, start, end]: current warnings, and expected ones on the advance sensor.
+        const list = [['EXTREME ORKANBÖEN', 4, -1, 2], ['SCHWERES GEWITTER', 3, -1, 1], ['STURMBÖEN', 2, -1, 3],
+          ['GLÄTTE', 3, 6, 20], ['FROST', 1, -1, 3], ['DAUERREGEN', 3, 30, 40]];
+        const attrs = ws => Object.assign({ warning_count: ws.length }, ...ws.map(([name, level, s, e], i) => ({
+          [`warning_${i + 1}_name`]: name, [`warning_${i + 1}_headline`]: `Amtliche WARNUNG vor ${name}`,
+          [`warning_${i + 1}_level`]: level, [`warning_${i + 1}_start`]: at(s), [`warning_${i + 1}_end`]: at(e) })));
+        const current = list.filter(w => w[2] <= 0), expected = list.filter(w => w[2] > 0);
+        entity('sensor.sample_dwd_current', { translation_key: 'current_warning_level' });
+        entity('sensor.sample_dwd_advance', { translation_key: 'advance_warning_level' });
+        state('sensor.sample_dwd_current', Math.max(...current.map(w => w[1])), attrs(current));
+        state('sensor.sample_dwd_advance', Math.max(...expected.map(w => w[1])), attrs(expected));
+        break;
+      }
+      case 'environment_canada': {
+        // Its alert sensors only say when to call get_alerts, which gives the colours.
+        entity('sensor.sample_ec_warnings', { translation_key: 'warnings', config_entry_id: 'sample_ec' });
+        state('sensor.sample_ec_warnings', 2);
+        const item = (title, colour, e) => ({ title, date: at(-1), ...(colour && { alert_colour_level: colour }), expiry_time: at(e) });
+        actions.environment_canada = () => ({
+          warnings: [item('Tornado Warning', 'red', 2), item('Snowfall Warning', 'orange', 1)],
+          watches: [item('Severe Thunderstorm Watch', 'yellow', 3)],
+          advisories: [item('Fog Advisory', null, 3)],                   // dropped: no colour
+          statements: [item('Special Weather Statement', 'yellow', 3)],  // dropped: a statement
+          endings: [item('Rainfall Warning ended', null, 1)],            // dropped: an ending
+        });
+        break;
+      }
+      case 'nina': {
+        // Each slot: a warning sensor with headline and severity sensors; times from get_details.
+        const list = [['Amtliche UNWETTERWARNUNG vor ORKANBÖEN', 'extreme', -1, 2], ['Amtliche WARNUNG vor STURMBÖEN', 'severe', -1, 1],
+          ['Hochwasserinformation', 'moderate', -1, 3], ['Amtliche WARNUNG vor GLÄTTE', 'severe', 6, 20],
+          ['Amtliche WARNUNG vor FROST', 'minor', -1, 3], ['Amtliche WARNUNG vor DAUERREGEN', 'severe', 30, 40]];
+        const details = {};
+        list.forEach(([headline, severity, s, e], i) => {
+          const id = `binary_sensor.sample_nina_${i}`, uid = `sample-${i}`;
+          entity(id, { unique_id: uid, translation_key: 'warning' });
+          entity(`sensor.sample_nina_${i}_headline`, { unique_id: `${uid}-headline`, translation_key: 'headline' });
+          entity(`sensor.sample_nina_${i}_severity`, { unique_id: `${uid}-severity`, translation_key: 'severity' });
+          state(id, 'on', { id: `nina${i}` });
+          state(`sensor.sample_nina_${i}_headline`, headline);
+          state(`sensor.sample_nina_${i}_severity`, severity);
+          details[id] = { headline, severity, start: at(s), expires: at(e) };
+        });
+        actions.nina = msg => ({ [msg.target.entity_id]: details[msg.target.entity_id] });
+        break;
+      }
+    }
+    return { entries, states, actions };
+  }
+
+  // This page's overrides: the weather condition, and sample weather alerts
+  // (their entities in the registry and states, their actions answered here).
+  function withTestState(hass) {
+    if (!hass || (!condition && !sample)) return hass;
+    const states = { ...hass.states };
+    if (condition) for (const id in states) if (id.startsWith('weather.')) states[id] = { ...states[id], state: condition };
+    if (!sample) return { ...hass, states };
+    for (const id in states) {
+      const a = states[id].attributes || {};
+      if (a.attribution === METEOALARM || a.incident_platform_version) delete states[id];   // real alert sources
+    }
+    const s = sample;   // glances keep this hass after the picker changes
+    Object.assign(states, s.states);
+    const callWS = async msg => {
+      if (msg.type === 'config/entity_registry/list') {
+        const real = await hass.callWS(msg);
+        return [...real.filter(e => !(e.platform in WX_SOURCES)), ...s.entries];
+      }
+      if (msg.type === 'call_service' && s.actions[msg.domain]) return { response: s.actions[msg.domain](msg) };
+      return hass.callWS(msg);
+    };
+    return { ...hass, states, callWS };
+  }
 
   $('shapes').addEventListener('click', e => {
     const b = e.target.closest('button[data-ar]');
