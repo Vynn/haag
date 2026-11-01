@@ -290,7 +290,7 @@ function setIcon(box, name) {
 
 // The alert row's icons, fitted to its digits: drawn top and bottom in
 // MDI's 24-unit grid (@mdi/js 7.4.47). Glances fit their own icons.
-const ALERT_INK = { 'mdi:information': [2, 22], 'mdi:alert-octagon': [3, 21] };
+const ALERT_INK = { 'mdi:information': [2, 22], 'mdi:alert': [2, 21], 'mdi:alert-octagon': [3, 21] };
 const FIGURE = .719 * 30;   // Open Sans digit height, in grid units (1em = 30)
 
 // Scale an alert icon so its drawn part runs from the baseline (22.5 units
@@ -442,6 +442,13 @@ const THEMES = ['auto', 'dark', 'light'];   // auto follows the sun
 const BUILT_IN_BASE = new URL('./glances/', import.meta.url).href;
 const HELP_URL = 'https://github.com/Vynn/haag/blob/main/docs/glances.md';
 
+// Alert row.
+const LEVELS = ['info', 'warning', 'critical'];   // severity, low to high
+const LEVEL_ICON = { info: 'mdi:information', warning: 'mdi:alert', critical: 'mdi:alert-octagon' };
+const TURN = 8;        // seconds per alert when several take turns
+const MOVE = 700;      // ms per turn's slide; matches --move
+const MIN_FIT = .7;    // long text shrinks to this share of its size, then is cut
+
 // Notices go to the browser console until real alerts arrive in 0.3.
 // Each is given once.
 const reported = new Set();
@@ -549,9 +556,11 @@ const HOST_STYLE = `
     --n-band: #FFFFFF14;    --d-band: #FFFFFFB3;     /* alert row */
     --n-text: #F1EADC;      --d-text: #0E1F3A;
     --n-text-2: #A9B0C2;    --d-text-2: #34537A;     /* secondary */
-    --n-coral: #FF7A68;     --d-coral: #D6336C;      /* heating, alerts */
+    --n-coral: #FF7A68;     --d-coral: #D6336C;      /* heating */
     --n-seaglass: #72D8C6;  --d-seaglass: #0B8A5E;   /* cooling */
     --n-mist: #8FA6C8;      --d-mist: #FFFFFF;       /* haze */
+    --n-warn: #C99A3A;      --d-warn: #F6D365;       /* warning alerts only */
+    --n-crit: #C9433E;      --d-crit: #B42318;       /* critical alerts only */
     --day-mix: calc(var(--haag-daylight) * 100%);
     --sky: color-mix(in oklab, var(--d-sky) var(--day-mix), var(--n-sky));
     --horizon: color-mix(in oklab, var(--d-horizon) var(--day-mix), var(--n-horizon));
@@ -562,6 +571,10 @@ const HOST_STYLE = `
     --coral: color-mix(in oklab, var(--d-coral) var(--day-mix), var(--n-coral));
     --seaglass: color-mix(in oklab, var(--d-seaglass) var(--day-mix), var(--n-seaglass));
     --mist: color-mix(in oklab, var(--d-mist) var(--day-mix), var(--n-mist));
+    --warn: color-mix(in oklab, var(--d-warn) var(--day-mix), var(--n-warn));
+    --crit: color-mix(in oklab, var(--d-crit) var(--day-mix), var(--n-crit));
+    /* Ink on a warning: the night sky at night, the text color by day. */
+    --warn-ink: color-mix(in oklab, var(--d-text) var(--day-mix), var(--n-sky));
     /* Secondary text on the sky: a touch darker by day, for 4.5:1. */
     --text-2-out: color-mix(in oklab, var(--text) calc(var(--haag-daylight) * 7%), var(--text-2));
 
@@ -585,34 +598,48 @@ const HOST_STYLE = `
   }
   .glances > .on { opacity: 1; visibility: visible; }
 
-  /* Alert row: full width through the center, above every glance. One
-     line of text, so the icon sits on its baseline. */
+  /* Alert row: full width through the center, above every glance. Each
+     alert is a slide of one line, its icon on the text's baseline; a turn
+     pushes the old slide out to the left. */
   .alert-row {
     position: absolute;
     left: 0;
     right: 0;
     top: 50%;
     translate: 0 -50%;
-    padding: calc(1.2 * var(--u)) 0;
+    overflow: hidden;
     font-size: calc(5.5 * var(--u));
+  }
+  .stage.animate .alert-row { transition: opacity var(--move), visibility var(--move), background-color var(--move), color var(--move); }
+  .alert-row.hidden { opacity: 0; visibility: hidden; }
+  /* Severity: a wash for information; warning and critical fill the band. */
+  .alert-row.info { background: var(--band); }
+  .alert-row.warning { background: var(--warn); color: var(--warn-ink); }
+  .alert-row.critical { background: var(--crit); color: #FFFFFF; }
+  /* Long text shrinks to fit (the .fit size, set in code), then is cut. */
+  .slide {
+    padding: calc(1.2 * var(--u)) calc(4 * var(--u));
     text-align: center;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .stage.animate .alert-row { transition: opacity var(--move), visibility var(--move), background-color var(--move); }
-  .alert-row.hidden { opacity: 0; visibility: hidden; }
-  /* Severity. */
-  .alert-row.info { background: var(--band); }
-  .alert-row.info .ico { color: var(--text-2); }
-  /* Troubleshooting can run long, so a critical alert wraps inside the row.
-     Coral, with white text by day and night-sky text at night. */
-  .alert-row.critical {
-    padding-inline: calc(4 * var(--u));
-    background: var(--coral);
-    color: color-mix(in oklab, #FFFFFF var(--day-mix), var(--n-sky));
-    white-space: normal;
-  }
+  .slide.entering { position: absolute; inset: 0; }
   .alert-row a { color: inherit; margin-left: .8em; }
   .msg { font-variant-numeric: tabular-nums; }   /* steady countdown */
+
+  /* Version, for testing: bottom center, low contrast. */
+  .version {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: var(--u);
+    text-align: center;
+    font-size: calc(2.2 * var(--u));
+    color: var(--text-2);
+    opacity: .5;
+    pointer-events: none;
+  }
 
   .ico { display: inline-block; width: .8em; height: .8em; margin-right: .2em; vertical-align: -.05em; }
   .ico > ha-icon { display: flex; width: 100%; height: 100%; --mdc-icon-size: 100%; }
@@ -621,7 +648,8 @@ const HOST_STYLE = `
 const HOST_TEMPLATE = `
   <div class="stage">
     <div class="glances"></div>
-    <div class="alert-row info" role="status"><span class="ico"></span><span class="msg"></span><span class="links"></span></div>
+    <div class="alert-row hidden" role="status"></div>
+    <div class="version">Håg v${VERSION}</div>
   </div>
 `;
 
@@ -637,7 +665,9 @@ class HaagHost extends HTMLElement {
     this._loading = new Set();
     this._failed = new Set();
     this._showing = null;
-    this._placeholder = true;    // the version row (until 0.3)
+    this._alerts = new Map();    // id → alert (see _raise)
+    this._queue = [];            // ids taking turns, in order
+    this._current = null;        // id on the row
     this._sync = this._sync.bind(this);
   }
 
@@ -659,10 +689,10 @@ class HaagHost extends HTMLElement {
 
   getCardSize() { return 12; }
 
-  // Test page: show or hide the version row.
-  setAlertVisible(visible) {
-    this._placeholder = visible;
-    this._updateAlert();
+  // Test page: show or hide a sample information alert.
+  setSampleAlert(on) {
+    if (on) this._raise('sample', { level: 'info', text: 'Sample alert' });
+    else this._clear('sample');
   }
 
   // ----- Lifecycle -----
@@ -677,6 +707,11 @@ class HaagHost extends HTMLElement {
     // nothing is on screen.
     const left = STARTUP_LIMIT * 1000 - (Date.now() - this._startedAt);
     if (left > 0) this._limitTimer = setTimeout(() => { this._reportMissing(); this._updateAlert(); }, left + 50);
+    // Alert text refits when the screen or the typeface changes.
+    this._resize ??= new ResizeObserver(() => this._fit());
+    this._resize.observe(this);
+    document.fonts.ready.then(() => { if (this.isConnected) this._fit(); });
+    this._timeTurns();
     // Animate only after the first frame, so nothing fades in on load.
     requestAnimationFrame(() => requestAnimationFrame(() => this._stage.classList.add('animate')));
   }
@@ -686,8 +721,11 @@ class HaagHost extends HTMLElement {
     clearTimeout(this._turnTimer);
     clearTimeout(this._limitTimer);
     clearTimeout(this._countTimer);
+    clearTimeout(this._alertTimer);
+    this._resize?.disconnect();
     this._turnTimer = null;
     this._countTimer = null;
+    this._alertTimer = null;
   }
 
   // ----- Glances -----
@@ -819,19 +857,20 @@ class HaagHost extends HTMLElement {
 
   // ----- Alert row -----
 
-  // The startup alert, a critical alert when nothing can show, or the
-  // version as placeholder content until 0.3.
+  // Håg's own alert: starting up with a countdown, then critical if
+  // nothing can show.
   _updateAlert() {
     if (this._startedAt === undefined) return;
     if (this._showing) this._ready = true;
     const waited = Date.now() - this._startedAt;
     if (this._showing) {
-      this._setAlert({ level: 'info', icon: 'mdi:information', text: `Håg · v${VERSION}`, hidden: !this._placeholder });
+      this._stopCountdown();
+      this._clear('startup');
     } else if (!this._ready && waited < STARTUP_LIMIT * 1000) {
-      this._setAlert({ level: 'info', icon: 'mdi:information', text: 'Starting up' });
       this._countdown();
     } else {
-      this._setAlert({ level: 'critical', icon: 'mdi:alert-octagon', text: this._problem(), help: true });
+      this._stopCountdown();
+      this._raise('startup', { level: 'critical', text: this._problem(), help: true, own: true });
       this._reportMissing();
     }
   }
@@ -858,35 +897,175 @@ class HaagHost extends HTMLElement {
   }
 
   // Seconds left to the startup limit, so the row doesn't look frozen.
-  // Written in place: the band doesn't move, so glances aren't told.
   _countdown() {
     if (this._countTimer) return;
     const tick = () => {
       const left = STARTUP_LIMIT * 1000 - (Date.now() - this._startedAt);
-      this._row.querySelector('.msg').textContent = `Starting up · ${Math.max(0, Math.ceil(left / 1000))} s`;
+      this._raise('startup', { level: 'info', text: `Starting up · ${Math.max(0, Math.ceil(left / 1000))} s`, own: true });
       this._countTimer = left > 0 ? setTimeout(tick, left % 1000 || 1000) : null;
     };
     tick();
   }
 
-  _setAlert(state) {
-    const key = JSON.stringify(state);
-    if (key === this._alertKey) return;
-    this._alertKey = key;
+  _stopCountdown() {
     clearTimeout(this._countTimer);
     this._countTimer = null;
-    const { level, icon, text, help = false, hidden = false } = state;
+  }
+
+  // Raise or update an alert by id. level: info, warning or critical.
+  // hold: the alert stays put and others wait (holders take turns among
+  // themselves). own: Håg's own alert, shown alone. help: settings and
+  // help links. since: when it started (newest goes first); kept on update.
+  _raise(id, { level = 'info', text = '', hold = false, own = false, help = false, since } = {}) {
+    since ??= this._alerts.get(id)?.since ?? Date.now();
+    this._alerts.set(id, { id, level, text, hold, own, help, since });
+    this._pick();
+  }
+
+  _clear(id) {
+    if (this._alerts.delete(id)) this._pick();
+  }
+
+  // Who takes turns: Håg's own alert alone; otherwise the highest severity
+  // present, and only its holders if it has any. Newest first.
+  _turns() {
+    const all = [...this._alerts.values()];
+    const own = all.filter(a => a.own);
+    if (own.length) return own;
+    const top = Math.max(-1, ...all.map(a => LEVELS.indexOf(a.level)));
+    let turns = all.filter(a => LEVELS.indexOf(a.level) === top);
+    if (turns.some(a => a.hold)) turns = turns.filter(a => a.hold);
+    return turns.sort((a, b) => b.since - a.since);
+  }
+
+  // Keep the turn order: new alerts go next, cleared ones drop out. When
+  // the alert on the row leaves the turns (cleared, or a more severe one
+  // arrived), the next one cuts in at once.
+  _pick() {
+    const ids = this._turns().map(a => a.id);
+    const old = this._queue, cur = this._current;
+    const queue = old.filter(id => ids.includes(id));
+    queue.splice(queue.indexOf(cur) + 1, 0, ...ids.filter(id => !queue.includes(id)));
+    this._queue = queue;
+    let next = cur;
+    if (!queue.includes(cur)) {
+      const i = old.indexOf(cur);
+      next = [...old.slice(i + 1), ...old.slice(0, i)].find(id => queue.includes(id)) ?? queue[0] ?? null;
+    }
+    this._showAlert(next);
+    this._timeTurns(next !== cur);
+  }
+
+  // Turns run while more than one alert takes them.
+  _timeTurns(restart = false) {
+    if (this._queue.length < 2) {
+      clearTimeout(this._alertTimer);
+      this._alertTimer = null;
+    } else if (restart || !this._alertTimer) {
+      clearTimeout(this._alertTimer);
+      this._alertTimer = setTimeout(() => {
+        const q = this._queue;
+        this._alertTimer = null;
+        this._showAlert(q[(q.indexOf(this._current) + 1) % q.length]);
+        this._timeTurns(true);
+      }, TURN * 1000);
+    }
+  }
+
+  // Put an alert on the row: in place if it's the one already there, by a
+  // push if it's another, or hide the row when there's none. The band's
+  // color fades to the alert's severity.
+  _showAlert(id) {
+    const alert = this._alerts.get(id);
     const row = this._row;
-    row.className = `alert-row ${level}${hidden ? ' hidden' : ''}`;
-    const box = row.querySelector('.ico');
+    const hidden = row.classList.contains('hidden');
+    const other = id !== this._current;
+    this._current = alert ? id : null;
+    if (!alert) {
+      if (!hidden) {
+        row.classList.add('hidden');
+        this._tellGlances();
+      }
+      return;
+    }
+    row.className = `alert-row ${alert.level}`;
+    if (other && !hidden && this._slide) this._push(alert);
+    else this._fill(this._slide ??= row.appendChild(this._makeSlide()), alert);
+    if (hidden) this._tellGlances();
+  }
+
+  // Glances keep their content clear of the band.
+  _tellGlances() {
+    for (const { el } of this._running.values()) el.dispatchEvent(new Event('haag-alert'));
+  }
+
+  _makeSlide() {
+    const slide = document.createElement('div');
+    slide.className = 'slide';
+    slide.innerHTML = '<span class="fit"><span class="ico"></span><span class="msg"></span><span class="links"></span></span>';
+    return slide;
+  }
+
+  _fill(slide, alert) {
+    const key = `${alert.level}|${alert.help}|${alert.text}`;
+    if (slide.dataset.key === key) return;
+    slide.dataset.key = key;
+    const icon = LEVEL_ICON[alert.level];
+    const box = slide.querySelector('.ico');
     setIcon(box, icon);
     fitAlertIcon(box, icon);
-    row.querySelector('.msg').textContent = text;
+    slide.querySelector('.msg').textContent = alert.text;
     // Settings opens edit mode (admins, storage-mode dashboards).
-    row.querySelector('.links').innerHTML = help
+    slide.querySelector('.links').innerHTML = alert.help
       ? `<a href="?edit=1">Settings</a><a href="${HELP_URL}" target="_blank" rel="noopener">Help</a>`
       : '';
-    for (const { el } of this._running.values()) el.dispatchEvent(new Event('haag-alert'));
+    this._fit(slide);
+  }
+
+  // A turn: the new slide pushes the old one out to the left. With
+  // reduced motion, they crossfade.
+  _push(alert) {
+    this._settle();
+    const old = this._slide;
+    const next = this._row.appendChild(this._makeSlide());
+    next.classList.add('entering');
+    this._fill(next, alert);
+    this._slide = next;
+    if (!this._stage.classList.contains('animate')) {
+      old.remove();
+      next.classList.remove('entering');
+      return;
+    }
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const timing = { duration: MOVE, easing: 'ease-in-out' };
+    const anims = [
+      next.animate(still ? { opacity: [0, 1] } : { transform: ['translateX(100%)', 'none'] }, timing),
+      old.animate(still ? { opacity: [1, 0] } : { transform: ['none', 'translateX(-100%)'] }, timing),
+    ];
+    this._sliding = { old, next, anims };
+    anims[1].onfinish = () => this._settle();
+  }
+
+  // End a push: the old slide goes and the new one takes its place.
+  _settle() {
+    const s = this._sliding;
+    if (!s) return;
+    this._sliding = null;
+    for (const a of s.anims) a.cancel();
+    s.old.remove();
+    s.next.classList.remove('entering');
+  }
+
+  // Shrink a slide's text to fit one line, down to MIN_FIT; past that its
+  // end is cut with an ellipsis.
+  _fit(slide = this._slide) {
+    const fit = slide?.querySelector('.fit');
+    if (!fit) return;
+    fit.style.fontSize = '';
+    const cs = getComputedStyle(slide);
+    const room = slide.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const width = fit.getBoundingClientRect().width;
+    if (room > 0 && width > room) fit.style.fontSize = `${Math.max(MIN_FIT, room / width * .99)}em`;
   }
 
   // The row's band, relative to the screen.

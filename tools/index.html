@@ -124,16 +124,17 @@
     host.setConfig(cardConfig);
     host.hass = withCondition(hass);
     $('frame').replaceChildren(host);
-    host.setAlertVisible(alertVisible);
+    host.setSampleAlert(sampleAlert);
     $('preview').hidden = false;
   }
 
-  // Show/hide the alert row (pressed = shown). Applied again after remounts.
-  let alertVisible = true;
+  // A sample information alert, to check layouts with the row open
+  // (pressed = shown). Applied again after remounts.
+  let sampleAlert = true;
   $('alert-toggle').addEventListener('click', e => {
-    alertVisible = !alertVisible;
-    e.currentTarget.setAttribute('aria-pressed', alertVisible);
-    host?.setAlertVisible(alertVisible);
+    sampleAlert = !sampleAlert;
+    e.currentTarget.setAttribute('aria-pressed', sampleAlert);
+    host?.setSampleAlert(sampleAlert);
   });
 
   // Weather picker: overrides every weather entity's condition on this page
