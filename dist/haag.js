@@ -40,7 +40,7 @@ const FONT_FAMILY = 'Haag Open Sans';
     url.search = new URL(import.meta.url).search;
     const face = new FontFace(FONT_FAMILY, `url("${url}")`, { weight: '300 800', stretch: '75% 100%', display: 'swap' });
     document.fonts.add(face);
-    return face.load().catch(err => console.warn('Håg: typeface failed to load; using the system font', err));
+    return face.load().catch(err => notice('info', "Typeface didn't load · using the system font", err));
   } catch (err) {
     return Promise.resolve();
   }
@@ -898,13 +898,17 @@ const TURN = 8;        // seconds per alert when several take turns
 const MOVE = 700;      // ms per turn's slide; matches --move
 const MIN_FIT = .7;    // long text shrinks to this share of its size, then is cut
 
-// Notices go to the browser console until real alerts arrive in 0.3.
-// Each is given once.
-const reported = new Set();
-function notice(message, detail) {
-  if (reported.has(message)) return;
-  reported.add(message);
-  console.warn(`Håg: ${message}`, ...(detail === undefined ? [] : [detail]));
+// Håg's notices: in the alert row of every display, and in the browser
+// console with any detail. Each is given once. Information notices leave
+// the row after NOTICE_TIME; warnings stay until the display reloads.
+const NOTICE_TIME = 5 * MINUTE;
+const notices = new Map();   // text → { level, at }
+const noticeListeners = new Set();
+function notice(level, text, detail) {
+  if (notices.has(text)) return;
+  notices.set(text, { level, at: Date.now() });
+  console.warn(`Håg: ${text}`, ...(detail === undefined ? [] : [detail]));
+  noticeListeners.forEach(fn => fn());
 }
 
 // Every registration, by glance name, in arrival order.
@@ -914,7 +918,7 @@ const registryListeners = new Set();
 function register(reg) {
   const name = reg?.manifest?.name;
   if (typeof name !== 'string' || !NAME.test(name)) {
-    notice(`a glance has an invalid name: ${name}`, reg?.url);
+    notice('warning', `Glance name not valid: "${name}"`, reg?.url);
     return;
   }
   registry.set(name, [...(registry.get(name) || []), reg]);
@@ -929,8 +933,8 @@ function resolve(name) {
   const regs = registry.get(name) || [];
   const builtIn = regs.find(isBuiltIn);
   if (regs.length > 1) {
-    notice(`${regs.length} glances are named "${name}"; ${builtIn ? 'the built-in one runs' : 'none of them runs'}`,
-           regs.map(r => r.url));
+    const runs = builtIn ? 'the built-in one runs' : regs.length === 2 ? 'neither runs' : 'none runs';
+    notice('warning', `${regs.length} glances named "${name}" · ${runs}`, regs.map(r => r.url));
   }
   if (builtIn) return builtIn;
   return regs.length === 1 ? regs[0] : null;
@@ -945,24 +949,24 @@ waiting.forEach(register);
 for (const name of BUILT_IN) {
   const url = new URL(`./glances/${name}/${name}.js`, import.meta.url);
   url.search = new URL(import.meta.url).search;
-  import(url.href).catch(err => notice(`the built-in glance "${name}" failed to load`, err));
+  import(url.href).catch(err => notice('warning', `Glance "${name}" didn't load`, err));
 }
 
 // The settings that decide which glances run.
 function readSettings(config) {
   const glances = config.glances && typeof config.glances === 'object' ? config.glances : {};
   for (const name of Object.keys(glances)) {
-    if (!NAME.test(name)) notice(`"${name}" isn't a valid glance name (lowercase letters, digits, _ and -, starting with a letter)`);
+    if (!NAME.test(name)) notice('warning', `Glance name not valid: "${name}"`, 'lowercase letters, digits, _ and -, starting with a letter');
   }
   const def = String(config.default ?? DEFAULT_GLANCE);
   let cycle = Number(config.cycle ?? CYCLE);
   if (!(cycle > 0)) {
-    notice(`cycle must be a number of seconds; using ${CYCLE}`);
+    notice('info', `Cycle setting isn't a number · using ${CYCLE} s`);
     cycle = CYCLE;
   }
   let theme = String(config.theme ?? 'auto');
   if (!THEMES.includes(theme)) {
-    notice(`theme must be auto, dark or light; using auto`);
+    notice('info', 'Theme setting not recognized · using auto', 'auto, dark or light');
     theme = 'auto';
   }
   return {
@@ -1121,6 +1125,8 @@ class HaagHost extends HTMLElement {
     this._own = this._alertsFor('haag', true);       // starting up, nothing to show
     this._home = this._alertsFor('home', true);      // household alerts
     this._weather = this._alertsFor('weather', true);
+    this._notices = this._alertsFor('notice', true);
+    this._showNotices = this._showNotices.bind(this);
     this._sync = this._sync.bind(this);
   }
 
@@ -1156,6 +1162,8 @@ class HaagHost extends HTMLElement {
     this._startedAt ??= Date.now();
     this.style.setProperty('--haag-split', `${180 - SPLIT_ANGLE}deg`);
     registryListeners.add(this._sync);
+    noticeListeners.add(this._showNotices);
+    this._showNotices();
     this._sync();
     this._updateAlert();
     // At the startup limit: report missing glances, and turn critical if
@@ -1181,6 +1189,8 @@ class HaagHost extends HTMLElement {
 
   disconnectedCallback() {
     registryListeners.delete(this._sync);
+    noticeListeners.delete(this._showNotices);
+    clearTimeout(this._noticeTimer);
     clearTimeout(this._turnTimer);
     clearTimeout(this._limitTimer);
     clearTimeout(this._countTimer);
@@ -1205,7 +1215,7 @@ class HaagHost extends HTMLElement {
     try {
       reg = await loadRegistries(hass);
     } catch (err) {
-      console.error('Håg: discovery failed', err);
+      notice('warning', "Couldn't read Home Assistant's setup", err);
     }
     const people = discoverPeople(hass, p.people || {});
     this._providers = {
@@ -1251,7 +1261,7 @@ class HaagHost extends HTMLElement {
     this._loading.add(name);
     try {
       const { format, element } = reg.manifest;
-      if (format !== GLANCE_FORMAT) throw new Error(`format ${format} isn't supported`);
+      if (format !== GLANCE_FORMAT) throw Object.assign(new Error(`format ${format} isn't supported`), { newer: true });
       await reg.load();
       if (!customElements.get(element)) throw new Error(`<${element}> isn't defined`);
       if (resolve(name) !== reg || !this.isConnected) return;
@@ -1263,7 +1273,8 @@ class HaagHost extends HTMLElement {
       this._running.set(name, entry);
     } catch (err) {
       this._failed.add(name);
-      notice(`the glance "${name}" failed to load`, { file: reg.url, error: err });
+      const title = reg.manifest?.title || `Glance "${name}"`;
+      notice('warning', err.newer ? `${title} needs a newer Håg` : `${title} didn't load`, { file: reg.url, error: err });
     } finally {
       this._loading.delete(name);
       this._schedule();
@@ -1343,6 +1354,19 @@ class HaagHost extends HTMLElement {
     this._homeTimer = next < Infinity ? setTimeout(() => this._household(), Math.max(1000, next - Date.now())) : null;
   }
 
+  // ----- Notices -----
+
+  // Håg's notices on the row: information ones until NOTICE_TIME after
+  // they were given, warnings until the display reloads.
+  _showNotices() {
+    clearTimeout(this._noticeTimer);
+    const now = Date.now();
+    const shown = [...notices].filter(([, n]) => n.level !== 'info' || now - n.at < NOTICE_TIME);
+    this._notices.replace(shown.map(([text, n]) => ({ key: text, level: n.level, text, since: n.at })));
+    const next = Math.min(...shown.filter(([, n]) => n.level === 'info').map(([, n]) => n.at + NOTICE_TIME));
+    if (next < Infinity) this._noticeTimer = setTimeout(this._showNotices, next - now);
+  }
+
   // ----- Weather alerts -----
 
   // Weather alerts from the source's latest data, looked at again when the
@@ -1352,7 +1376,7 @@ class HaagHost extends HTMLElement {
     if (!src || !hass || !this.isConnected) return;
     clearTimeout(this._wxTimer);
     if (src.entities.length && src.entities.every(id => hass.states[id]?.state === 'unavailable')) {
-      notice(`Couldn't read weather alerts from ${WX_SOURCES[src.platform]}`);
+      notice('info', `Couldn't read weather alerts from ${WX_SOURCES[src.platform]}`);
     }
     const due = this._callWeather(src);
     const { alerts, next } = weatherAlerts(hass, readWeather(hass, src, this._wxFetched));
@@ -1386,7 +1410,7 @@ class HaagHost extends HTMLElement {
         Promise.resolve()   // a throw becomes a rejection
           .then(() => hass.callWS({ type: 'call_service', ...msg, return_response: true }))
           .then(r => this._wxFetched.set(key, pick(r.response)))
-          .catch(err => notice(`Couldn't read weather alerts from ${WX_SOURCES[src.platform]}`, err))
+          .catch(err => notice('info', `Couldn't read weather alerts from ${WX_SOURCES[src.platform]}`, err))
           .finally(() => {
             call.pending = false;
             this._weatherAlerts();
@@ -1451,7 +1475,7 @@ class HaagHost extends HTMLElement {
     if (!this._settings) return;
     const { def, defOn, order } = this._settings;
     for (const name of defOn ? [def, ...order] : order) {
-      if (!registry.has(name)) notice(`settings name a glance that isn't installed: ${name}`);
+      if (!registry.has(name)) notice('warning', `Glance "${name}" isn't installed`);
     }
   }
 
@@ -1515,12 +1539,13 @@ class HaagHost extends HTMLElement {
     if (this._alerts.delete(id)) this._pick();
   }
 
-  // Who takes turns: Håg's own alert alone; otherwise the highest severity
-  // present, and only its holders if it has any. Newest first.
+  // Who takes turns: Håg's own alert, with its notices whatever their
+  // severity; otherwise the highest severity present, and only its holders
+  // if it has any. Newest first.
   _turns() {
     const all = [...this._alerts.values()];
     const own = all.filter(a => a.own);
-    if (own.length) return own;
+    if (own.length) return [...own, ...all.filter(a => a.id.startsWith('notice:'))].sort((a, b) => b.since - a.since);
     const top = Math.max(-1, ...all.map(a => LEVELS.indexOf(a.level)));
     let turns = all.filter(a => LEVELS.indexOf(a.level) === top);
     if (turns.some(a => a.hold)) turns = turns.filter(a => a.hold);
