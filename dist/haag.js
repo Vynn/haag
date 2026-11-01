@@ -135,11 +135,18 @@ function discoverOutdoor(hass, reg, overrides = {}) {
   const weather = e => e.entity_id.startsWith('weather.');
   // HA's Moon integration: an enum sensor with the eight phases as options.
   const moon = (e, st) => dc('enum')(e, st) && MOON_PHASES.every(p => st.attributes.options?.includes(p));
+  // AQI: not PurpleAir's VOC index. Preferred: Google's local index over its
+  // UAQI (which runs backwards), and of a US and China pair, the one for
+  // HA's country.
+  const china = hass.config?.country === 'CN';
+  const aqi = (e, st) => dc('aqi')(e, st) && !(e.platform === 'purpleair' && e.translation_key === 'voc_aqi');
+  const aqiFirst = (e, st) => aqi(e, st) && !(e.platform === 'google_air_quality' && e.translation_key === 'uaqi') &&
+    (chinaIndex(e) ?? china) === china;
 
   return {
     temperature: overrides.temperature ?? best(dc('temperature')),
     humidity:    overrides.humidity    ?? best(dc('humidity')),
-    aqi:         overrides.aqi         ?? best(dc('aqi')),
+    aqi:         overrides.aqi         ?? best(aqiFirst) ?? best(aqi),
     weather:     overrides.weather     ?? best(weather) ?? best(weather, all),
     moon:        overrides.moon        ?? best(moon, all),
   };
@@ -427,6 +434,273 @@ function discoverCalendars(hass, reg, overrides = {}) {
 }
 
 /* ------------------------------------------------------------------------
+   Household alerts
+   Built-in alerts for things without a glance of their own: hazards,
+   leaks, things left open or unlocked, and air quality. Sensors are found
+   by device class. Settings are these defaults until the editor (0.4).
+   ------------------------------------------------------------------------ */
+
+const MINUTE = 60 * 1000;
+const OPEN_WAIT = 5 * MINUTE;       // left open or unlocked this long, from HA's last change
+const LEAK_CRITICAL = 15 * MINUTE;  // a leak turns critical after this
+const READING_HOLD = 15 * MINUTE;   // air quality past its limit this long, from when first seen
+
+// Alarms: critical at once, and they hold the row.
+const HAZARDS = { smoke: 'Smoke Alert', carbon_monoxide: 'Carbon Monoxide (CO) Alert', gas: 'Gas Alert' };
+
+// Things left open, by binary sensor and cover device class.
+const OPENINGS = {
+  door:    { noun: 'door',        binary: ['door'],        cover: ['door'] },
+  garage:  { noun: 'garage door', binary: ['garage_door'], cover: ['garage'] },
+  gate:    { noun: 'gate',        binary: [],              cover: ['gate'] },
+  window:  { noun: 'window',      binary: ['window'],      cover: ['window'] },
+  opening: { noun: 'opening',     binary: ['opening'],     cover: [], named: true },   // by the entity's own name
+};
+const UNLOCKED = ['unlocked', 'open', 'opening', 'unlocking'];
+
+// Indoor readings, with their limits in each unit they may come in
+// (µ and μ both written u). Readings in other units aren't watched.
+const CO_MG = 28.01 / 24.055;   // mg/m³ per ppm of CO at 20 °C, as HA converts
+const READINGS = {
+  carbon_dioxide:  { label: 'CO₂',   limits: { ppm: 1000 } },
+  pm25:            { label: 'PM2.5', limits: { 'ug/m³': 35.5 } },
+  radon:           { label: 'radon', limits: { 'Bq/m³': 100, 'pCi/L': 100 / 37 } },
+  carbon_monoxide: { label: 'CO',    limits: { ppm: 30, ppb: 30000, 'mg/m³': 30 * CO_MG, 'ug/m³': 30000 * CO_MG } },
+};
+const unitKey = unit => String(unit).replace(/[µμ]/g, 'u');
+
+// Radon: a monitor's long-term average, else its 1-day, else the rest.
+const radonRank = e => {
+  const s = `${e.translation_key || ''} ${e.unique_id || ''} ${e.original_name || ''}`;
+  return /long.?term/i.test(s) ? 0 : /1.?day|short.?term/i.test(s) ? 1 : /week/i.test(s) ? 2 : 3;
+};
+
+// Outdoor AQI scales: band names from low to high (by the lowest value in
+// each), and where warnings start. Each warns where at-risk people are
+// named or told to cut back, or at the band named moderate when a scale
+// gives no advice. China's index uses aqicn's names. Google's UAQI runs
+// backwards: it warns below its limit.
+const US_BANDS = [[0, 'good'], [51, 'moderate'], [101, 'unhealthy for sensitive groups'], [151, 'unhealthy'],
+  [201, 'very unhealthy'], [301, 'hazardous']];
+const AQI_SCALES = {
+  us:   { warn: 51, bands: US_BANDS },
+  cn:   { warn: 51, bands: US_BANDS },
+  aqhi: { warn: 4,  bands: [[0, 'low risk'], [4, 'moderate risk'], [7, 'high risk'], [11, 'very high risk']] },
+  daqi: { warn: 4,  bands: [[0, 'low'], [4, 'moderate'], [7, 'high'], [10, 'very high']] },
+  owm:  { warn: 3,  bands: [[0, 'good'], [2, 'fair'], [3, 'moderate'], [4, 'poor'], [5, 'very poor']] },
+  caqi: { warn: 50, bands: [[0, 'very low'], [25, 'low'], [50, 'medium'], [75, 'high'], [101, 'very high']] },
+  uaqi: { warn: 60, below: true, bands: [[0, 'poor'], [20, 'low'], [40, 'moderate'], [60, 'good'], [80, 'excellent']] },
+  gios: { warn: 'moderate', levels: ['very_good', 'good', 'moderate', 'sufficient', 'bad', 'very_bad'] },   // no number
+};
+const AQI_PLATFORMS = { environment_canada: 'aqhi', openweathermap: 'owm', airly: 'caqi', gios: 'gios' };
+
+// Of a US and China pair (AirVisual, Tomorrow.io): true for the China
+// index, false for the US one; null for other sensors.
+function chinaIndex(e) {
+  if (e.platform === 'airvisual') return /_cn_/.test(e.unique_id || '');
+  if (e.platform === 'tomorrowio') return /china/.test(e.translation_key || '');
+  return null;
+}
+
+// An AQI sensor's scale, by its integration; unknown ones read as US AQI.
+// Google's local index is named in the sensor's name.
+function aqiScale(hass, e) {
+  if (chinaIndex(e)) return 'cn';
+  if (e.platform === 'google_air_quality') {
+    if (e.translation_key === 'uaqi') return 'uaqi';
+    const name = hass.states[e.entity_id]?.attributes.friendly_name || '';
+    return [['aqhi', /AQHI/i], ['daqi', /DAQI/i], ['caqi', /CAQI/i], ['cn', /\b(CN|China|MEE|MEP)\b/i]]
+      .find(([, re]) => re.test(name))?.[0] ?? 'us';
+  }
+  return AQI_PLATFORMS[e.platform] || 'us';
+}
+
+/**
+ * The sensors household alerts watch: enabled, visible, with a state.
+ * Readings are indoor only; outdoor air is the AQI Overview shows, or
+ * Airly's or GIOŚ's index when there's none.
+ * Returns [{ entity, kind, cls?, area, subject, name, ... }].
+ */
+function discoverAlerts(hass, reg, outdoorAqi) {
+  const exterior = reg.floors.find(isExterior)?.floor_id;
+  const areaName = Object.fromEntries(reg.areas.map(a => [a.area_id, a.name]));
+  const all = reg.entities.filter(e => !e.disabled_by && !e.hidden_by && hass.states[e.entity_id]);
+  const nameOf = e => hass.states[e.entity_id].attributes.friendly_name || e.entity_id;
+  const watch = [];
+  // An alert names the area, else the device, else the entity.
+  const add = (e, kind, more) => watch.push({ entity: e.entity_id, kind, area: e.area,
+    subject: areaName[e.area] || reg.deviceName[e.device_id] || nameOf(e), name: nameOf(e), ...more });
+  const radon = new Map();   // device → its preferred radon reading
+  for (const e of all) {
+    const domain = e.entity_id.split('.')[0];
+    const { device_class: dc, unit_of_measurement: unit } = hass.states[e.entity_id].attributes;
+    const opening = key => Object.keys(OPENINGS).find(k => OPENINGS[k][key].includes(dc));
+    if (domain === 'binary_sensor') {
+      if (HAZARDS[dc]) add(e, 'hazard', { cls: dc });
+      else if (dc === 'moisture') add(e, 'leak');
+      else if (opening('binary')) add(e, 'open', { cls: opening('binary') });
+    } else if (domain === 'cover') {
+      if (opening('cover')) add(e, 'open', { cls: opening('cover'), cover: true });
+    } else if (domain === 'lock') {
+      add(e, 'lock');
+    } else if (domain === 'sensor' && READINGS[dc] && !(exterior && e.floor === exterior)) {
+      const limits = READINGS[dc].limits;
+      const limit = unit ? limits[unitKey(unit)] : Object.values(limits)[0];
+      if (limit === undefined) continue;
+      const more = { cls: dc, limit, unit: unit || Object.keys(limits)[0] };
+      if (dc === 'radon' && e.device_id) {
+        const kept = radon.get(e.device_id);
+        if (!kept || radonRank(e) < radonRank(kept.e)) radon.set(e.device_id, { e, more });
+      } else add(e, 'reading', more);
+    }
+  }
+  for (const { e, more } of radon.values()) add(e, 'reading', more);
+
+  const regional = e => (e.platform === 'airly' && e.translation_key === 'caqi') ||
+    (e.platform === 'gios' && e.translation_key === 'aqi');
+  const aqi = outdoorAqi ? reg.entities.find(e => e.entity_id === outdoorAqi) ?? { entity_id: outdoorAqi } : all.find(regional);
+  if (aqi) watch.push({ entity: aqi.entity_id, kind: 'aqi', scale: aqiScale(hass, aqi) });
+  return watch;
+}
+
+// A number as HA's number format writes it (from HA's frontend: each style
+// stands for a locale).
+function formatNumber(hass, n, digits = 0) {
+  const style = hass?.locale?.number_format;
+  if (style === 'none') return String(Math.round(n * 10 ** digits) / 10 ** digits);
+  const locale = { comma_decimal: 'en-US', decimal_comma: 'de', space_comma: 'fr', quote_decimal: 'de-CH' }[style]
+    ?? (style === 'system' ? undefined : hass?.locale?.language || hass?.language);
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: digits }).format(n);
+}
+
+// "3 min", "2 h", "4 d", rounded down.
+function duration(ms) {
+  const m = Math.floor(ms / MINUTE);
+  return m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} d`;
+}
+
+const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+const listOf = names => names.length < 2 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+
+/**
+ * Household alerts from the latest states: [{ id, level, text, hold,
+ * since }], one per type, and when to look again (ms time, or Infinity).
+ * `seen` keeps when each reading first passed its limit. `fits(text)`
+ * says whether text fits the alert row; groups name their members when
+ * it does, and count them otherwise.
+ */
+function householdAlerts(hass, watch, seen, fits, now = Date.now()) {
+  let next = Infinity;
+  const later = t => { if (t > now) next = Math.min(next, t); };
+  const groups = new Map();   // alert id → members
+  const join = (id, member) => groups.set(id, [...(groups.get(id) || []), member]);
+
+  for (const w of watch) {
+    const st = hass.states[w.entity];
+    if (!st || st.state === 'unavailable' || st.state === 'unknown') {
+      seen.delete(w.entity);
+      continue;
+    }
+    const since = Date.parse(st.last_changed) || now;
+    const waited = (wait, id) => now - since >= wait ? join(id, { w, since }) : later(since + wait);
+    if (w.kind === 'hazard') {
+      if (st.state === 'on') join(`home:hazard:${w.cls}`, { w, since });
+    } else if (w.kind === 'leak') {
+      if (st.state !== 'on') continue;
+      const critical = now - since >= LEAK_CRITICAL;
+      join('home:leak', { w, since, critical });
+      if (critical) later(now + MINUTE - (now - since) % MINUTE);   // the duration shown
+      else later(since + LEAK_CRITICAL);
+    } else if (w.kind === 'open') {
+      if (w.cover ? st.state !== 'closed' : st.state === 'on') waited(OPEN_WAIT, `home:open:${w.cls}`);
+    } else if (w.kind === 'lock') {
+      if (st.state === 'jammed') join('home:jammed', { w, since });
+      else if (UNLOCKED.includes(st.state)) waited(OPEN_WAIT, 'home:unlocked');
+    } else {
+      // Readings and outdoor AQI: past the limit for the hold, from when first seen.
+      const scale = AQI_SCALES[w.scale];
+      let value = Number(st.state), band, past;
+      if (scale?.levels) {
+        value = null;
+        band = st.state.replace(/_/g, ' ');
+        past = scale.levels.indexOf(st.state) >= scale.levels.indexOf(scale.warn);
+      } else if (!Number.isFinite(value)) {
+        seen.delete(w.entity);
+        continue;
+      } else if (scale) {
+        band = scale.bands.findLast(([min]) => Math.round(value) >= min)?.[1];
+        past = scale.below ? value < scale.warn : value >= scale.warn;
+      } else past = value >= w.limit;
+      if (!past) {
+        seen.delete(w.entity);
+        continue;
+      }
+      const first = seen.get(w.entity) ?? now;
+      seen.set(w.entity, first);
+      if (now - first >= READING_HOLD) join(w.kind === 'aqi' ? 'home:aqi' : `home:reading:${w.cls}`, { w, since: first, value, band });
+      else later(first + READING_HOLD);
+    }
+  }
+
+  const alerts = [];
+  for (const [id, members] of groups) {
+    const kind = id.split(':')[1];
+    const subjects = [...new Set(members.map(m => m.w.subject))];
+    const n = members.length;
+    // Names if one, or if they fit; otherwise a count.
+    const named = (text, counted) => subjects.length === 1 || fits(text) ? text : counted;
+    const areas = lead => named(`${lead} in ${listOf(subjects)}`, `${lead} in ${subjects.length} areas`);
+    let level = 'info', hold = false, text;
+    if (kind === 'hazard') {
+      const cls = id.split(':')[2];
+      level = 'critical';
+      hold = true;
+      text = areas(HAZARDS[cls]);
+      // A CO alarm shows its area's CO reading, in ppm.
+      const area = members[0].w.area;
+      const ppm = subjects.length === 1 && cls === 'carbon_monoxide' && area && Math.max(...watch
+        .filter(w => w.kind === 'reading' && w.cls === 'carbon_monoxide' && w.area === area)
+        .map(w => Number(hass.states[w.entity]?.state) * 30 / w.limit).filter(Number.isFinite));
+      if (ppm > 0) text += ` · ${formatNumber(hass, ppm)} ppm`;
+    } else if (kind === 'leak') {
+      const critical = members.filter(m => m.critical);
+      level = critical.length ? 'critical' : 'warning';
+      text = areas('Water Leak');
+      if (critical.length) text += ` · ${duration(now - Math.min(...critical.map(m => m.since)))}`;
+    } else if (kind === 'open') {
+      const { noun, named: byName } = OPENINGS[id.split(':')[2]];
+      if (byName) {
+        const names = [...new Set(members.map(m => m.w.name))];
+        text = names.length === 1 || fits(`${listOf(names)} open`) ? `${listOf(names)} open` : `${n} ${noun}s open`;
+      } else if (subjects.length === 1) {
+        const nouns = n > 1 ? `${noun}s` : noun;
+        // An area that repeats the type is dropped ("Garage door open").
+        text = ` ${noun} `.includes(` ${subjects[0].toLowerCase()} `) ? `${cap(nouns)} open` : `${subjects[0]} ${nouns} open`;
+      } else text = named(`${listOf(subjects)} ${noun}s open`, `${n} ${noun}s open`);
+    } else if (kind === 'unlocked') {
+      text = named(`${listOf(subjects)} unlocked`, `${n} locks unlocked`);
+    } else if (kind === 'jammed') {
+      level = 'warning';
+      text = named(`${listOf(subjects)} ${n > 1 ? 'locks' : 'lock'} jammed`, `${n} locks jammed`);
+    } else if (kind === 'reading') {
+      const { label } = READINGS[id.split(':')[2]];
+      level = 'warning';
+      if (subjects.length === 1) {
+        // The reading furthest past its limit, in its own unit.
+        const top = members.reduce((a, b) => b.value / b.w.limit > a.value / a.w.limit ? b : a);
+        text = `${subjects[0]} ${label} high · ${formatNumber(hass, top.value, top.value < 10 ? 1 : 0)} ${top.w.unit}`;
+      } else text = named(`${listOf(subjects)} ${label} high`, `${cap(label)} high in ${subjects.length} areas`);
+    } else {
+      const { value, band } = members[0];
+      level = 'warning';
+      text = `Outdoor air ${band}${value === null ? '' : ` · AQI ${formatNumber(hass, value)}`}`;
+    }
+    alerts.push({ id, level, text, hold, since: Math.max(...members.map(m => m.since)) });
+  }
+  return { alerts, next };
+}
+
+/* ------------------------------------------------------------------------
    Glances
    Bootstraps register through window.haagGlances (docs/glances.md).
    ------------------------------------------------------------------------ */
@@ -625,6 +899,7 @@ const HOST_STYLE = `
     text-overflow: ellipsis;
   }
   .slide.entering { position: absolute; inset: 0; }
+  .slide.measure { position: absolute; inset: 0; visibility: hidden; }
   .alert-row a { color: inherit; margin-left: .8em; }
   .msg { font-variant-numeric: tabular-nums; }   /* steady countdown */
 
@@ -685,6 +960,7 @@ class HaagHost extends HTMLElement {
     this._updateDaylight();
     if (first) this._discover();
     for (const { el } of this._running.values()) el.hass = hass;
+    this._household();
   }
 
   getCardSize() { return 12; }
@@ -707,11 +983,18 @@ class HaagHost extends HTMLElement {
     // nothing is on screen.
     const left = STARTUP_LIMIT * 1000 - (Date.now() - this._startedAt);
     if (left > 0) this._limitTimer = setTimeout(() => { this._reportMissing(); this._updateAlert(); }, left + 50);
-    // Alert text refits when the screen or the typeface changes.
-    this._resize ??= new ResizeObserver(() => this._fit());
+    // Alert text refits, and groups may switch between names and a count,
+    // when the screen or the typeface changes.
+    const refit = () => {
+      this._fitCache?.clear();
+      this._household();
+      this._fit();
+    };
+    this._resize ??= new ResizeObserver(refit);
     this._resize.observe(this);
-    document.fonts.ready.then(() => { if (this.isConnected) this._fit(); });
+    document.fonts.ready.then(() => { if (this.isConnected) refit(); });
     this._timeTurns();
+    this._household();
     // Animate only after the first frame, so nothing fades in on load.
     requestAnimationFrame(() => requestAnimationFrame(() => this._stage.classList.add('animate')));
   }
@@ -722,6 +1005,7 @@ class HaagHost extends HTMLElement {
     clearTimeout(this._limitTimer);
     clearTimeout(this._countTimer);
     clearTimeout(this._alertTimer);
+    clearTimeout(this._homeTimer);
     this._resize?.disconnect();
     this._turnTimer = null;
     this._countTimer = null;
@@ -754,6 +1038,13 @@ class HaagHost extends HTMLElement {
       locate: () => locatePeople(this._hass, people, reg),
     };
     this._sync();
+    try {
+      this._watch = discoverAlerts(hass, reg, this._providers.outdoor.aqi);
+    } catch (err) {
+      console.error('Håg: household alert discovery failed', err);
+    }
+    this._seen = new Map();   // reading → when first seen past its limit
+    this._household();
   }
 
   // Start what settings turn on; stop what a new clash rules out.
@@ -853,6 +1144,40 @@ class HaagHost extends HTMLElement {
     const theme = this._settings?.theme;
     this._daylight = theme === 'light' || (theme !== 'dark' && !isNight(this._hass));
     this._stage.style.setProperty('--haag-daylight', this._daylight ? 1 : 0);
+  }
+
+  // ----- Household alerts -----
+
+  // Raise, update and clear household alerts from the latest states, and
+  // look again when the next wait ends.
+  _household() {
+    if (!this._watch || !this._hass || !this.isConnected) return;
+    clearTimeout(this._homeTimer);
+    const { alerts, next } = householdAlerts(this._hass, this._watch, this._seen, text => this._fitsRow(text));
+    const ids = new Set(alerts.map(a => a.id));
+    for (const id of [...this._alerts.keys()]) if (id.startsWith('home:') && !ids.has(id)) this._clear(id);
+    for (const a of alerts) {
+      const old = this._alerts.get(a.id);
+      if (!old || old.level !== a.level || old.text !== a.text || old.since !== a.since) this._raise(a.id, a);
+    }
+    this._homeTimer = next < Infinity ? setTimeout(() => this._household(), Math.max(1000, next - Date.now())) : null;
+  }
+
+  // Whether alert text fits the row on one line at its smallest size,
+  // measured on a hidden slide.
+  _fitsRow(text) {
+    this._fitCache ??= new Map();
+    let fits = this._fitCache.get(text);
+    if (fits === undefined) {
+      const m = this._measure ??= this._row.appendChild(this._makeSlide());
+      m.classList.add('measure');
+      m.querySelector('.msg').textContent = text;
+      const cs = getComputedStyle(m);
+      const room = m.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      fits = m.querySelector('.fit').getBoundingClientRect().width * MIN_FIT <= room;
+      this._fitCache.set(text, fits);
+    }
+    return fits;
   }
 
   // ----- Alert row -----
