@@ -92,6 +92,11 @@ const isAllDay = v => /^\d{4}-\d{2}-\d{2}$/.test(v);
 // which matches HA's as long as the display device is set to the same zone.
 const toDate = v => isAllDay(v) ? new Date(`${v}T00:00:00`) : new Date(v);
 
+// Times follow HA's time format setting: 12 or 24 hours, or the locale's
+// own (the browser's, for "system").
+const timeLocale = hass => hass?.locale?.time_format === 'system' ? undefined : hass?.language || navigator.language;
+const hours = hass => ({ 12: { hour12: true }, 24: { hourCycle: 'h23' } })[hass?.locale?.time_format];   // h23: 0:00, not 24:00
+
 /**
  * Upcoming events across the given calendars, soonest first, including ones
  * in progress, over the next APPT_DAYS days.
@@ -506,8 +511,8 @@ class SinnesroGlance extends HTMLElement {
     const tz = this._hass?.config?.time_zone;   // HA's time zone, not the browser's
     const locale = this._hass?.language || navigator.language;
 
-    // 12-hour clock with a separate AM/PM label.
-    const parts = new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz }).formatToParts(now);
+    // The clock, with AM/PM in a separate label (none on 24 hours).
+    const parts = new Intl.DateTimeFormat(timeLocale(this._hass), { hour: 'numeric', minute: '2-digit', ...hours(this._hass), timeZone: tz }).formatToParts(now);
     const pick = type => parts.find(p => p.type === type)?.value ?? '';
     this._live.time.textContent = `${pick('hour')}:${pick('minute')}`;
     this._live.ampm.textContent = pick('dayPeriod').toUpperCase();
@@ -531,7 +536,7 @@ class SinnesroGlance extends HTMLElement {
     const hass = this._hass;
     const tz = hass?.config?.time_zone;
     const locale = hass?.language || navigator.language;
-    const time = d => new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz }).format(d);
+    const time = d => new Intl.DateTimeFormat(timeLocale(hass), { hour: 'numeric', minute: '2-digit', ...hours(hass), timeZone: tz }).format(d);
     const day = d => new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone: tz }).format(d);
     const dateKey = d => new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(d);   // YYYY-MM-DD
     const now = new Date();
