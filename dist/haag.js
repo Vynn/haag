@@ -65,6 +65,12 @@ class HaagStrategy extends HTMLElement {
       }],
     };
   }
+
+  // The settings editor in HA's dashboard editor (see Settings editor).
+  static async getConfigElement() {
+    await loadHaForm();
+    return document.createElement('haag-editor');
+  }
 }
 
 /* ------------------------------------------------------------------------
@@ -437,13 +443,10 @@ function discoverCalendars(hass, reg, overrides = {}) {
    Household alerts
    Built-in alerts for things without a glance of their own: hazards,
    leaks, things left open or unlocked, and air quality. Sensors are found
-   by device class. Settings are these defaults until the editor (0.4).
+   by device class. Their settings are under alerts.core (see Settings).
    ------------------------------------------------------------------------ */
 
 const MINUTE = 60 * 1000;
-const OPEN_WAIT = 5 * MINUTE;       // left open or unlocked this long, from HA's last change
-const LEAK_CRITICAL = 15 * MINUTE;  // a leak turns critical after this
-const READING_HOLD = 15 * MINUTE;   // air quality past its limit this long, from when first seen
 
 // Alarms: critical at once, and they hold the row.
 const HAZARDS = { smoke: 'Smoke Alert', carbon_monoxide: 'Carbon Monoxide (CO) Alert', gas: 'Gas Alert' };
@@ -516,12 +519,14 @@ function aqiScale(hass, e) {
 }
 
 /**
- * The sensors household alerts watch: enabled, visible, with a state.
- * Readings are indoor only; outdoor air is the AQI Overview shows, or
- * Airly's or GIOŚ's index when there's none.
- * Returns [{ entity, kind, cls?, area, subject, name, ... }].
+ * The sensors household alerts watch: enabled, visible, with a state,
+ * for the alerts turned on in settings (alerts.core), less the sensors
+ * left out. Readings are indoor only; outdoor air is the AQI Overview
+ * shows, or Airly's or GIOŚ's index when there's none.
+ * Returns [{ entity, kind, cls?, area, subject, name, after?, critical?,
+ * hold?, limit?, ... }], timings in ms and limits in the sensor's unit.
  */
-function discoverAlerts(hass, reg, outdoorAqi) {
+function discoverAlerts(hass, reg, outdoorAqi, settings) {
   const exterior = reg.floors.find(isExterior)?.floor_id;
   const areaName = Object.fromEntries(reg.areas.map(a => [a.area_id, a.name]));
   const all = reg.entities.filter(e => !e.disabled_by && !e.hidden_by && hass.states[e.entity_id]);
@@ -547,7 +552,7 @@ function discoverAlerts(hass, reg, outdoorAqi) {
       const limits = READINGS[dc].limits;
       const limit = unit ? limits[unitKey(unit)] : Object.values(limits)[0];
       if (limit === undefined) continue;
-      const more = { cls: dc, limit, unit: unit || Object.keys(limits)[0] };
+      const more = { cls: dc, limit, unit: unit || Object.keys(limits)[0], toCanon: Object.values(limits)[0] / limit };
       if (dc === 'radon' && e.device_id) {
         const kept = radon.get(e.device_id);
         if (!kept || radonRank(e) < radonRank(kept.e)) radon.set(e.device_id, { e, more });
@@ -560,7 +565,17 @@ function discoverAlerts(hass, reg, outdoorAqi) {
     (e.platform === 'gios' && e.translation_key === 'aqi');
   const aqi = outdoorAqi ? reg.entities.find(e => e.entity_id === outdoorAqi) ?? { entity_id: outdoorAqi } : all.find(regional);
   if (aqi) watch.push({ entity: aqi.entity_id, kind: 'aqi', scale: aqiScale(hass, aqi) });
-  return watch;
+
+  // Settings: timings, and the limit in the sensor's own unit. A CO alarm
+  // keeps its area's CO readings, quiet, to show their level.
+  const coAlarm = settings.co.enabled;
+  return watch.flatMap(w => {
+    const s = settings[CORE_ALERT_OF[coverOf(w)]];
+    const quiet = !s.enabled || s.exclude.includes(w.entity);
+    if (quiet && !(coAlarm && w.kind === 'reading' && w.cls === 'carbon_monoxide')) return [];
+    return [{ ...w, quiet, after: s.after * 1000, critical: s.critical_after * 1000, hold: s.hold * 1000,
+      ...(w.limit && { limit: s.limit / w.toCanon }) }];
+  });
 }
 
 // A number as HA's number format writes it (from HA's frontend: each style
@@ -614,21 +629,22 @@ function householdAlerts(hass, watch, seen, fits, now = Date.now()) {
       seen.delete(w.entity);
       continue;
     }
+    if (w.quiet) continue;
     const since = Date.parse(st.last_changed) || now;
     const waited = (wait, id) => now - since >= wait ? join(id, { w, since }) : later(since + wait);
     if (w.kind === 'hazard') {
       if (st.state === 'on') join(`hazard:${w.cls}`, { w, since });
     } else if (w.kind === 'leak') {
       if (st.state !== 'on') continue;
-      const critical = now - since >= LEAK_CRITICAL;
+      const critical = now - since >= w.critical;
       join('leak', { w, since, critical });
       if (critical) later(now + MINUTE - (now - since) % MINUTE);   // the duration shown
-      else later(since + LEAK_CRITICAL);
+      else later(since + w.critical);
     } else if (w.kind === 'open') {
-      if (w.cover ? st.state !== 'closed' : st.state === 'on') waited(OPEN_WAIT, `open:${w.cls}`);
+      if (w.cover ? st.state !== 'closed' : st.state === 'on') waited(w.after, `open:${w.cls}`);
     } else if (w.kind === 'lock') {
       if (st.state === 'jammed') join('jammed', { w, since });
-      else if (UNLOCKED.includes(st.state)) waited(OPEN_WAIT, 'unlocked');
+      else if (UNLOCKED.includes(st.state)) waited(w.after, 'unlocked');
     } else {
       // Readings and outdoor AQI: past the limit for the hold, from when first seen.
       const scale = AQI_SCALES[w.scale];
@@ -650,8 +666,8 @@ function householdAlerts(hass, watch, seen, fits, now = Date.now()) {
       }
       const first = seen.get(w.entity) ?? now;
       seen.set(w.entity, first);
-      if (now - first >= READING_HOLD) join(w.kind === 'aqi' ? 'aqi' : `reading:${w.cls}`, { w, since: first, value, band });
-      else later(first + READING_HOLD);
+      if (now - first >= w.hold) join(w.kind === 'aqi' ? 'aqi' : `reading:${w.cls}`, { w, since: first, value, band });
+      else later(first + w.hold);
     }
   }
 
@@ -672,7 +688,7 @@ function householdAlerts(hass, watch, seen, fits, now = Date.now()) {
       const area = members[0].w.area;
       const ppm = subjects.length === 1 && cls === 'carbon_monoxide' && area && Math.max(...watch
         .filter(w => w.kind === 'reading' && w.cls === 'carbon_monoxide' && w.area === area)
-        .map(w => Number(hass.states[w.entity]?.state) * 30 / w.limit).filter(Number.isFinite));
+        .map(w => Number(hass.states[w.entity]?.state) * w.toCanon).filter(Number.isFinite));
       if (ppm > 0) text += ` · ${formatNumber(hass, ppm)} ppm`;
     } else if (kind === 'leak') {
       const critical = members.filter(m => m.critical);
@@ -735,14 +751,17 @@ const WX_SOURCES = {
 };
 
 /**
- * The weather alert source: the first installed, in WX_SOURCES order.
+ * The weather alert source: the one chosen in settings, else the first
+ * installed, in WX_SOURCES order. None when weather alerts are off.
  * Returns { platform, entities, ... } or null.
  */
-function discoverWeather(hass, reg) {
+function discoverWeather(hass, reg, settings) {
+  if (!settings.enabled) return null;
   const on = reg.entities.filter(e => !e.disabled_by && hass.states[e.entity_id]);
   const of = (platform, test = () => true) => on.filter(e => e.platform === platform && test(e));
   const ids = list => list.map(e => e.entity_id);
-  for (const platform of Object.keys(WX_SOURCES)) {
+  const order = Object.keys(WX_SOURCES).sort((a, b) => (b === settings.source) - (a === settings.source));
+  for (const platform of order) {
     let src = { platform, entities: [] };
     if (platform === 'nina') {
       // Each slot's warning sensor, with its headline and severity sensors.
@@ -769,6 +788,7 @@ function discoverWeather(hass, reg) {
       src.entities = ids(of(platform, e => e.entity_id.startsWith('sensor.')));
     }
     if (src.entities.length) return src;
+    if (platform === settings.source) notice('info', `Weather alert source "${WX_SOURCES[platform]}" isn't installed`);
   }
   return null;
 }
@@ -953,30 +973,139 @@ for (const name of BUILT_IN) {
   import(url.href).catch(err => notice('warning', `Glance "${name}" didn't load`, err));
 }
 
-// The settings that decide which glances run.
+/* ------------------------------------------------------------------------
+   Settings
+   One definition of every option (its address in the strategy block,
+   type, default and label) for reading, checking and the editor. A bad
+   value gives a notice and its default. Sections Håg doesn't know are
+   kept as they are.
+   ------------------------------------------------------------------------ */
+
+// Household alerts in settings (alerts.core.<key>), all off by default:
+// what each covers, and its timings (seconds) and limit, where it has them.
+const CORE_ALERTS = {
+  smoke:        { label: 'Smoke alarms', covers: ['hazard:smoke'] },
+  co:           { label: 'Carbon monoxide alarms', covers: ['hazard:carbon_monoxide'] },
+  gas:          { label: 'Gas alarms', covers: ['hazard:gas'] },
+  leak:         { label: 'Water leaks', covers: ['leak'], critical_after: 900 },
+  doors:        { label: 'Doors', covers: ['open:door'], after: 300 },
+  windows:      { label: 'Windows', covers: ['open:window'], after: 300 },
+  openings:     { label: 'Other openings', covers: ['open:opening'], after: 300 },
+  garage_doors: { label: 'Garage doors', covers: ['open:garage'], after: 300 },
+  gates:        { label: 'Gates', covers: ['open:gate'], after: 300 },
+  locks:        { label: 'Locks', covers: ['lock'], after: 300 },
+  co2:          { label: 'CO₂', covers: ['reading:carbon_dioxide'], hold: 900, limit: 1000 },
+  pm25:         { label: 'PM2.5', covers: ['reading:pm25'], hold: 900, limit: 35.5 },
+  radon:        { label: 'Radon', covers: ['reading:radon'], hold: 900, limit: 100 },
+  co_level:     { label: 'Carbon monoxide levels', covers: ['reading:carbon_monoxide'], hold: 900, limit: 30 },
+  outdoor_air:  { label: 'Outdoor air', covers: ['aqi'], hold: 900 },
+};
+// What a watched sensor is, as CORE_ALERTS names it.
+const coverOf = w => w.kind === 'leak' || w.kind === 'lock' || w.kind === 'aqi' ? w.kind : `${w.kind}:${w.cls}`;
+const CORE_ALERT_OF = Object.fromEntries(Object.entries(CORE_ALERTS).flatMap(([key, a]) => a.covers.map(c => [c, key])));
+const TIMINGS = { after: 'wait', critical_after: 'critical after', hold: 'hold' };
+
+// Every option. `*` stands for any key at that level (a glance's name, a
+// floor's ID). `gui: false` keeps an option to YAML (the raw editor).
+// Types: text, seconds, number, choice, boolean, entity, entities,
+// devices, links.
+const OPTIONS = [
+  { path: 'default', type: 'text', default: DEFAULT_GLANCE, label: 'Default glance', help: 'Shown when nothing else needs the screen' },
+  { path: 'cycle', type: 'seconds', default: CYCLE, label: 'Cycle', help: 'Seconds per turn when several glances want the screen' },
+  { path: 'theme', type: 'choice', choices: THEMES, default: 'auto', label: 'Theme', help: 'auto follows the sun' },
+  { path: 'glances.*.enabled', type: 'boolean', default: false, label: 'On' },
+  { path: 'providers.outdoor.temperature', type: 'entity', filter: { domain: 'sensor', device_class: 'temperature' }, label: 'Outdoor temperature' },
+  { path: 'providers.outdoor.humidity', type: 'entity', filter: { domain: 'sensor', device_class: 'humidity' }, label: 'Outdoor humidity' },
+  { path: 'providers.outdoor.aqi', type: 'entity', filter: { domain: 'sensor', device_class: 'aqi' }, label: 'Outdoor air quality index' },
+  { path: 'providers.outdoor.weather', type: 'entity', filter: { domain: 'weather' }, label: 'Weather' },
+  { path: 'providers.outdoor.moon', type: 'entity', filter: { domain: 'sensor', device_class: 'enum' }, label: 'Moon phase' },
+  { path: 'providers.floors.*.monitors', type: 'devices', label: 'air-quality monitors', help: 'Most trusted first' },
+  { path: 'providers.floors.*.climate', type: 'entity', filter: { domain: 'climate' }, label: 'thermostat' },
+  { path: 'providers.people.exclude', type: 'entities', filter: { domain: 'person' }, label: 'People left out', help: 'Guests, for example' },
+  { path: 'providers.people.include', type: 'entities', filter: { domain: 'person' }, label: 'Only these people' },
+  { path: 'providers.people.links', type: 'links', gui: false, label: 'Linked people' },
+  { path: 'providers.calendar.calendars', type: 'entities', filter: { domain: 'calendar' }, label: 'Calendars', help: 'Every calendar when none are chosen' },
+  { path: 'alerts.turn', type: 'seconds', default: TURN, label: 'Turn', help: 'Seconds per alert when several take turns' },
+  ...Object.entries(CORE_ALERTS).flatMap(([key, a]) => [
+    { path: `alerts.core.${key}.enabled`, type: 'boolean', default: false, label: a.label },
+    ...(key === 'outdoor_air' ? [] : [{ path: `alerts.core.${key}.exclude`, type: 'entities', label: `${a.label}: sensors left out` }]),
+    ...Object.keys(TIMINGS).filter(t => t in a).map(t =>
+      ({ path: `alerts.core.${key}.${t}`, type: 'seconds', default: a[t], label: `${a.label} ${TIMINGS[t]}` })),
+    ...('limit' in a ? [{ path: `alerts.core.${key}.limit`, type: 'number', default: a.limit, label: `${a.label} limit` }] : []),
+  ]),
+  { path: 'alerts.weather.enabled', type: 'boolean', default: true, label: 'Weather alerts' },
+  { path: 'alerts.weather.source', type: 'choice', choices: Object.keys(WX_SOURCES), default: null, label: 'Weather alert source', help: 'Found automatically when not chosen' },
+];
+
+const optionAt = path => OPTIONS.find(o => {
+  const a = o.path.split('.'), b = path.split('.');
+  return a.length === b.length && a.every((p, i) => p === '*' || p === b[i]);
+});
+const valueAt = (obj, path) => path.split('.').reduce((v, k) => (v && typeof v === 'object' ? v[k] : undefined), obj);
+const isStrings = v => Array.isArray(v) && v.every(x => typeof x === 'string');
+
+// A value checked against its option: the value, or the default with a
+// notice when it's set but not usable.
+function checked(config, path) {
+  const o = optionAt(path);
+  const v = valueAt(config, path);
+  if (v === undefined || v === null) return o.default ?? null;
+  const n = Number(v);
+  const ok = {
+    text: () => typeof v === 'string' && v !== '',
+    seconds: () => n > 0,
+    number: () => n > 0,
+    choice: () => o.choices.includes(v),
+    boolean: () => typeof v === 'boolean',
+    entity: () => typeof v === 'string',
+    entities: () => isStrings(v),
+    devices: () => isStrings(v),
+    links: () => v && typeof v === 'object' && Object.values(v).every(x => typeof x === 'string'),
+  }[o.type]();
+  if (ok) return o.type === 'seconds' || o.type === 'number' ? n : v;
+  const label = cap(o.label);
+  const fallback = o.default == null ? 'ignored'
+    : o.type === 'boolean' ? (o.default ? 'on' : 'off')
+    : `using ${o.default}${o.type === 'seconds' ? ' s' : ''}`;
+  notice('info', o.type === 'seconds' || o.type === 'number'
+    ? `${label} setting isn't a number · ${fallback}`
+    : `${label} setting not recognized · ${fallback}`, o.choices ? o.choices.join(', ') : path);
+  return o.default ?? null;
+}
+
+const objectAt = (config, path) => { const v = valueAt(config, path); return v && typeof v === 'object' ? v : {}; };
+
+// All settings, checked.
 function readSettings(config) {
-  const glances = config.glances && typeof config.glances === 'object' ? config.glances : {};
+  const get = path => checked(config, path);
+  const glances = objectAt(config, 'glances');
   for (const name of Object.keys(glances)) {
     if (!NAME.test(name)) notice('warning', `Glance name not valid: "${name}"`, 'lowercase letters, digits, _ and -, starting with a letter');
   }
-  const def = String(config.default ?? DEFAULT_GLANCE);
-  let cycle = Number(config.cycle ?? CYCLE);
-  if (!(cycle > 0)) {
-    notice('info', `Cycle setting isn't a number · using ${CYCLE} s`);
-    cycle = CYCLE;
-  }
-  let theme = String(config.theme ?? 'auto');
-  if (!THEMES.includes(theme)) {
-    notice('info', 'Theme setting not recognized · using auto', 'auto, dark or light');
-    theme = 'auto';
-  }
+  const def = get('default');
+  const on = name => get(`glances.${name}.enabled`);
+  const outdoor = Object.fromEntries(['temperature', 'humidity', 'aqi', 'weather', 'moon']
+    .map(k => [k, get(`providers.outdoor.${k}`)]).filter(([, v]) => v !== null));
+  const floors = Object.fromEntries(Object.keys(objectAt(config, 'providers.floors')).map(id =>
+    [id, Object.fromEntries(['monitors', 'climate'].map(k => [k, get(`providers.floors.${id}.${k}`)]).filter(([, v]) => v !== null))]));
+  const people = Object.fromEntries(['exclude', 'include', 'links']
+    .map(k => [k, get(`providers.people.${k}`)]).filter(([, v]) => v !== null));
+  const calendars = get('providers.calendar.calendars');
+  const core = Object.fromEntries(Object.entries(CORE_ALERTS).map(([key, a]) => [key, {
+    enabled: get(`alerts.core.${key}.enabled`),
+    exclude: key === 'outdoor_air' ? [] : get(`alerts.core.${key}.exclude`) ?? [],
+    ...Object.fromEntries(['after', 'critical_after', 'hold', 'limit'].filter(t => t in a).map(t => [t, get(`alerts.core.${key}.${t}`)])),
+  }]));
   return {
     glances,
     def,
     defOn: glances[def]?.enabled !== false,
-    order: Object.keys(glances).filter(n => NAME.test(n) && n !== def && glances[n]?.enabled === true),
-    cycle,
-    theme,
+    order: Object.keys(glances).filter(n => NAME.test(n) && n !== def && glances[n]?.enabled === true && on(n)),
+    cycle: get('cycle'),
+    theme: get('theme'),
+    turn: get('alerts.turn'),
+    providers: { outdoor, floors, people, calendar: calendars ? { calendars } : {} },
+    alerts: { core, weather: { enabled: get('alerts.weather.enabled'), source: get('alerts.weather.source') } },
   };
 }
 
@@ -1211,19 +1340,19 @@ class HaagHost extends HTMLElement {
   // discovered.
   async _discover() {
     const hass = this._hass;
-    const p = this._config?.providers || {};
+    const p = this._settings.providers;
     let reg = { entities: [], floors: [], areas: [], iot: {}, deviceName: {} };
     try {
       reg = await loadRegistries(hass);
     } catch (err) {
       notice('warning', "Couldn't read Home Assistant's setup", err);
     }
-    const people = discoverPeople(hass, p.people || {});
+    const people = discoverPeople(hass, p.people);
     this._providers = {
-      outdoor: discoverOutdoor(hass, reg, p.outdoor || {}),
-      floors: discoverFloors(hass, reg, p.floors || {}),
+      outdoor: discoverOutdoor(hass, reg, p.outdoor),
+      floors: discoverFloors(hass, reg, p.floors),
       people: { ...people, groups: linkGroups(people) },
-      calendars: discoverCalendars(hass, reg, p.calendar || {}),
+      calendars: discoverCalendars(hass, reg, p.calendar),
       value: ref => numericValue(this._hass, ref),
       unit: ref => unitOf(this._hass, ref),
       hvac: climate => hvacStatus(this._hass, climate),
@@ -1231,13 +1360,13 @@ class HaagHost extends HTMLElement {
     };
     this._sync();
     try {
-      this._watch = discoverAlerts(hass, reg, this._providers.outdoor.aqi);
+      this._watch = discoverAlerts(hass, reg, this._providers.outdoor.aqi, this._settings.alerts.core);
     } catch (err) {
       console.error('Håg: household alert discovery failed', err);
     }
     this._seen = new Map();   // reading → when first seen past its limit
     this._household();
-    this._wxSource = discoverWeather(hass, reg);
+    this._wxSource = discoverWeather(hass, reg, this._settings.alerts.weather);
     this._wxFetched = new Map();   // action results, by config entry or NINA slot
     this._wxCalls = new Map();     // when each action was last called, and for what
     this._weatherAlerts();
@@ -1590,7 +1719,7 @@ class HaagHost extends HTMLElement {
         this._alertTimer = null;
         this._showAlert(q[(q.indexOf(this._current) + 1) % q.length]);
         this._timeTurns(true);
-      }, TURN * 1000);
+      }, (this._settings?.turn ?? TURN) * 1000);
     }
   }
 
@@ -1699,6 +1828,154 @@ class HaagHost extends HTMLElement {
 }
 
 /* ------------------------------------------------------------------------
+   Settings editor
+   Shown in Home Assistant's dashboard editor, built from HA's own form
+   (ha-form) out of OPTIONS. It edits the same strategy block as the raw
+   configuration editor, writes only what's changed, and keeps every part
+   it doesn't show.
+   ------------------------------------------------------------------------ */
+
+// HA loads its form parts when one of its own editors needs them; a
+// built-in card's editor brings them in.
+async function loadHaForm() {
+  if (customElements.get('ha-form')) return;
+  try {
+    const helpers = await window.loadCardHelpers();
+    const card = await helpers.createCardElement({ type: 'entities', entities: [] });
+    await card.constructor.getConfigElement();
+  } catch (err) {
+    console.warn("Håg: Home Assistant's form didn't load", err);
+  }
+}
+
+// The form's picker for an option.
+function selectorOf(o) {
+  const filter = o.filter && { filter: o.filter };
+  return {
+    seconds: { number: { min: 1, max: 3600, step: 1, mode: 'box', unit_of_measurement: 's' } },
+    number: { number: { min: 0, step: 'any', mode: 'box' } },
+    choice: { select: { options: o.choices ?? [], mode: 'dropdown' } },
+    boolean: { boolean: {} },
+    entity: { entity: { ...filter } },
+    entities: { entity: { multiple: true, ...filter } },
+    devices: { device: { multiple: true } },
+  }[o.type] ?? { text: {} };
+}
+
+function setPath(obj, path, value) {
+  const keys = path.split('.'), last = keys.pop();
+  for (const k of keys) obj = (obj[k] && typeof obj[k] === 'object') ? obj[k] : (obj[k] = {});
+  obj[last] = value;
+}
+
+// Removes a value, and any section it leaves empty.
+function unsetPath(obj, path) {
+  const [k, ...rest] = path.split('.');
+  if (!obj || typeof obj !== 'object' || !(k in obj)) return;
+  if (!rest.length) delete obj[k];
+  else {
+    unsetPath(obj[k], rest.join('.'));
+    if (obj[k] && typeof obj[k] === 'object' && !Object.keys(obj[k]).length) delete obj[k];
+  }
+}
+
+class HaagEditor extends HTMLElement {
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  setConfig(config) {
+    this._config = config;
+    this._render();
+  }
+
+  _render() {
+    if (!this._hass || !this._config) return;
+    if (!customElements.get('ha-form')) {
+      this.textContent = "Home Assistant's form didn't load. Håg's settings can be edited in the code editor.";
+      return;
+    }
+    if (!this._form) {
+      this._form = this.appendChild(document.createElement('ha-form'));
+      this._form.computeLabel = s => s.label ?? '';
+      this._form.computeHelper = s => s.help ?? '';
+      this._form.addEventListener('value-changed', e => this._changed(e));
+    }
+    const schema = this._schema();
+    this._shown = this._data(schema);
+    Object.assign(this._form, { hass: this._hass, data: this._shown });
+    const key = JSON.stringify(schema);   // a new schema only when the sections change
+    if (key !== this._schemaKey) {
+      this._schemaKey = key;
+      this._form.schema = schema;
+    }
+  }
+
+  // Sections, each listing its options' fields. Only options shown in
+  // the GUI; the rest are kept for the code editor.
+  _schema() {
+    const field = (path, label) => {
+      const o = optionAt(path);
+      return { name: path, label: label ?? o.label, help: o.help, selector: selectorOf(o) };
+    };
+    const section = (title, fields, expanded = false) =>
+      ({ type: 'expandable', name: title.toLowerCase(), flatten: true, title, expanded, schema: fields });
+    const glances = [...registry.keys()].sort();
+    const titleOf = name => registry.get(name)?.[0]?.manifest?.title || name;
+    const floors = orderFloors(Object.values(this._hass.floors || {}));
+    return [
+      section('General', [
+        { name: 'default', label: 'Default glance', help: optionAt('default').help,
+          selector: { select: { mode: 'dropdown', options: glances.map(n => ({ value: n, label: titleOf(n) })) } } },
+        field('cycle'),
+        field('theme'),
+      ], true),
+      section('Glances', glances.map(n => field(`glances.${n}.enabled`, titleOf(n)))),
+      section('Outdoor', ['temperature', 'humidity', 'aqi', 'weather', 'moon'].map(k => field(`providers.outdoor.${k}`))),
+      section('Floors', floors.flatMap(f => [
+        field(`providers.floors.${f.floor_id}.monitors`, `${f.name} air-quality monitors`),
+        field(`providers.floors.${f.floor_id}.climate`, `${f.name} thermostat`),
+      ])),
+      section('People', ['exclude', 'include'].map(k => field(`providers.people.${k}`))),
+      section('Calendars', [field('providers.calendar.calendars')]),
+    ];
+  }
+
+  // What the form shows: each field's value from settings, or its default.
+  _data(schema) {
+    const config = this._config;
+    const def = config.default ?? DEFAULT_GLANCE;
+    const data = {};
+    for (const { schema: fields } of schema) {
+      for (const { name } of fields) {
+        const glance = /^glances\.(.+)\.enabled$/.exec(name)?.[1];
+        const v = valueAt(config, name);
+        data[name] = glance ? (glance === def ? v !== false : v === true) : v ?? optionAt(name)?.default ?? undefined;
+      }
+    }
+    return data;
+  }
+
+  // Write what changed into the strategy block: a cleared field is
+  // removed, so Håg finds it again or uses its default.
+  _changed(e) {
+    e.stopPropagation();
+    const data = e.detail.value;
+    const config = structuredClone(this._config);
+    for (const key of Object.keys(data)) {
+      const v = data[key];
+      if (JSON.stringify(v) === JSON.stringify(this._shown[key])) continue;
+      if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) unsetPath(config, key);
+      else setPath(config, key, v);
+    }
+    this._config = config;
+    this._shown = data;
+    this.dispatchEvent(new CustomEvent('config-changed', { detail: { config }, bubbles: true, composed: true }));
+  }
+}
+
+/* ------------------------------------------------------------------------
    Registration
    ------------------------------------------------------------------------ */
 
@@ -1707,6 +1984,9 @@ if (!customElements.get('ll-strategy-dashboard-haag')) {
 }
 if (!customElements.get('haag-host')) {
   customElements.define('haag-host', HaagHost);
+}
+if (!customElements.get('haag-editor')) {
+  customElements.define('haag-editor', HaagEditor);
 }
 
 console.info(`%c Håg %c v${VERSION} `, 'background:#222;color:#fff;border-radius:3px 0 0 3px', 'background:#999;color:#fff;border-radius:0 3px 3px 0');
