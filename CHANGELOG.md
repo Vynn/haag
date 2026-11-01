@@ -4,11 +4,28 @@ All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a mi
 
 ## 0.3.0 · unreleased
 
-Alerts and notices. In progress.
+Alerts and notices. In progress. See [alerts](docs/alerts.md).
+
+### Added
+
+- Alerts in the alert row at three severities: information, warning (yellow) and critical (red), each with its own icon. Only the highest severity present shows; its alerts take turns every 8 seconds, newest first, sliding in from the right. A more severe alert cuts in at once. Long text shrinks to fit one line. The row hides when there's nothing to show.
+- Household alerts, found by device class: smoke, carbon monoxide and gas alarms (critical, holding the row); water leaks (a warning, critical after 15 minutes); doors, windows, openings, garage doors and gates left open, and locks left unlocked (information after 5 minutes); jammed locks; indoor CO₂, PM2.5, radon and carbon monoxide past their limits; and outdoor air quality by the scale of the integration reporting it.
+- Weather alerts from NINA, Environment Canada, DWD, MeteoAlarm, CAP Alerts, NWS Alerts and Weather Alerts, one source at a time. Extreme alerts hold the row; alerts starting within a day show beforehand.
+- Håg's notices (settings it can't use, glances that didn't load, sources it can't read) show in the alert row as well as the browser console.
+- Glances can send alerts through `haag.alerts`, the same API Håg's own alerts use.
+- Håg's version, shown small at the bottom center for testing.
+- Test page: a sample alert, and sample weather alerts in each supported source's shape.
+
+### Changed
+
+- For glance authors: `haag.alert` is now `haag.alertrow`, and its event `haag-alertrow`.
+- Times follow Home Assistant's time format, 12 or 24 hours: in alerts, and in Overview's clock and appointments.
+- Outdoor air quality skips PurpleAir's VOC index, prefers Google Air Quality's local index over its universal one, and uses AirVisual's and Tomorrow.io's China index when Home Assistant's country is China.
+- The alert row no longer shows Håg's version.
 
 ### Known issues
 
-- A rain sensor, or anything else Home Assistant classes as moisture, raises a water-leak alert. Sensors can't be left out of alerts until the configuration editor, expected in 0.4.
+- Sensors that Home Assistant classes like the real thing raise alerts: a rain sensor as a water leak, a remote lockout as a lock, an appliance door as a door. They can be left out once the configuration editor arrives, expected in 0.4.
 
 ## 0.2.0 · 2026-10-28
 

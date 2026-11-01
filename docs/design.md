@@ -27,6 +27,15 @@ The outdoor side carries an illustrated weather background for each of Home Assi
 - Wind sets the direction clouds, rain and snow travel.
 - The weather stays behind the text, except for a few deliberate touches, such as snow settling on the alert row.
 
+## Alerts
+
+The alert row is a band across the middle, in the band's wash for information. Warnings turn it yellow with dark text, critical alerts red with white text, by day and by night; those two colors appear nowhere else. Each severity has its own icon, sized to the text. Alerts take turns by sliding left, and the band's color fades between severities. See [alerts](alerts.md).
+
+| | Night | Day |
+|---|---|---|
+| Warning | `#C99A3A`, with the night sky's color as text | `#F6D365`, with the day text color |
+| Critical | `#C9433E`, white text | `#B42318`, white text |
+
 ## Day and night
 
 Two palettes, a dark night and a bright day, switch at sunrise and sunset with a short transition. The target for all text is a contrast of at least 4.5:1 against the sky in every condition.

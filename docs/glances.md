@@ -8,7 +8,7 @@ Håg is its own glanceable dashboard framework, built as a Home Assistant dashbo
 - **Other glances** are off until turned on. Once on, they run in the background and ask for the screen when they have something to show.
 - **Taking turns:** when several glances want the screen, they take turns every 30 seconds. Rules for priority and cooldown come with the second glance.
 
-Håg's main file is the core. It draws the alert row and provides what glances share: discovery, the typeface, day and night colors, icons and the diagonal layout.
+Håg's main file is the core. It draws the alert row and provides what glances share: discovery, alerts, the typeface, day and night colors, icons and the diagonal layout.
 
 Håg is open source, and every glance, built in or not, follows this one contract.
 
@@ -61,14 +61,18 @@ At startup, the alert row shows an information alert: Håg is starting up, with 
 
 If after 60 seconds the default glance is still missing, off or failing to load, and no other glance has the screen, the alert turns critical. It says what's wrong, with links to settings (edit mode, for administrators) and to this page.
 
+The startup alert shows alone, apart from Håg's notices, which take turns beside it to say why.
+
 ## Notices
 
-Until real alerts arrive in 0.3, notices go to the browser console. Håg gives one when:
+Håg gives a notice, in the alert row and the browser console, when:
 
-- two glances share a name;
+- two glances share a name, or a name isn't valid;
 - settings name a glance that isn't installed;
 - a glance fails to load;
 - a glance's format is one this version of Håg doesn't know.
+
+The wording and severities are in [alerts](alerts.md#notices).
 
 ## Making a glance
 
@@ -119,7 +123,7 @@ const manifest = {
 | `name` | The name used in settings. |
 | `element` | The web component's tag, defined by `glance.js`. |
 | `title` | The name people see: *Subject* Glance. |
-| `version` | The glance's version, shown in notices. |
+| `version` | The glance's version. |
 
 Fields for the glance's settings (defaults, labels for the 0.4 editor) come later.
 
@@ -159,7 +163,8 @@ Switching between glances is a crossfade until transitions arrive in 0.5.
 | `haag.daylight` | Whether day colors are showing: the `theme` setting, or the sun when it's `auto`. |
 | `haag.layout` | The shared geometry: the split's `angle` (the line runs through the center). Helpers for placing content along it move here with the second glance (0.5). |
 | `haag.icon(element, name)` | Draws a Home Assistant icon, filling the element. Fitting it to the text is up to the glance. |
-| `haag.alert` | Whether the alert row shows, and where. |
+| `haag.alerts` | This glance's alerts: `set`, `delete` and `clear`. See [alerts](alerts.md#the-alerts-api). |
+| `haag.alertrow` | Whether the alert row shows, and where. |
 
 Inherited through CSS: the typeface, the size unit `cqmin` (1% of the shorter side), and the palette:
 
@@ -168,7 +173,7 @@ Inherited through CSS: the typeface, the size unit `cqmin` (1% of the shorter si
 | `--sky`, `--horizon` | The outdoor side and its glow near the split. |
 | `--home` | The indoor side. |
 | `--text`, `--text-2` | Text and secondary text. `--text-2-out` is secondary text on the sky. |
-| `--coral`, `--seaglass` | Accents: heating and alerts, cooling. |
+| `--coral`, `--seaglass` | Accents: heating and errors, cooling. |
 | `--band`, `--mist` | The alert row's wash, and haze. |
 
 Each mixes a night and a day value (`--n-sky`, `--d-sky`, …) by `--haag-daylight`, 0 at night and 1 by day, which switches over 2.5 seconds.
@@ -178,8 +183,9 @@ Each mixes a night and a day value (`--n-sky`, `--d-sky`, …) by `--haag-daylig
 Håg draws it above every glance, by the same rules for every glance:
 
 - **When and where:** Håg decides. A full-width band through the middle.
-- **What the glance is told:** `haag.alert` gives `showing`, and the band's `top` and `bottom` in pixels. A `haag-alert` event on the glance says when it changes.
+- **What the glance is told:** `haag.alertrow` gives `showing`, and the band's `top` and `bottom` in pixels. A `haag-alertrow` event on the glance says when it changes.
 - **What the glance does:** keeps its content out of the band, or moves it aside as the default glance's center blocks do.
+- **Sending alerts:** `haag.alerts`, the same API Håg's own alerts use. See [alerts](alerts.md).
 - **Touch:** only the row takes touches. What touching an alert does comes in 0.5.
 
 ## Not decided yet

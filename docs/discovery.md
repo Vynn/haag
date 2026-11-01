@@ -11,6 +11,7 @@ Håg reads Home Assistant's floors, areas, devices and entities, and decides wha
 ## Weather
 
 - The weather entity comes from the Exterior floor, or from anywhere when that floor has none (chosen by the rules below).
+- The air quality index comes from the Exterior floor. Where an integration offers more than one, Håg prefers Google Air Quality's local index over its universal one, and AirVisual's and Tomorrow.io's China index when Home Assistant's country is China, their US index otherwise. PurpleAir's VOC index isn't used.
 - The moon's phase comes from Home Assistant's Moon integration, found by its phases. Without it, the moon is drawn waxing gibbous.
 - The sun and moon follow Home Assistant's sun entity; without it, day is 6:00 to 18:00.
 - The home's latitude sets the hemisphere: south of the equator the moon is seen upside down and the seasons flip.
@@ -29,6 +30,14 @@ When several entities could supply the same reading, Håg prefers, in order:
 - **Temperature and humidity** come from the monitors, or from the floor's thermostat when there's no monitor.
 - **Air quality** shows up to three readings: humidity, CO₂ and PM2.5 first, then radon and carbon monoxide when those are missing.
 - **Heating and cooling status** comes from the floor's thermostat.
+
+## Alerts
+
+- **Household alerts** find their sensors by device class, on any floor; indoor air readings leave out the outdoor floor.
+- **Outdoor air** uses the air quality index found above, with its scale taken from its integration.
+- **Weather alerts** come from the first alert integration found, in a fixed order.
+
+Details are in [alerts](alerts.md).
 
 ## People
 

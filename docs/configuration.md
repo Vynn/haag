@@ -62,6 +62,14 @@ strategy:
 |---|---|
 | `theme` | `auto` follows the sun: day colors from sunrise to sunset, or 6:00 to 18:00 without Home Assistant's sun entity. `dark` or `light` keeps one. `auto` if left out. |
 
+## Alerts
+
+Alerts have no settings yet; in 0.3 they use their defaults. See [alerts](alerts.md#settings).
+
+## Time and numbers
+
+Times follow the time format in your Home Assistant profile (12 or 24 hours, or your language's own), in Home Assistant's time zone. Numbers follow the profile's number format.
+
 ## Outdoor
 
 `providers.outdoor` picks the entity for each outdoor reading. Any you leave out are found automatically.

@@ -14,9 +14,23 @@ Håg shows *glances*. The default one, Overview Glance, is the idle screen, spli
 
 - **Outdoors:** the time and date; temperature, humidity and air quality over an animated scene of the current weather; who's away from home; and the next few appointments.
 - **Indoors:** one row per floor with its heating or cooling status, temperature, humidity, air quality, and who's on that floor.
-- **Alert row:** a full-width band through the middle. Real alerts arrive in 0.3.
+- **Alert row** (from 0.3): a full-width band through the middle for what needs attention now: smoke, carbon monoxide and gas alarms, water leaks, doors, windows and locks left open, air quality, weather alerts, and alerts from glances. See [alerts](docs/alerts.md).
 
 It's designed square-first and also works in portrait and landscape, from a Raspberry Pi kiosk to a tablet or a 4K screen. Colors follow day and night.
+
+### Weather alerts
+
+From 0.3, Håg shows weather alerts from one of these Home Assistant integrations, whichever it finds first. Each was built from the integration's own code; most are tested only with sample data so far. Reports from real alerts are welcome as [issues](https://github.com/Vynn/haag/issues).
+
+| Source | Integration | Tested |
+|---|---|---|
+| NINA | Core | Sample data only |
+| Environment Canada | Core | Sample data only |
+| DWD | Core | Sample data only |
+| MeteoAlarm | Core | Sample data only |
+| CAP Alerts | Custom | Sample data only |
+| NWS Alerts | Custom | Sample data only |
+| Weather Alerts | Custom | On the test install; no live alert seen yet |
 
 ## Requirements
 
@@ -43,6 +57,7 @@ Håg finds everything else. To change what it picks, see [configuration](docs/co
 ## Documentation
 
 - [Configuration](docs/configuration.md): every setting.
+- [Alerts](docs/alerts.md): what the alert row shows, and how anything sends to it.
 - [Glances](docs/glances.md): how Håg's glances work, and how to make one.
 - [Discovery](docs/discovery.md): how Håg finds your sensors, people and calendars.
 - [Design](docs/design.md): the visual language.
