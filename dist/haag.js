@@ -1259,19 +1259,22 @@ class HaagHost extends HTMLElement {
 
   async _load(name, reg) {
     this._loading.add(name);
+    let entry;
     try {
       const { format, element } = reg.manifest;
       if (format !== GLANCE_FORMAT) throw Object.assign(new Error(`format ${format} isn't supported`), { newer: true });
       await reg.load();
       if (!customElements.get(element)) throw new Error(`<${element}> isn't defined`);
       if (resolve(name) !== reg || !this.isConnected) return;
-      const entry = { reg, el: document.createElement(element), visible: false, wants: false };
+      entry = { reg, el: document.createElement(element), visible: false, wants: false,
+        alerts: this._alertsFor(`glance:${name}`) };
       entry.el.haag = this._context(entry);
       entry.el.setConfig?.(this._settings.glances[name] || {});
       if (this._hass) entry.el.hass = this._hass;
       this._layer.append(entry.el);
       this._running.set(name, entry);
     } catch (err) {
+      entry?.alerts.clear();   // anything it raised before failing
       this._failed.add(name);
       const title = reg.manifest?.title || `Glance "${name}"`;
       notice('warning', err.newer ? `${title} needs a newer Håg` : `${title} didn't load`, { file: reg.url, error: err });
@@ -1282,19 +1285,23 @@ class HaagHost extends HTMLElement {
   }
 
   _stop(name) {
-    this._running.get(name)?.el.remove();
+    const entry = this._running.get(name);
+    entry?.alerts.clear();
+    entry?.el.remove();
     this._running.delete(name);
   }
 
   // What a glance gets from Håg (docs/glances.md).
   _context(entry) {
     const host = this;
+    const { set, delete: del, clear } = entry.alerts;
     return {
       providers: this._providers,
       get daylight() { return host._daylight; },
       layout: { angle: SPLIT_ANGLE },
       icon: setIcon,
-      get alert() { return host._alertBand(); },
+      get alertrow() { return host._alertBand(); },
+      alerts: { set, delete: del, clear },   // its own, at any severity; the core picks the icon
       get visible() { return entry.visible; },
       request() { entry.wants = true; host._schedule(); },
       release() { entry.wants = false; host._schedule(); },
@@ -1610,7 +1617,7 @@ class HaagHost extends HTMLElement {
 
   // Glances keep their content clear of the band.
   _tellGlances() {
-    for (const { el } of this._running.values()) el.dispatchEvent(new Event('haag-alert'));
+    for (const { el } of this._running.values()) el.dispatchEvent(new Event('haag-alertrow'));
   }
 
   _makeSlide() {

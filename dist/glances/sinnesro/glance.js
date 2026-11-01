@@ -364,7 +364,7 @@ class SinnesroGlance extends HTMLElement {
     this._measure = document.createElement('canvas').getContext('2d');
     this._stage = root.querySelector('.stage');
     if (weather) this._wx = new weather.Weather(this._stage, root.querySelector('.wx-under'), root.querySelector('.wx-over'));
-    this.addEventListener('haag-alert', () => this._relayout());
+    this.addEventListener('haag-alertrow', () => this._relayout());
     // Off screen: animations pause.
     this.addEventListener('haag-visible', () => {
       this._stage.classList.toggle('paused', !this._haag.visible);
@@ -936,7 +936,7 @@ class SinnesroGlance extends HTMLElement {
     // innermost block on each side (the time; the top floor) is centered on
     // the middle, so the two sit side by side across the line, and slide
     // past each other as the alert row opens.
-    const alert = this._haag.alert;
+    const alert = this._haag.alertrow;
     const alertOn = alert.showing;
     const half = alertOn ? (alert.bottom - alert.top) / 2 : 0;
 
