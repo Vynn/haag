@@ -2,6 +2,14 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
+## 0.3.0 · unreleased
+
+Alerts and notices. In progress.
+
+### Known issues
+
+- A rain sensor, or anything else Home Assistant classes as moisture, raises a water-leak alert. Sensors can't be left out of alerts until the configuration editor, expected in 0.4.
+
 ## 0.2.0 · 2026-10-28
 
 Weather and color. A pre-release.
