@@ -2,9 +2,9 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
-## 0.3.0 · unreleased
+## 0.3.0 · 2026-11-01
 
-Alerts and notices. In progress. See [alerts](docs/alerts.md).
+Alerts and notices. A pre-release. See [alerts](docs/alerts.md).
 
 ### Added
 

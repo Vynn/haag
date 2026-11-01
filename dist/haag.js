@@ -10,7 +10,7 @@
   phone to a 4K screen.
 */
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 const MANIFEST = 'haag/v1';   // config format marker
 
 /* ------------------------------------------------------------------------
@@ -1010,7 +1010,7 @@ const HOST_STYLE = `
     --n-band: #FFFFFF14;    --d-band: #FFFFFFB3;     /* alert row */
     --n-text: #F1EADC;      --d-text: #0E1F3A;
     --n-text-2: #A9B0C2;    --d-text-2: #34537A;     /* secondary */
-    --n-coral: #FF7A68;     --d-coral: #D6336C;      /* heating */
+    --n-coral: #FF7A68;     --d-coral: #D6336C;      /* heating, errors */
     --n-seaglass: #72D8C6;  --d-seaglass: #0B8A5E;   /* cooling */
     --n-mist: #8FA6C8;      --d-mist: #FFFFFF;       /* haze */
     --n-warn: #C99A3A;      --d-warn: #F6D365;       /* warning alerts only */

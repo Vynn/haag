@@ -30,15 +30,15 @@ The idle screen's illustrated look, and how glances work.
 - [x] Bundled typeface (shipped in 0.1.1)
 - [x] Icon refinements to suit the new backgrounds
 
-## 0.3 · Alerts and notices
+## 0.3 · Alerts and notices · released
 
-- [ ] The alert row shows real alerts, with clear severity (information, warning, critical)
-- [ ] Alerts for water leaks; smoke, CO and gas; doors, windows, garage doors and gates left open; locks; and air quality
-- [ ] Weather alerts from MeteoAlarm, DWD, Environment Canada, NINA, NWS Alerts, Weather Alerts and CAP Alerts
-- [ ] Glances can send alerts to the alert row
-- [ ] Håg's own notices shown in the alert row
-- [ ] Priority and rotation when several notices are active
-- [ ] Installs through the Home Assistant Marketplace (2026.11)
+- [x] The alert row shows real alerts, with clear severity (information, warning, critical)
+- [x] Alerts for water leaks; smoke, CO and gas; doors, windows, garage doors and gates left open; locks; and air quality
+- [x] Weather alerts from MeteoAlarm, DWD, Environment Canada, NINA, NWS Alerts, Weather Alerts and CAP Alerts
+- [x] Glances can send alerts to the alert row
+- [x] Håg's own notices shown in the alert row
+- [x] Priority and rotation when several notices are active
+- [ ] Installs through the Home Assistant Marketplace, with the first build after the Marketplace's stable release
 
 ## 0.4 · Configuration editor (alpha)
 
@@ -107,7 +107,7 @@ The first glance after Overview Glance.
 
 ## 0.11 · Reach
 
-- [ ] 24-hour time and translations
+- [ ] Translations (24-hour time came in 0.3)
 - [ ] Accessibility review (contrast, motion, readability at a distance)
 - [ ] Supported browsers defined and tested
 - [ ] Tested on other people's Home Assistant setups

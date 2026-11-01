@@ -4,7 +4,7 @@
 
 A calm, glanceable dashboard for a wall display that answers one question: *what do I need to know right now?* Håg builds itself from your Home Assistant setup, so there are no entity IDs to type.
 
-> **Status: pre-alpha.** Version 0.2 is the current release. Every 0.x build is a pre-release: not ready for everyday use, and anything may change. The first alpha is 0.4, with the configuration editor. See the [roadmap](ROADMAP.md).
+> **Status: pre-alpha.** Version 0.3 is the current release. Every 0.x build is a pre-release: not ready for everyday use, and anything may change. The first alpha is 0.4, with the configuration editor. See the [roadmap](ROADMAP.md).
 >
 > Håg is developed and tested on one Home Assistant install. Features for other regions, such as weather alerts and air-quality scales, follow each region's published standards but involve some guesswork. Feedback and corrections are welcome as [issues](https://github.com/Vynn/haag/issues).
 
@@ -14,13 +14,13 @@ Håg shows *glances*. The default one, Overview Glance, is the idle screen, spli
 
 - **Outdoors:** the time and date; temperature, humidity and air quality over an animated scene of the current weather; who's away from home; and the next few appointments.
 - **Indoors:** one row per floor with its heating or cooling status, temperature, humidity, air quality, and who's on that floor.
-- **Alert row** (from 0.3): a full-width band through the middle for what needs attention now: smoke, carbon monoxide and gas alarms, water leaks, doors, windows and locks left open, air quality, weather alerts, and alerts from glances. See [alerts](docs/alerts.md).
+- **Alert row:** a full-width band through the middle for what needs attention now: smoke, carbon monoxide and gas alarms, water leaks, doors, windows and locks left open, air quality, weather alerts, and alerts from glances. See [alerts](docs/alerts.md).
 
 It's designed square-first and also works in portrait and landscape, from a Raspberry Pi kiosk to a tablet or a 4K screen. Colors follow day and night.
 
 ### Weather alerts
 
-From 0.3, Håg shows weather alerts from one of these Home Assistant integrations, whichever it finds first. Each was built from the integration's own code; most are tested only with sample data so far. Reports from real alerts are welcome as [issues](https://github.com/Vynn/haag/issues).
+Håg shows weather alerts from one of these Home Assistant integrations, whichever it finds first. Each was built from the integration's own code; most are tested only with sample data so far. Reports from real alerts are welcome as [issues](https://github.com/Vynn/haag/issues).
 
 | Source | Integration | Tested |
 |---|---|---|
