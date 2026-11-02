@@ -2121,16 +2121,16 @@ class HaagEditor extends HTMLElement {
         field('theme'),
       ], true),
       section('Glances', glances.map(n => field(`glances.${n}.enabled`, titleOf(n)))),
-      section('Outdoor', ['temperature', 'humidity', 'aqi', 'weather', 'moon'].map(k => field(`providers.outdoor.${k}`))),
-      section('Floors', floors.flatMap(f => [
-        field(`providers.floors.${f.floor_id}.monitors`, `${f.name} air-quality monitors`),
-        field(`providers.floors.${f.floor_id}.climate`, `${f.name} thermostat`),
-      ])),
       section('People and calendars', [
         ...['exclude', 'include'].map(k => field(`providers.people.${k}`)),
         field('providers.calendar.calendars', 'Calendars shown'),
         ...this._people(),
       ]),
+      section('Outdoor', ['temperature', 'humidity', 'aqi', 'weather', 'moon'].map(k => field(`providers.outdoor.${k}`))),
+      section('Floors', floors.flatMap(f => [
+        field(`providers.floors.${f.floor_id}.monitors`, `${f.name} air-quality monitors`),
+        field(`providers.floors.${f.floor_id}.climate`, `${f.name} thermostat`),
+      ])),
     ];
   }
 
