@@ -38,7 +38,6 @@ The idle screen's illustrated look, and how glances work.
 - [x] Glances can send alerts to the alert row
 - [x] Håg's own notices shown in the alert row
 - [x] Priority and rotation when several notices are active
-- [ ] Installs through the Home Assistant Marketplace, with the first build after the Marketplace's stable release
 
 ## 0.4 · Configuration editor (alpha) · released
 
@@ -62,6 +61,7 @@ The first glance after Overview Glance.
 - [ ] Washer and dryer together when both are running
 - [ ] A finished load waiting to be emptied (until the door opens, where a door sensor exists)
 - [ ] Errors shown clearly
+- [ ] Installs through the Home Assistant Marketplace, with the first build after the Marketplace's stable release
 
 ## 0.6 · 3D printer glance
 
