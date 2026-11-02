@@ -2057,7 +2057,7 @@ function selectorOf(o) {
   return {
     seconds: { number: { min: 1, max: 3600, step: 1, mode: 'box', unit_of_measurement: 's' } },
     number: { number: { min: 0, step: 'any', mode: 'box' } },
-    time: { time: {} },
+    time: { time: { no_second: true } },
     choice: { select: { options: (o.choices ?? []).map(v => ({ value: v, label: o.labels?.[v] ?? v })), mode: 'dropdown' } },
     boolean: { boolean: {} },
     entity: { entity: { ...filter } },
