@@ -43,7 +43,7 @@ strategy:
 - One entry per glance, under its name. ◇ Entry order is the order glances take turns.
 - A glance with no entry, or with `enabled: false`, is off and isn't loaded. Built-in glances too.
 - `default` names any installed glance. The default glance is on unless its entry says `enabled: false`.
-- ◇ `cycle` sets the seconds per turn (30 if left out). It's set in YAML only.
+- ◇ `cycle` sets the seconds per turn (30 if left out), in YAML or the editor's General section.
 
 Shared settings are in [configuration](configuration.md).
 

@@ -587,6 +587,25 @@ const OPENINGS = {
 };
 const UNLOCKED = ['unlocked', 'open', 'opening', 'unlocking'];
 
+// Things left open or unlocked turn into a warning once open for
+// `warning_after`, or while still open from `warning_at` until
+// `warning_until` (else sunrise, else 6:00), in HA's time zone.
+const TIME = /^([01]?\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
+const minutesOf = time => { const [h, m] = time.split(':').map(Number); return h * 60 + m; };
+function minuteOfDay(hass, t) {
+  const [h, m] = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    timeZone: hass?.config?.time_zone }).format(t).split(':').map(Number);
+  return h * 60 + m;
+}
+function inWarningHours(hass, w, now) {
+  if (!w.warnAt) return false;
+  const sun = Object.keys(hass.states).find(id => id.startsWith('sun.'));
+  const rising = Date.parse(hass.states[sun]?.attributes?.next_rising);
+  const end = w.warnUntil ? minutesOf(w.warnUntil) : Number.isFinite(rising) ? minuteOfDay(hass, rising) : 360;
+  const start = minutesOf(w.warnAt), m = minuteOfDay(hass, now);
+  return start <= end ? m >= start && m < end : m >= start || m < end;
+}
+
 // Indoor readings, with their limits in each unit they may come in
 // (µ and μ both written u). Readings in other units aren't watched.
 const CO_MG = 28.01 / 24.055;   // mg/m³ per ppm of CO at 20 °C, as HA converts
@@ -700,7 +719,9 @@ function discoverAlerts(hass, reg, outdoorAqi, settings) {
     const quiet = !s.enabled || s.exclude.includes(w.entity);
     if (quiet && !(coAlarm && w.kind === 'reading' && w.cls === 'carbon_monoxide')) return [];
     return [{ ...w, quiet, after: s.after * 1000, critical: s.critical_after * 1000, hold: s.hold * 1000,
-      ...(w.limit && { limit: s.limit / w.toCanon }) }];
+      ...(w.limit && { limit: s.limit / w.toCanon }),
+      ...(s.warning_after && { warnAfter: s.warning_after * 1000 }),
+      ...(s.warning_at && { warnAt: s.warning_at, warnUntil: s.warning_until }) }];
   });
 }
 
@@ -757,7 +778,15 @@ function householdAlerts(hass, watch, seen, fits, now = Date.now()) {
     }
     if (w.quiet) continue;
     const since = Date.parse(st.last_changed) || now;
-    const waited = (wait, id) => now - since >= wait ? join(id, { w, since }) : later(since + wait);
+    // Left open or unlocked: shown after the wait, then maybe escalated.
+    const left = id => {
+      if (now - since < w.after) return later(since + w.after);
+      const escalated = (w.warnAfter && now - since >= w.warnAfter) || inWarningHours(hass, w, now);
+      join(id, { w, since, escalated });
+      if (escalated) later(now + MINUTE - (now - since) % MINUTE);   // the duration shown
+      else if (w.warnAfter) later(since + w.warnAfter);
+      if (w.warnAt) later(now + MINUTE - now % MINUTE);   // warning hours start and end on a minute
+    };
     if (w.kind === 'hazard') {
       if (st.state === 'on') join(`hazard:${w.cls}`, { w, since });
     } else if (w.kind === 'leak') {
@@ -767,10 +796,10 @@ function householdAlerts(hass, watch, seen, fits, now = Date.now()) {
       if (critical) later(now + MINUTE - (now - since) % MINUTE);   // the duration shown
       else later(since + w.critical);
     } else if (w.kind === 'open') {
-      if (w.cover ? st.state !== 'closed' : st.state === 'on') waited(w.after, `open:${w.cls}`);
+      if (w.cover ? st.state !== 'closed' : st.state === 'on') left(`open:${w.cls}`);
     } else if (w.kind === 'lock') {
       if (st.state === 'jammed') join('jammed', { w, since });
-      else if (UNLOCKED.includes(st.state)) waited(w.after, 'unlocked');
+      else if (UNLOCKED.includes(st.state)) left('unlocked');
     } else {
       // Readings and outdoor AQI: past the limit for the hold, from when first seen.
       const scale = AQI_SCALES[w.scale];
@@ -848,6 +877,12 @@ function householdAlerts(hass, watch, seen, fits, now = Date.now()) {
       const { value, band } = members[0];
       level = 'warning';
       text = `Outdoor air ${band}${value === null ? '' : ` · AQI ${formatNumber(hass, value)}`}`;
+    }
+    // Escalated (left open or unlocked): a warning, with the longest time.
+    const escalated = members.filter(m => m.escalated);
+    if (escalated.length) {
+      level = 'warning';
+      text += ` · ${duration(now - Math.min(...escalated.map(m => m.since)))}`;
     }
     alerts.push({ key, level, text, hold, since: Math.max(...members.map(m => m.since)) });
   }
@@ -1108,34 +1143,36 @@ for (const name of BUILT_IN) {
    ------------------------------------------------------------------------ */
 
 // Household alerts in settings (alerts.core.<key>), all off by default:
-// what each covers, and its timings (seconds) and limit, where it has them.
+// what each covers, and its timings (seconds) and limit (in `unit`), where
+// it has them. `escalates`: can turn into a warning (see Household alerts).
 const CORE_ALERTS = {
   smoke:        { label: 'Smoke alarms', covers: ['hazard:smoke'] },
   co:           { label: 'Carbon monoxide alarms', covers: ['hazard:carbon_monoxide'] },
   gas:          { label: 'Gas alarms', covers: ['hazard:gas'] },
   leak:         { label: 'Water leaks', covers: ['leak'], critical_after: 900 },
-  doors:        { label: 'Doors', covers: ['open:door'], after: 300 },
-  windows:      { label: 'Windows', covers: ['open:window'], after: 300 },
-  openings:     { label: 'Other openings', covers: ['open:opening'], after: 300 },
-  garage_doors: { label: 'Garage doors', covers: ['open:garage'], after: 300 },
-  gates:        { label: 'Gates', covers: ['open:gate'], after: 300 },
-  locks:        { label: 'Locks', covers: ['lock'], after: 300 },
-  co2:          { label: 'CO₂', covers: ['reading:carbon_dioxide'], hold: 900, limit: 1000 },
-  pm25:         { label: 'PM2.5', covers: ['reading:pm25'], hold: 900, limit: 35.5 },
-  radon:        { label: 'Radon', covers: ['reading:radon'], hold: 900, limit: 100 },
-  co_level:     { label: 'Carbon monoxide levels', covers: ['reading:carbon_monoxide'], hold: 900, limit: 30 },
+  doors:        { label: 'Doors', covers: ['open:door'], after: 300, escalates: true },
+  windows:      { label: 'Windows', covers: ['open:window'], after: 300, escalates: true },
+  openings:     { label: 'Other openings', covers: ['open:opening'], after: 300, escalates: true },
+  garage_doors: { label: 'Garage doors', covers: ['open:garage'], after: 300, escalates: true },
+  gates:        { label: 'Gates', covers: ['open:gate'], after: 300, escalates: true },
+  locks:        { label: 'Locks', covers: ['lock'], after: 300, escalates: true },
+  co2:          { label: 'CO₂', covers: ['reading:carbon_dioxide'], hold: 900, limit: 1000, unit: 'ppm' },
+  pm25:         { label: 'PM2.5', covers: ['reading:pm25'], hold: 900, limit: 35.5, unit: 'µg/m³' },
+  radon:        { label: 'Radon', covers: ['reading:radon'], hold: 900, limit: 100, unit: 'Bq/m³' },
+  co_level:     { label: 'Carbon monoxide levels', covers: ['reading:carbon_monoxide'], hold: 900, limit: 30, unit: 'ppm' },
   outdoor_air:  { label: 'Outdoor air', covers: ['aqi'], hold: 900 },
 };
 // What a watched sensor is, as CORE_ALERTS names it.
 const coverOf = w => w.kind === 'leak' || w.kind === 'lock' || w.kind === 'aqi' ? w.kind : `${w.kind}:${w.cls}`;
 const CORE_ALERT_OF = Object.fromEntries(Object.entries(CORE_ALERTS).flatMap(([key, a]) => a.covers.map(c => [c, key])));
 const TIMINGS = { after: 'wait', critical_after: 'critical after', hold: 'hold' };
+const ESCALATION = { warning_after: 'seconds', warning_at: 'time', warning_until: 'time' };
 
 // Every option. `*` stands for any key at that level (a glance's name, a
 // floor's ID). `gui: false` keeps an option to YAML (the raw editor).
 // `labels` name a choice's values in the GUI; YAML keeps the values.
-// Types: text, seconds, number, choice, boolean, entity, entities,
-// devices, links (entity → entity), colors (entity → hex).
+// Types: text, seconds, number, time ("22:00"), choice, boolean, entity,
+// entities, devices, links (entity → entity), colors (entity → hex).
 const OPTIONS = [
   { path: 'default', type: 'text', default: DEFAULT_GLANCE, label: 'Default glance', help: 'Shown when nothing else needs the screen' },
   { path: 'cycle', type: 'seconds', default: CYCLE, label: 'Cycle', help: 'Seconds per turn when several glances want the screen' },
@@ -1162,6 +1199,8 @@ const OPTIONS = [
     ...Object.keys(TIMINGS).filter(t => t in a).map(t =>
       ({ path: `alerts.core.${key}.${t}`, type: 'seconds', default: a[t], label: `${a.label} ${TIMINGS[t]}` })),
     ...('limit' in a ? [{ path: `alerts.core.${key}.limit`, type: 'number', default: a.limit, label: `${a.label} limit` }] : []),
+    ...(a.escalates ? Object.entries(ESCALATION).map(([t, type]) =>
+      ({ path: `alerts.core.${key}.${t}`, type, default: null, label: `${a.label} ${t.replace('_', ' ')}` })) : []),
   ]),
   { path: 'alerts.weather.enabled', type: 'boolean', default: true, label: 'Weather alerts' },
   { path: 'alerts.weather.source', type: 'choice', choices: Object.keys(WX_SOURCES), labels: WX_SOURCES, default: null,
@@ -1189,6 +1228,7 @@ function checked(config, path) {
     text: () => typeof v === 'string' && v !== '',
     seconds: () => n > 0,
     number: () => n > 0,
+    time: () => typeof v === 'string' && TIME.test(v),
     choice: () => o.choices.includes(v),
     boolean: () => typeof v === 'boolean',
     entity: () => typeof v === 'string',
@@ -1230,6 +1270,7 @@ function readSettings(config) {
     enabled: get(`alerts.core.${key}.enabled`),
     exclude: key === 'outdoor_air' ? [] : get(`alerts.core.${key}.exclude`) ?? [],
     ...Object.fromEntries(['after', 'critical_after', 'hold', 'limit'].filter(t => t in a).map(t => [t, get(`alerts.core.${key}.${t}`)])),
+    ...(a.escalates && Object.fromEntries(Object.keys(ESCALATION).map(t => [t, get(`alerts.core.${key}.${t}`)]))),
   }]));
   return {
     glances,
@@ -2016,6 +2057,7 @@ function selectorOf(o) {
   return {
     seconds: { number: { min: 1, max: 3600, step: 1, mode: 'box', unit_of_measurement: 's' } },
     number: { number: { min: 0, step: 'any', mode: 'box' } },
+    time: { time: {} },
     choice: { select: { options: (o.choices ?? []).map(v => ({ value: v, label: o.labels?.[v] ?? v })), mode: 'dropdown' } },
     boolean: { boolean: {} },
     entity: { entity: { ...filter } },
@@ -2041,10 +2083,14 @@ function unsetPath(obj, path, keys = keysOf(path)) {
   }
 }
 
-// HA's color picker works in [r, g, b]; settings keep hex.
-const isColorField = name => name.startsWith('providers.people.colors[');
+// Fields whose form value differs from the setting: `toForm` turns a
+// setting into what the form shows, `fromForm` back. HA's color picker
+// works in [r, g, b] and its time picker in "22:00:00"; settings keep
+// hex and "22:00".
 const rgbList = hex => [1, 3, 5].map(i => parseInt((hex.length === 4 ? hex.replace(/\w/g, '$&$&') : hex).slice(i, i + 2), 16));
 const hexString = rgb => '#' + rgb.map(c => Math.round(c).toString(16).padStart(2, '0')).join('');
+const COLOR_FIELD = { toForm: v => typeof v === 'string' && HEX.test(v) ? rgbList(v) : v, fromForm: v => Array.isArray(v) ? hexString(v) : v };
+const TIME_FIELD = { fromForm: v => typeof v === 'string' ? v.split(':').slice(0, 2).map(x => x.padStart(2, '0')).join(':') : v };
 
 class HaagEditor extends HTMLElement {
   set hass(hass) {
@@ -2071,6 +2117,14 @@ class HaagEditor extends HTMLElement {
       }
       const calendars = discoverCalendars(hass, reg, {});
       if (calendars.length) found['providers.calendar.calendars'] = calendars;
+      const source = discoverWeather(hass, reg, { enabled: true, source: null });
+      if (source) found['alerts.weather.source'] = source.platform;
+      // Every household alert's sensors, as if all were on with none left out.
+      const all = Object.fromEntries(Object.keys(CORE_ALERTS).map(k => [k, { enabled: true, exclude: [] }]));
+      this._sensors = {};
+      for (const w of discoverAlerts(hass, reg, found['providers.outdoor.aqi'], all)) {
+        (this._sensors[CORE_ALERT_OF[coverOf(w)]] ||= []).push({ value: w.entity, label: w.name || w.entity });
+      }
       this._found = found;
       this._reg = reg;
       this._render();
@@ -2092,6 +2146,7 @@ class HaagEditor extends HTMLElement {
       this._form.addEventListener('value-changed', e => this._changed(e));
     }
     const schema = this._schema();
+    this._fields = new Map(schema.flatMap(s => s.schema).map(f => [f.name, f]));
     this._shown = this._data(schema);
     Object.assign(this._form, { hass: this._hass, data: this._shown });
     const key = JSON.stringify(schema);   // a new schema only when the sections change
@@ -2106,7 +2161,7 @@ class HaagEditor extends HTMLElement {
   _schema() {
     const field = (path, label) => {
       const o = optionAt(path);
-      return { name: path, label: label ?? o.label, help: o.help, selector: selectorOf(o) };
+      return { name: path, label: label ?? o.label, help: o.help, selector: selectorOf(o), ...(o.type === 'time' && TIME_FIELD) };
     };
     const section = (title, fields, expanded = false) =>
       ({ type: 'expandable', name: title.toLowerCase(), flatten: true, title, expanded, schema: fields });
@@ -2131,7 +2186,44 @@ class HaagEditor extends HTMLElement {
         field(`providers.floors.${f.floor_id}.monitors`, `${f.name} air-quality monitors`),
         field(`providers.floors.${f.floor_id}.climate`, `${f.name} thermostat`),
       ])),
+      section('Alerts', [field('alerts.turn'), ...this._alerts(field)]),
     ];
+  }
+
+  // Under Household, each alert's switch; one that's on is followed by
+  // its sensors (all ticked; unticked ones are left out), timings, limit
+  // and escalation. Then Weather.
+  _alerts(field) {
+    const on = path => valueAt(this._config, path);
+    const fields = [{ type: 'constant', name: 'household', label: 'Household' }];
+    for (const [key, a] of Object.entries(CORE_ALERTS)) {
+      const base = `alerts.core.${key}`;
+      const sensors = this._sensors?.[key] ?? [];
+      const none = this._sensors && !sensors.length && on(`${base}.enabled`) === true;
+      fields.push({ ...field(`${base}.enabled`, a.label), ...(none && { help: 'No sensors found' }) });
+      if (on(`${base}.enabled`) !== true) continue;
+      if (key !== 'outdoor_air' && sensors.length) {
+        const ids = sensors.map(s => s.value);
+        fields.push({ name: `${base}.exclude`, label: 'Sensors', help: "Untick any that aren't really this",
+          selector: { select: { multiple: true, mode: 'list', options: sensors } },
+          toForm: v => ids.filter(id => !(v || []).includes(id)),
+          fromForm: v => [...(on(`${base}.exclude`) || []).filter(id => !ids.includes(id)), ...ids.filter(id => !v.includes(id))] });
+      }
+      for (const t of Object.keys(TIMINGS).filter(t => t in a)) fields.push(field(`${base}.${t}`, cap(TIMINGS[t])));
+      if ('limit' in a) {
+        fields.push({ ...field(`${base}.limit`, 'Limit'), selector: { number: { min: 0, step: 'any', mode: 'box', unit_of_measurement: a.unit } } });
+      }
+      if (a.escalates) {
+        const state = key === 'locks' ? 'Unlocked' : 'Open';
+        fields.push(
+          { ...field(`${base}.warning_after`, 'Warning after'), help: `${state} this long: a warning` },
+          { ...field(`${base}.warning_at`, 'Warning from'), help: `${state} from this time: a warning` },
+          { ...field(`${base}.warning_until`, 'Warning until'), help: 'Sunrise when left empty' });
+      }
+    }
+    fields.push({ type: 'constant', name: 'weather', label: 'Weather' }, field('alerts.weather.enabled'));
+    if (on('alerts.weather.enabled') !== false) fields.push(field('alerts.weather.source', 'Source'));
+    return fields;
   }
 
   // People and calendars under the current settings, read quietly (the
@@ -2157,7 +2249,7 @@ class HaagEditor extends HTMLElement {
     const { people, calendars, theirs } = this._lookup();
     const name = id => hass.states[id]?.attributes?.friendly_name || id;
     const key = (map, id) => `providers.people.${map}[${id}]`;
-    const color = (id, label = 'Color') => ({ name: key('colors', id), label, selector: { color_rgb: {} } });
+    const color = (id, label = 'Color') => ({ name: key('colors', id), label, selector: { color_rgb: {} }, ...COLOR_FIELD });
     const unmatched = calendars.filter(c => !Object.values(theirs).includes(c));
     return [
       ...people.ids.flatMap(id => [
@@ -2192,14 +2284,14 @@ class HaagEditor extends HTMLElement {
     const found = { ...this._found, ...this._foundPeople() };
     const data = {};
     for (const { schema: fields } of schema) {
-      for (const { name, type } of fields) {
+      for (const { name, type, toForm } of fields) {
         if (type === 'constant') continue;
         const glance = /^glances\.(.+)\.enabled$/.exec(name)?.[1];
         const v = valueAt(config, name);
         const unset = v == null || (Array.isArray(v) && !v.length);
-        data[name] = glance ? (glance === def ? v !== false : v === true)
+        const shown = glance ? (glance === def ? v !== false : v === true)
           : unset ? found[name] ?? optionAt(name)?.default ?? undefined : v;
-        if (isColorField(name) && typeof data[name] === 'string' && HEX.test(data[name])) data[name] = rgbList(data[name]);
+        data[name] = toForm ? toForm(shown) : shown;
       }
     }
     return data;
@@ -2212,10 +2304,11 @@ class HaagEditor extends HTMLElement {
     const data = e.detail.value;
     const config = structuredClone(this._config);
     for (const key of Object.keys(data)) {
-      const v = data[key];
-      if (JSON.stringify(v) === JSON.stringify(this._shown[key])) continue;
+      if (JSON.stringify(data[key]) === JSON.stringify(this._shown[key])) continue;
+      const fromForm = this._fields.get(key)?.fromForm;
+      const v = fromForm && data[key] != null ? fromForm(data[key]) : data[key];
       if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) unsetPath(config, key);
-      else setPath(config, key, isColorField(key) ? hexString(v) : v);
+      else setPath(config, key, v);
     }
     this._config = config;
     this._render();   // what's shown follows the settings: a cleared picker shows what Håg finds again

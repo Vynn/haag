@@ -86,6 +86,10 @@ strategy:
       doors:
         enabled: true
         after: 600
+      garage_doors:
+        enabled: true
+        warning_at: "21:00"           # still open from 9 PM: a warning
+        warning_until: "07:00"
       co2:
         enabled: true
         limit: 1200
@@ -99,6 +103,9 @@ strategy:
 | `alerts.core.<alert>.enabled` | `true` turns a household alert on. All are off until turned on. |
 | `alerts.core.<alert>.exclude` | Sensors to leave out, such as a rain sensor that reads as a leak. |
 | `alerts.core.<alert>.after` | Seconds something stays open or unlocked before the alert shows. |
+| `alerts.core.<alert>.warning_after` | For things left open or unlocked: seconds before the alert turns into a warning. Off if left out. |
+| `alerts.core.<alert>.warning_at` | For things left open or unlocked: a time of day, like `"21:00"`. Anything still open from then is a warning. Off if left out. |
+| `alerts.core.<alert>.warning_until` | When `warning_at`'s warnings end. Sunrise if left out, or 6:00 without Home Assistant's sun entity. |
 | `alerts.core.leak.critical_after` | Seconds before a leak turns critical. 900 if left out. |
 | `alerts.core.<alert>.hold` | Seconds a reading stays past its limit before the alert shows. 900 if left out. |
 | `alerts.core.<alert>.limit` | The reading's limit, in the unit below. Converted to each sensor's own unit. |
@@ -111,15 +118,17 @@ The household alerts (`<alert>`), with their timings and limits when left out:
 |---|---|---|---|
 | `smoke`, `co`, `gas` | Smoke, carbon monoxide and gas alarms | At once | |
 | `leak` | Water leaks | `critical_after: 900` | |
-| `doors`, `windows`, `openings`, `garage_doors`, `gates` | Things left open | `after: 300` | |
-| `locks` | Locks left unlocked, and jammed ones | `after: 300` | |
+| `doors`, `windows`, `openings`, `garage_doors`, `gates` | Things left open | `after: 300`, and the warning settings | |
+| `locks` | Locks left unlocked, and jammed ones | `after: 300`, and the warning settings | |
 | `co2` | Indoor CO₂ | `hold: 900` | 1000 ppm |
 | `pm25` | Indoor PM2.5 | `hold: 900` | 35.5 µg/m³ |
 | `radon` | Indoor radon | `hold: 900` | 100 Bq/m³ |
 | `co_level` | Indoor carbon monoxide readings | `hold: 900` | 30 ppm |
 | `outdoor_air` | Outdoor air quality, by its scale | `hold: 900` | |
 
-The dashboard editor's section for alerts comes in a later build; until then, alert settings are edited as YAML.
+Times of day are in Home Assistant's time zone. Quote them: unquoted, YAML can read `21:00` as a number.
+
+In the editor, the Alerts section lists the household alerts, then weather. Turning an alert on shows the sensors Håg found for it, all ticked: untick any that aren't really that thing, and they're saved under `exclude`. Sensors found later are watched without being ticked first. Its timings, limit and warning settings follow.
 
 ## Time and numbers
 
@@ -160,7 +169,7 @@ Times follow the time format in your Home Assistant profile (12 or 24 hours, or 
 
 Each person and calendar has a color: the one set here, else the calendar's color in Home Assistant (Google Calendar sets one, for example), else one of Håg's six, in turn. A person and their calendar share it. The color shows on a person's icon and on their appointments. Any color keeps its hue and shifts in lightness until it's readable where it's drawn, by day and by night, so a pale yellow, for example, turns darker by day.
 
-In the editor, each person has their calendar, color and who they follow, followed by a color for each calendar that's no one's. A color picker can't be cleared there: to go back to the color Håg finds, remove it in the code editor.
+In the editor, each person has their calendar, color and who they follow, followed by a color for each calendar that's no one's. A color picker can't be cleared there: to go back to the color Håg finds, remove it in the code editor. A calendar that's someone's takes their color; giving it a different one is YAML only.
 
 ## Calendar
 

@@ -64,14 +64,15 @@ Built-in alerts for things no glance covers. Their sensors are found by device c
 |---|---|---|
 | Smoke, carbon monoxide, gas | Binary sensors of class `smoke`, `carbon_monoxide`, `gas` | Critical at once, and holds the row. "Smoke Alert in Kitchen", "Carbon Monoxide (CO) Alert in Basement · 85 ppm" (the area's CO reading, when it has one) |
 | Water leaks | Binary sensors of class `moisture` | A warning when wet, critical after 15 minutes. "Water Leak in Basement · 20 min" |
-| Doors, windows and other openings | Binary sensors of class `door`, `window`, `opening`; covers of class `door`, `window` | Information after 5 minutes open. "Hallway door open", "Skylight open" |
-| Garage doors and gates | Binary sensors of class `garage_door`; covers of class `garage`, `gate` | Information after 5 minutes open. "Garage door open", "Driveway gate open" |
-| Locks | Lock entities | Unlocked: information after 5 minutes. Jammed: a warning at once. "Hallway unlocked", "Hallway lock jammed" |
+| Doors, windows and other openings | Binary sensors of class `door`, `window`, `opening`; covers of class `door`, `window` | Information after 5 minutes open; a warning when set to escalate (below). "Hallway door open", "Skylight open" |
+| Garage doors and gates | Binary sensors of class `garage_door`; covers of class `garage`, `gate` | As doors. "Garage door open", "Driveway gate open · 2 h" |
+| Locks | Lock entities | Unlocked: as doors. Jammed: a warning at once. "Hallway unlocked", "Hallway lock jammed" |
 | Indoor air | Sensors of class `carbon_dioxide`, `pm25`, `radon`, `carbon_monoxide`, not on the outdoor floor | A warning once a reading has been past its limit for 15 minutes, cleared as soon as it's back under. "Bedroom CO₂ high · 1,450 ppm" |
 | Outdoor air | The air quality index Overview shows; Airly's or GIOŚ's index when there's none | A warning past the scale's limit for 15 minutes. "Outdoor air moderate · AQI 62" |
 
 - **Who's named:** the sensor's area, or its device's name when it has no area. Openings use their own name. An area that repeats the type is dropped ("Garage door open").
 - **One alert per type:** "Hallway and Office doors open" when the names fit the row, otherwise "3 doors open". Indoor air drops the values when it names several areas.
+- **Escalation:** something left open or unlocked can turn into a warning once it's been open a set time, or while it's still open in set hours (from a time of day until another, or until sunrise). The warning adds the longest time open ("· 2 h"). Off until set; see [configuration](configuration.md#alerts).
 - **Waits** for doors, locks and leaks count from Home Assistant's last change, so a door left open before a reload shows straight away. Air readings count from when Håg first sees them past the limit, so their 15 minutes restart when the display reloads.
 - **Numbers** follow Home Assistant's number format.
 
@@ -151,7 +152,7 @@ Information notices leave the row after 5 minutes. Warnings stay until the displ
 
 ## Settings
 
-Which alerts are on, sensors to leave out, timings and limits, the turn length and the weather source are all settings. See [configuration](configuration.md#alerts).
+Which alerts are on, sensors to leave out, timings, limits and escalation, the turn length and the weather source are all settings, in the editor's Alerts section or as YAML. See [configuration](configuration.md#alerts).
 
 ## Known issues
 

@@ -54,6 +54,8 @@ strategy:
 
 Håg finds everything else. To change what it picks, see [configuration](docs/configuration.md).
 
+Until 1.0 the settings format stays `haag/v1`, even when settings change. If a change breaks existing settings, clear or update them by hand. We aim to note each such change in the [changelog](CHANGELOG.md), under *Breaking*.
+
 ## Documentation
 
 - [Configuration](docs/configuration.md): every setting.

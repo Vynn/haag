@@ -42,11 +42,10 @@ The idle screen's illustrated look, and how glances work.
 
 ## 0.4 · Configuration editor (alpha)
 
-- [ ] A visual settings editor in Home Assistant's dashboard editor, matching the YAML
-- [ ] Settings for people and calendars, including colors and linked people
+- [x] A visual settings editor in Home Assistant's dashboard editor, matching the YAML
+- [x] Settings for people and calendars, including colors and linked people
 - [ ] Settings for each glance
-- [ ] Settings for alerts: which are on, their sensors, thresholds and timings
-- [ ] Versioned settings format, with import and export
+- [x] Settings for alerts: which are on, their sensors, thresholds and timings
 - [ ] Warnings for entities missing an area or other fields Håg uses
 
 ## 0.5 · Laundry glance
@@ -124,3 +123,4 @@ The first glance after Overview Glance.
 - **Now playing** (after 1.0): what's playing in which room, with artwork.
 - **Robot vacuum** (after 1.0): cleaning now and where, the map, stuck or in error, the dock needing attention.
 - **Dishwasher** (to decide): running, finish time, clean dishes waiting to be emptied.
+- **Settings import and export** (revisit at 1.0): worth it if it lets glances be bundled with their settings. Home Assistant's code editor already copies settings out and in.

@@ -9,7 +9,8 @@ The configuration editor (alpha). In progress.
 ### Added
 
 - A settings editor in Home Assistant's dashboard editor (⋮ → Edit dashboard), built from Home Assistant's own form: general settings, glances, people and calendars, outdoor sensors, and floors. It edits the same settings as the YAML, writes only what changes and keeps everything else.
-- Alert settings, as YAML for now: which household alerts are on, sensors to leave out, timings, limits, the turn length, and the weather alert source (`alerts`). See [configuration](docs/configuration.md#alerts).
+- Alert settings, in the editor and as YAML: which household alerts are on, sensors to leave out, timings, limits, the turn length, and the weather alert source (`alerts`). In the editor, turning an alert on lists the sensors Håg found for it, to untick any that aren't really that thing. See [configuration](docs/configuration.md#alerts).
+- Things left open or unlocked can turn into a warning: after a time (`warning_after`), or while still open from a time of day (`warning_at`) until another (`warning_until`, else sunrise, else 6:00). Off unless set. The warning shows the longest time open.
 - People and calendar colors: a person's icon border and initials, and an appointment's icon and time, take a color. It's the one set in settings, else the calendar's from Home Assistant, else one of six from Håg's palette; a person and their calendar share it. Colors keep their hue and shift in lightness to stay readable by day and by night. See [configuration](docs/configuration.md#people).
 - Settings for each person's calendar and colors (`providers.people.calendars`, `colors`). People match their calendars by name without them. In the editor, each person has their calendar, color and who they follow.
 - For glance authors: `haag.colorOf(entity_id, on)`, and each person's calendar in `haag.providers.people.calendars`.
