@@ -46,7 +46,7 @@ The idle screen's illustrated look, and how glances work.
 - [x] Settings for people and calendars, including colors and linked people
 - [ ] Settings for each glance
 - [x] Settings for alerts: which are on, their sensors, thresholds and timings
-- [ ] Warnings for entities missing an area or other fields Håg uses
+- [x] Warnings for entities missing an area or other fields Håg uses
 
 ## 0.5 · Laundry glance
 
