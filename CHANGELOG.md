@@ -2,15 +2,15 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
-## 0.4.0 · unreleased
+## 0.4.0 · 2026-11-02
 
-The configuration editor (alpha). In progress.
+The configuration editor: the first alpha. A pre-release. See [configuration](docs/configuration.md).
 
 ### Added
 
-- A settings editor in Home Assistant's dashboard editor (⋮ → Edit dashboard), built from Home Assistant's own form: general settings, glances, people and calendars, outdoor sensors, and floors. It edits the same settings as the YAML, writes only what changes and keeps everything else.
+- A settings editor in Home Assistant's dashboard editor (⋮ → Edit dashboard), built from Home Assistant's own form: general settings, each glance, people and calendars, outdoor sensors, floors and alerts. It edits the same settings as the YAML, writes only what changes and keeps everything else.
 - Alert settings, in the editor and as YAML: which household alerts are on, sensors to leave out, timings, limits, the turn length, and the weather alert source (`alerts`). In the editor, turning an alert on lists the sensors Håg found for it, to untick any that aren't really that thing. See [configuration](docs/configuration.md#alerts).
-- Settings for each glance: a glance lists its settings in its manifest; Håg checks them, fills in defaults and shows them in the editor, in a section per glance with its on/off switch in the header (the Glances section is gone). See [glances](docs/glances.md#settings).
+- Settings for each glance: a glance lists its settings in its manifest; Håg checks them, fills in defaults and shows them in the editor, in a section per glance with its on/off switch in the header. See [glances](docs/glances.md#settings).
 - Overview Glance settings: how many appointments (`appointments`), how many days ahead (`days`), and easter eggs on or off (`easter_eggs`).
 - Setup warnings: sensors Håg uses that have no area, areas with no floor, and people who are never shown, at the top of the dashboard editor and for five minutes in the alert row; in the editor also a missing outdoor floor, readings in units Håg doesn't read, and a missing sun entity or Moon integration. Each says what follows from it. `warnings.ignore` (YAML only) leaves things out. See [configuration](docs/configuration.md#setup-warnings).
 - Things left open or unlocked can turn into a warning: after a time (`warning_after`), or while still open from a time of day (`warning_at`) until another (`warning_until`, else sunrise, else 6:00). Off unless set. The warning shows the longest time open.
@@ -23,6 +23,15 @@ The configuration editor (alpha). In progress.
 - Household alerts are off until turned on in settings (`alerts.core.<alert>.enabled`). Weather alerts stay on.
 - Every setting is checked the same way: one it can't use gives a notice and falls back to its default.
 - Linked people (`providers.people.links`) can be set in the editor; they were YAML-only.
+
+### Fixed
+
+- Overview: the bottoms of letters such as g and y in appointments are no longer cut off.
+
+### Known issues
+
+- In the editor, a color can't be cleared: to go back to the color Håg finds, remove it in the code editor.
+- In the editor, a calendar Håg matched to someone can be changed, but not unlinked.
 
 ## 0.3.0 · 2026-11-01
 

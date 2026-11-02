@@ -4,7 +4,7 @@
 
 A calm, glanceable dashboard for a wall display that answers one question: *what do I need to know right now?* Håg builds itself from your Home Assistant setup, so there are no entity IDs to type.
 
-> **Status: pre-alpha.** Version 0.3 is the current release. Every 0.x build is a pre-release: not ready for everyday use, and anything may change. The first alpha is 0.4, with the configuration editor. See the [roadmap](ROADMAP.md).
+> **Status: alpha.** Version 0.4 is the current release. Every 0.x build is a pre-release: not ready for everyday use, and anything may change. See the [roadmap](ROADMAP.md).
 >
 > Håg is developed and tested on one Home Assistant install. Features for other regions, such as weather alerts and air-quality scales, follow each region's published standards but involve some guesswork. Feedback and corrections are welcome as [issues](https://github.com/Vynn/haag/issues).
 
@@ -52,7 +52,7 @@ strategy:
   type: custom:haag
 ```
 
-Håg finds everything else. To change what it picks, see [configuration](docs/configuration.md).
+Håg finds everything else. To change what it picks, open the dashboard's editor (⋮ → *Edit dashboard*), or see [configuration](docs/configuration.md).
 
 Until 1.0 the settings format stays `haag/v1`, even when settings change. If a change breaks existing settings, clear or update them by hand. We aim to note each such change in the [changelog](CHANGELOG.md), under *Breaking*.
 

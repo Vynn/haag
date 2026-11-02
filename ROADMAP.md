@@ -40,7 +40,7 @@ The idle screen's illustrated look, and how glances work.
 - [x] Priority and rotation when several notices are active
 - [ ] Installs through the Home Assistant Marketplace, with the first build after the Marketplace's stable release
 
-## 0.4 · Configuration editor (alpha)
+## 0.4 · Configuration editor (alpha) · released
 
 - [x] A visual settings editor in Home Assistant's dashboard editor, matching the YAML
 - [x] Settings for people and calendars, including colors and linked people

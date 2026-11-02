@@ -10,7 +10,7 @@
   phone to a 4K screen.
 */
 
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 const MANIFEST = 'haag/v1';   // config format marker
 
 /* ------------------------------------------------------------------------
