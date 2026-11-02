@@ -271,6 +271,10 @@ const STYLE = `
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    /* The clip reaches below the tight line for descenders ("g"), short of
+       a third line's ascenders; the margin keeps the layout as it was. */
+    padding-bottom: .12em;
+    margin-bottom: -.12em;
   }
   .appt.wrap .text {
     white-space: normal;
