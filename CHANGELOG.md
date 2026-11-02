@@ -2,6 +2,20 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
+## 0.4.0 · unreleased
+
+The configuration editor (alpha). In progress.
+
+### Added
+
+- A settings editor in Home Assistant's dashboard editor (⋮ → Edit dashboard), built from Home Assistant's own form: general settings, glances, outdoor sensors, floors, people and calendars. It edits the same settings as the YAML, writes only what changes and keeps everything else.
+- Alert settings, as YAML for now: which household alerts are on, sensors to leave out, timings, limits, the turn length, and the weather alert source (`alerts`). See [configuration](docs/configuration.md#alerts).
+
+### Changed
+
+- Household alerts are off until turned on in settings (`alerts.core.<alert>.enabled`). Weather alerts stay on.
+- Every setting is checked the same way: one it can't use gives a notice and falls back to its default.
+
 ## 0.3.0 · 2026-11-01
 
 Alerts and notices. A pre-release. See [alerts](docs/alerts.md).

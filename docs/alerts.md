@@ -58,7 +58,7 @@ haag.alerts.clear();
 
 ## Household alerts
 
-Built-in alerts for things no glance covers. Their sensors are found by device class, wherever they are. In 0.3 every household alert is on.
+Built-in alerts for things no glance covers. Their sensors are found by device class, wherever they are. Each is off until it's turned on in [settings](configuration.md#alerts).
 
 | Alert | Sensors | Shows |
 |---|---|---|
@@ -151,8 +151,8 @@ Information notices leave the row after 5 minutes. Warnings stay until the displ
 
 ## Settings
 
-None yet: in 0.3 the alerts above use these defaults. The configuration editor in 0.4 adds settings for which alerts are on, sensors to leave out, limits and timings, the turn length and the weather source.
+Which alerts are on, sensors to leave out, timings and limits, the turn length and the weather source are all settings. See [configuration](configuration.md#alerts).
 
 ## Known issues
 
-Sensors that Home Assistant classes like the real thing raise alerts: a rain sensor as a water leak, a remote lockout as a lock, an appliance door as a door. They can be left out once the configuration editor arrives in 0.4.
+Sensors that Home Assistant classes like the real thing raise alerts: a rain sensor as a water leak, a remote lockout as a lock, an appliance door as a door. Leave them out with the alert's `exclude` setting (see [configuration](configuration.md#alerts)).
