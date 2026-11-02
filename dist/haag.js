@@ -1058,6 +1058,83 @@ function weatherAlerts(hass, list, now = Date.now()) {
 }
 
 /* ------------------------------------------------------------------------
+   Setup checks
+   What's missing in HA's setup for what Håg shows, and what follows from
+   it, for the editor and the alert row. Fixing it is up to the user.
+   Settings `warnings.ignore` lists entity, area or person IDs, or a
+   check's key, to leave out.
+   ------------------------------------------------------------------------ */
+
+const SETUP_HELP = 'https://github.com/Vynn/haag/blob/main/docs/configuration.md#setup-warnings';
+const SETUP_SHOWN = 5;   // names shown before "and N more"
+
+/**
+ * [{ key, row, title, says, items: [{ id, name }] }]: `row` checks also
+ * show in the alert row, `says` is the consequence.
+ */
+function setupChecks(hass, reg, settings) {
+  const ignore = new Set(settings.warnings.ignore);
+  const nameOf = id => hass.states[id]?.attributes?.friendly_name || id;
+  const on = reg.entities.filter(e => !e.disabled_by && !e.hidden_by && hass.states[e.entity_id]);
+  // What Håg uses: indoor readings, thermostats, and the household alerts' sensors.
+  const used = new Map(on
+    .filter(e => e.entity_id.startsWith('climate.') ||
+      (e.entity_id.startsWith('sensor.') && MONITOR_CLASSES.includes(hass.states[e.entity_id].attributes.device_class)))
+    .map(e => [e.entity_id, e]));
+  const watch = discoverAlerts(hass, reg, null, settings.alerts.core).filter(w => !w.quiet && w.kind !== 'aqi');
+  for (const w of watch) used.set(w.entity, reg.entities.find(e => e.entity_id === w.entity) ?? { entity_id: w.entity });
+  const areaName = Object.fromEntries(reg.areas.map(a => [a.area_id, a.name]));
+
+  const people = discoverPeople(hass, settings.providers.people);
+  // Indoor readings for alerts that are on, in a unit with no limit.
+  const exterior = reg.floors.find(isExterior)?.floor_id;
+  const units = on.filter(e => {
+    const { device_class: dc, unit_of_measurement: unit } = hass.states[e.entity_id].attributes;
+    return e.entity_id.startsWith('sensor.') && READINGS[dc] && settings.alerts.core[CORE_ALERT_OF[`reading:${dc}`]]?.enabled &&
+      !(exterior && e.floor === exterior) && unit && !(unitKey(unit) in READINGS[dc].limits);
+  });
+  const checks = [
+    { key: 'area', row: true, title: 'Sensors with no area',
+      says: "They're on no floor, so their readings don't show, and alerts name the device instead of the room. Give them an area in Home Assistant.",
+      items: [...used.values()].filter(e => !e.area).map(e => ({ id: e.entity_id, name: nameOf(e.entity_id) })) },
+    { key: 'floor', row: true, title: 'Areas with no floor',
+      says: "Their sensors are on no floor, so their readings don't show. Give them a floor in Home Assistant.",
+      items: [...new Set([...used.values()].filter(e => e.area && !reg.areas.find(a => a.area_id === e.area)?.floor_id).map(e => e.area))]
+        .map(id => ({ id, name: areaName[id] || id })) },
+    { key: 'person', row: true, title: 'People never shown',
+      says: 'No trackers, and not following anyone. Give them a tracker in Home Assistant, or have them follow someone under People and calendars.',
+      items: people.ids.filter(id => !hass.states[id]?.attributes?.device_trackers?.length && !people.links[id])
+        .map(id => ({ id, name: nameOf(id) })) },
+    { key: 'exterior', title: 'No outdoor floor',
+      says: "Outdoor temperature, humidity and air quality aren't found. Name a floor Exterior, Outdoor or Outside, or choose them under Outdoor.",
+      items: reg.floors.some(isExterior) || settings.providers.outdoor.temperature ? [] : [{ id: 'exterior', name: '' }] },
+    { key: 'units', title: "Readings in a unit Håg doesn't read",
+      says: "They aren't watched for alerts.",
+      items: units.map(e => ({ id: e.entity_id, name: `${nameOf(e.entity_id)} (${hass.states[e.entity_id].attributes.unit_of_measurement ?? 'no unit'})` })) },
+    { key: 'sun', title: 'No sun entity',
+      says: "Day and night switch at 6:00 and 18:00, and the sun follows a fixed arc. Turn on Home Assistant's Sun integration.",
+      items: Object.keys(hass.states).some(id => id.startsWith('sun.')) ? [] : [{ id: 'sun', name: '' }] },
+    { key: 'moon', title: 'No Moon integration',
+      says: "The moon is always drawn waxing gibbous. Add Home Assistant's Moon integration, or choose its sensor under Outdoor.",
+      items: discoverOutdoor(hass, reg, settings.providers.outdoor).moon ? [] : [{ id: 'moon', name: '' }] },
+  ];
+  return checks
+    .filter(c => !ignore.has(c.key))
+    .map(c => ({ ...c, items: c.items.filter(i => !ignore.has(i.id)) }))
+    .filter(c => c.items.length);
+}
+
+// A row check in a few words: "4 sensors have no area".
+function setupLine(check) {
+  const n = check.items.length, one = n === 1 && check.items[0].name;
+  return {
+    area: one ? `${one} has no area` : `${n} sensors have no area`,
+    floor: one ? `${one} has no floor` : `${n} areas have no floor`,
+    person: one ? `${one} is never shown` : `${n} people are never shown`,
+  }[check.key];
+}
+
+/* ------------------------------------------------------------------------
    Glances
    Bootstraps register through window.haagGlances (docs/glances.md).
    ------------------------------------------------------------------------ */
@@ -1083,12 +1160,13 @@ const MIN_FIT = .7;    // long text shrinks to this share of its size, then is c
 // Håg's notices: in the alert row of every display, and in the browser
 // console with any detail. Each is given once. Information notices leave
 // the row after NOTICE_TIME; warnings stay until the display reloads.
+// `help`: a page to link, with Settings, from the row.
 const NOTICE_TIME = 5 * MINUTE;
-const notices = new Map();   // text → { level, at }
+const notices = new Map();   // text → { level, at, help }
 const noticeListeners = new Set();
-function notice(level, text, detail) {
+function notice(level, text, detail, help) {
   if (notices.has(text)) return;
-  notices.set(text, { level, at: Date.now() });
+  notices.set(text, { level, at: Date.now(), help });
   console.warn(`Håg: ${text}`, ...(detail === undefined ? [] : [detail]));
   noticeListeners.forEach(fn => fn());
 }
@@ -1205,6 +1283,7 @@ const OPTIONS = [
   { path: 'alerts.weather.enabled', type: 'boolean', default: true, label: 'Weather alerts' },
   { path: 'alerts.weather.source', type: 'choice', choices: Object.keys(WX_SOURCES), labels: WX_SOURCES, default: null,
     label: 'Weather alert source', help: 'Found automatically when not chosen' },
+  { path: 'warnings.ignore', type: 'entities', gui: false, label: 'Setup warnings left out' },
 ];
 
 // A path's keys. A key in brackets is taken whole, so it can hold an
@@ -1282,6 +1361,7 @@ function readSettings(config) {
     turn: get('alerts.turn'),
     providers: { outdoor, floors, people, calendar: calendars ? { calendars } : {} },
     alerts: { core, weather: { enabled: get('alerts.weather.enabled'), source: get('alerts.weather.source') } },
+    warnings: { ignore: get('warnings.ignore') ?? [] },
   };
 }
 
@@ -1545,6 +1625,14 @@ class HaagHost extends HTMLElement {
     } catch (err) {
       console.error('Håg: household alert discovery failed', err);
     }
+    // Gaps in HA's setup, for a while in the row (all of them in the editor).
+    try {
+      for (const c of setupChecks(hass, reg, this._settings).filter(c => c.row)) {
+        notice('info', setupLine(c), c.items.map(i => i.id), SETUP_HELP);
+      }
+    } catch (err) {
+      console.error('Håg: setup checks failed', err);
+    }
     this._seen = new Map();   // reading → when first seen past its limit
     this._household();
     this._wxSource = discoverWeather(hass, reg, this._settings.alerts.weather);
@@ -1691,7 +1779,7 @@ class HaagHost extends HTMLElement {
     clearTimeout(this._noticeTimer);
     const now = Date.now();
     const shown = [...notices].filter(([, n]) => n.level !== 'info' || now - n.at < NOTICE_TIME);
-    this._notices.replace(shown.map(([text, n]) => ({ key: text, level: n.level, text, since: n.at })));
+    this._notices.replace(shown.map(([text, n]) => ({ key: text, level: n.level, text, since: n.at, help: n.help })));
     const next = Math.min(...shown.filter(([, n]) => n.level === 'info').map(([, n]) => n.at + NOTICE_TIME));
     if (next < Infinity) this._noticeTimer = setTimeout(this._showNotices, next - now);
   }
@@ -1833,7 +1921,7 @@ class HaagHost extends HTMLElement {
     const set = (key, { level, text, since, hold, own, help } = {}) => {
       keys.add(key);
       host._raise(id(key), { level: LEVELS.includes(level) ? level : 'info', text: String(text ?? ''), since,
-        ...(core && { hold: !!hold, own: !!own, help: !!help }) });
+        ...(core && { hold: !!hold, own: !!own, help: typeof help === 'string' ? help : !!help }) });
     };
     const del = key => {
       keys.delete(key);
@@ -1854,7 +1942,8 @@ class HaagHost extends HTMLElement {
   // Raise or update an alert by id. level: info, warning or critical.
   // hold: the alert stays put and others wait (holders take turns among
   // themselves). own: Håg's own alert, shown alone. help: settings and
-  // help links. since: when it started (newest goes first); kept on update.
+  // help links (true, or the help page's URL). since: when it started
+  // (newest goes first); kept on update.
   _raise(id, { level = 'info', text = '', hold = false, own = false, help = false, since } = {}) {
     const old = this._alerts.get(id);
     since ??= old?.since ?? Date.now();
@@ -1960,7 +2049,7 @@ class HaagHost extends HTMLElement {
     slide.querySelector('.msg').textContent = alert.text;
     // Settings opens HA's Edit dashboard form (admins, storage-mode dashboards).
     slide.querySelector('.links').innerHTML = alert.help
-      ? `<a class="settings" href="?edit=1">Settings</a><a href="${HELP_URL}" target="_blank" rel="noopener">Help</a>`
+      ? `<a class="settings" href="?edit=1">Settings</a><a href="${typeof alert.help === 'string' ? alert.help : HELP_URL}" target="_blank" rel="noopener">Help</a>`
       : '';
     this._fit(slide);
   }
@@ -2140,6 +2229,8 @@ class HaagEditor extends HTMLElement {
       return;
     }
     if (!this._form) {
+      this._box = this.appendChild(document.createElement('div'));
+      this._box.style.cssText = 'display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px';
       this._form = this.appendChild(document.createElement('ha-form'));
       this._form.computeLabel = s => s.label ?? '';
       this._form.computeHelper = s => s.help ?? '';
@@ -2154,6 +2245,39 @@ class HaagEditor extends HTMLElement {
       this._schemaKey = key;
       this._form.schema = schema;
     }
+    this._renderChecks();
+  }
+
+  // Setup warnings above the form: what's missing, what follows, and the
+  // first few names, the rest a click away.
+  _renderChecks() {
+    if (!this._reg) return;
+    let checks = [];
+    try {
+      checks = setupChecks(this._hass, this._reg, readSettings(this._config));
+    } catch (err) {
+      console.warn("Håg: the editor couldn't check the setup", err);
+    }
+    const key = JSON.stringify(checks.map(c => [c.key, c.items.map(i => i.id)]));
+    if (key === this._checksKey) return;
+    this._checksKey = key;
+    this._box.replaceChildren(...checks.map(c => {
+      const box = Object.assign(document.createElement('ha-alert'), { alertType: 'warning', title: c.title });
+      box.append(Object.assign(document.createElement('div'), { textContent: c.says }));
+      const names = c.items.map(i => i.name).filter(Boolean);
+      if (names.length) {
+        const list = box.appendChild(document.createElement('div'));
+        const show = n => {
+          list.textContent = names.slice(0, n).join(', ');
+          if (names.length <= n) return;
+          const more = Object.assign(document.createElement('a'), { href: '#', textContent: `and ${names.length - n} more` });
+          more.addEventListener('click', e => { e.preventDefault(); show(names.length); });
+          list.append(' ', more);
+        };
+        show(SETUP_SHOWN);
+      }
+      return box;
+    }));
   }
 
   // Sections, each listing its options' fields. Only options shown in

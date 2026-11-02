@@ -174,3 +174,29 @@ In the editor, each person has their calendar, color and who they follow, follow
 ## Calendar
 
 `providers.calendar.calendars` lists the calendars appointments come from. Without it, every calendar Home Assistant shows is used.
+
+## Setup warnings
+
+Håg checks Home Assistant's setup for what it shows, and says what's missing and what follows from it. Fixing it is up to you, in Home Assistant. The warnings show at the top of the dashboard editor; the first three also show for five minutes in the alert row when the dashboard loads, with a link to the settings.
+
+| Check | Key | What follows |
+|---|---|---|
+| Sensors with no area (on the entity or its device): indoor readings, thermostats, and the sensors of household alerts that are on | `area` | They're on no floor, so their readings don't show, and alerts name the device instead of the room. |
+| Areas with no floor that hold such sensors | `floor` | Their sensors are on no floor. |
+| People with no trackers who don't follow anyone | `person` | They're never shown. |
+| No floor named Exterior, Outdoor or Outside (and no outdoor temperature set) | `exterior` | Outdoor temperature, humidity and air quality aren't found. |
+| Indoor readings in a unit Håg doesn't read, for alerts that are on | `units` | They aren't watched for alerts. |
+| No sun entity | `sun` | Day and night switch at 6:00 and 18:00. |
+| No Moon integration | `moon` | The moon is always drawn waxing gibbous. |
+
+For power users, `warnings.ignore` (YAML only) leaves things out: entity, area or person IDs, or a check's key to leave out the whole check.
+
+```yaml
+strategy:
+  type: custom:haag
+  warnings:
+    ignore:
+      - sensor.workshop_co2      # an entity
+      - storage                  # an area ID
+      - moon                     # a whole check
+```

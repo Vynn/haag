@@ -1,6 +1,6 @@
 # Discovery
 
-Håg reads Home Assistant's floors, areas, devices and entities, and decides what to show from them. Nothing is hardcoded, so it adapts to any setup. When a guess is wrong, [configuration](configuration.md) overrides it.
+Håg reads Home Assistant's floors, areas, devices and entities, and decides what to show from them. Nothing is hardcoded, so it adapts to any setup. When a guess is wrong, [configuration](configuration.md) overrides it. When something it needs is missing, such as a sensor's area, it says so (see [setup warnings](configuration.md#setup-warnings)).
 
 ## Floors
 
