@@ -1906,20 +1906,19 @@ class HaagEditor extends HTMLElement {
     this._render();
   }
 
-  // What Håg finds on its own, with no settings, for the help text under
-  // pickers left empty. Read-only.
+  // What Håg finds on its own, with no settings, to fill pickers left
+  // empty. Read-only; a filled picker is saved only once it's changed.
   async _findAutomatic() {
     try {
       const hass = this._hass, reg = await loadRegistries(hass);
-      const name = id => hass.states[id]?.attributes.friendly_name || id;
       const found = {};
-      for (const [k, id] of Object.entries(discoverOutdoor(hass, reg, {}))) if (id) found[`providers.outdoor.${k}`] = name(id);
+      for (const [k, id] of Object.entries(discoverOutdoor(hass, reg, {}))) if (id) found[`providers.outdoor.${k}`] = id;
       for (const f of discoverFloors(hass, reg, {})) {
-        if (f.monitors.length) found[`providers.floors.${f.id}.monitors`] = f.monitors.map(d => reg.deviceName[d] || d).join(', ');
-        if (f.climate) found[`providers.floors.${f.id}.climate`] = name(f.climate);
+        if (f.monitors.length) found[`providers.floors.${f.id}.monitors`] = f.monitors;
+        if (f.climate) found[`providers.floors.${f.id}.climate`] = f.climate;
       }
       const calendars = discoverCalendars(hass, reg, {});
-      if (calendars.length) found['providers.calendar.calendars'] = `all ${calendars.length} calendars`;
+      if (calendars.length) found['providers.calendar.calendars'] = calendars;
       this._found = found;
       this._render();
     } catch (err) {
@@ -1953,9 +1952,8 @@ class HaagEditor extends HTMLElement {
   // the GUI; the rest are kept for the code editor.
   _schema() {
     const field = (path, label) => {
-      const o = optionAt(path), v = valueAt(this._config, path);
-      const found = (v == null || (Array.isArray(v) && !v.length)) && this._found?.[path];
-      return { name: path, label: label ?? o.label, help: found ? `Found automatically: ${found}` : o.help, selector: selectorOf(o) };
+      const o = optionAt(path);
+      return { name: path, label: label ?? o.label, help: o.help, selector: selectorOf(o) };
     };
     const section = (title, fields, expanded = false) =>
       ({ type: 'expandable', name: title.toLowerCase(), flatten: true, title, expanded, schema: fields });
@@ -1980,7 +1978,8 @@ class HaagEditor extends HTMLElement {
     ];
   }
 
-  // What the form shows: each field's value from settings, or its default.
+  // What the form shows: each field's value from settings, else what Håg
+  // finds on its own, else its default.
   _data(schema) {
     const config = this._config;
     const def = config.default ?? DEFAULT_GLANCE;
@@ -1989,7 +1988,9 @@ class HaagEditor extends HTMLElement {
       for (const { name } of fields) {
         const glance = /^glances\.(.+)\.enabled$/.exec(name)?.[1];
         const v = valueAt(config, name);
-        data[name] = glance ? (glance === def ? v !== false : v === true) : v ?? optionAt(name)?.default ?? undefined;
+        const unset = v == null || (Array.isArray(v) && !v.length);
+        data[name] = glance ? (glance === def ? v !== false : v === true)
+          : unset ? this._found?.[name] ?? optionAt(name)?.default ?? undefined : v;
       }
     }
     return data;
@@ -2008,7 +2009,7 @@ class HaagEditor extends HTMLElement {
       else setPath(config, key, v);
     }
     this._config = config;
-    this._shown = data;
+    this._render();   // what's shown follows the settings: a cleared picker shows what Håg finds again
     this.dispatchEvent(new CustomEvent('config-changed', { detail: { config }, bubbles: true, composed: true }));
   }
 }
