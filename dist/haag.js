@@ -1298,15 +1298,17 @@ const isStrings = v => Array.isArray(v) && v.every(x => typeof x === 'string');
 
 // A value checked against its option: the value, or the default with a
 // notice when it's set but not usable.
-function checked(config, path) {
-  const o = optionAt(path);
+// A glance's setting passes its option (from its manifest) and its title,
+// which leads the notice.
+function checked(config, path, o = optionAt(path), title) {
   const v = valueAt(config, path);
   if (v === undefined || v === null) return o.default ?? null;
   const n = Number(v);
-  const ok = {
+  const inRange = !(n < o.min) && !(n > o.max);
+  const ok = ({
     text: () => typeof v === 'string' && v !== '',
     seconds: () => n > 0,
-    number: () => n > 0,
+    number: () => n > 0 && inRange,
     time: () => typeof v === 'string' && TIME.test(v),
     choice: () => o.choices.includes(v),
     boolean: () => typeof v === 'boolean',
@@ -1315,16 +1317,27 @@ function checked(config, path) {
     devices: () => isStrings(v),
     links: () => v && typeof v === 'object' && Object.values(v).every(x => typeof x === 'string'),
     colors: () => v && typeof v === 'object' && Object.values(v).every(x => HEX.test(x)),
-  }[o.type]();
+  }[o.type] ?? (() => true))();
   if (ok) return o.type === 'seconds' || o.type === 'number' ? n : v;
-  const label = cap(o.label);
+  const label = `${title ? `${title}: ` : ''}${cap(o.label ?? o.key)}`;
   const fallback = o.default == null ? 'ignored'
     : o.type === 'boolean' ? (o.default ? 'on' : 'off')
     : `using ${o.default}${o.type === 'seconds' ? ' s' : ''}`;
-  notice('info', o.type === 'seconds' || o.type === 'number'
-    ? `${label} setting isn't a number · ${fallback}`
+  const numeric = o.type === 'seconds' || o.type === 'number';
+  notice('info', numeric && Number.isFinite(n) && !inRange ? `${label} setting out of range · ${fallback}`
+    : numeric ? `${label} setting isn't a number · ${fallback}`
     : `${label} setting not recognized · ${fallback}`, o.choices ? o.choices.join(', ') : o.format ? `${path}: ${o.format}` : path);
   return o.default ?? null;
+}
+
+// A glance's entry with its manifest's settings checked and their
+// defaults filled in. Keys the manifest doesn't list pass through.
+function glanceSettings(manifest, entry = {}) {
+  const out = { ...entry };
+  for (const o of Array.isArray(manifest.settings) ? manifest.settings : []) {
+    if (typeof o?.key === 'string' && o.key !== 'enabled') out[o.key] = checked(entry, `[${o.key}]`, o, manifest.title || manifest.name);
+  }
+  return out;
 }
 
 const objectAt = (config, path) => { const v = valueAt(config, path); return v && typeof v === 'object' ? v : {}; };
@@ -1668,7 +1681,7 @@ class HaagHost extends HTMLElement {
       entry = { reg, el: document.createElement(element), visible: false, wants: false,
         alerts: this._alertsFor(`glance:${name}`) };
       entry.el.haag = this._context(entry);
-      entry.el.setConfig?.(this._settings.glances[name] || {});
+      entry.el.setConfig?.(glanceSettings(reg.manifest, this._settings.glances[name]));
       if (this._hass) entry.el.hass = this._hass;
       this._layer.append(entry.el);
       this._running.set(name, entry);
@@ -2145,7 +2158,7 @@ function selectorOf(o) {
   const filter = o.filter && { filter: o.filter };
   return {
     seconds: { number: { min: 1, max: 3600, step: 1, mode: 'box', unit_of_measurement: 's' } },
-    number: { number: { min: 0, step: 'any', mode: 'box' } },
+    number: { number: { min: o.min ?? 0, max: o.max, step: o.step ?? 'any', mode: 'box', unit_of_measurement: o.unit } },
     time: { time: { no_second: true } },
     choice: { select: { options: (o.choices ?? []).map(v => ({ value: v, label: o.labels?.[v] ?? v })), mode: 'dropdown' } },
     boolean: { boolean: {} },
@@ -2228,24 +2241,92 @@ class HaagEditor extends HTMLElement {
       this.textContent = "Home Assistant's form didn't load. Håg's settings can be edited in the code editor.";
       return;
     }
-    if (!this._form) {
+    // Setup warnings; General; a section per glance; the other sections.
+    if (!this._top) {
       this._box = this.appendChild(document.createElement('div'));
       this._box.style.cssText = 'display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px';
-      this._form = this.appendChild(document.createElement('ha-form'));
-      this._form.computeLabel = s => s.label ?? '';
-      this._form.computeHelper = s => s.help ?? '';
-      this._form.addEventListener('value-changed', e => this._changed(e));
+      this._top = this.appendChild(this._newForm());
+      this._glanceBox = this.appendChild(document.createElement('div'));
+      this._glanceBox.style.cssText = 'display: flex; flex-direction: column; gap: 24px; margin: 24px 0';
+      this._rest = this.appendChild(this._newForm());
     }
-    const schema = this._schema();
-    this._fields = new Map(schema.flatMap(s => s.schema).map(f => [f.name, f]));
-    this._shown = this._data(schema);
-    Object.assign(this._form, { hass: this._hass, data: this._shown });
-    const key = JSON.stringify(schema);   // a new schema only when the sections change
-    if (key !== this._schemaKey) {
-      this._schemaKey = key;
-      this._form.schema = schema;
-    }
+    const [general, ...rest] = this._schema();
+    const glances = this._glances();
+    const fields = [...[general, ...rest].flatMap(s => s.schema), ...glances.flatMap(g => [g.switch, ...g.fields])];
+    this._fields = new Map(fields.map(f => [f.name, f]));
+    this._shown = this._data(fields);
+    this._fill(this._top, [general]);
+    this._renderGlances(glances);
+    this._fill(this._rest, rest);
     this._renderChecks();
+  }
+
+  _newForm() {
+    const form = document.createElement('ha-form');
+    form.computeLabel = s => s.label ?? '';
+    form.computeHelper = s => s.help ?? '';
+    form.addEventListener('value-changed', e => this._changed(e));
+    return form;
+  }
+
+  // A form's values, and its schema only when its fields change.
+  _fill(form, schema) {
+    Object.assign(form, { hass: this._hass, data: this._shown });
+    const key = JSON.stringify(schema);
+    if (key !== form.haagKey) {
+      form.haagKey = key;
+      form.schema = schema;
+    }
+  }
+
+  // Each glance: its switch, and fields from its manifest's settings.
+  _glances() {
+    return [...registry.keys()].sort().map(n => {
+      const m = registry.get(n)?.[0]?.manifest || {};
+      const title = m.title || n;
+      const settings = (Array.isArray(m.settings) ? m.settings : []).filter(o => typeof o?.key === 'string' && o.key !== 'enabled');
+      return {
+        name: n, title,
+        switch: { name: `glances.${n}.enabled`, label: title },
+        fields: settings.map(o => ({ name: `glances.${n}[${o.key}]`, label: o.label ?? o.key, help: o.help,
+          selector: selectorOf(o), default: o.default, ...(o.type === 'time' && TIME_FIELD) })),
+      };
+    });
+  }
+
+  // A section per glance, drawn like HA's own (ha-form can't put a switch
+  // in a header): the title, the on/off switch, then its settings.
+  _renderGlances(glances) {
+    const key = JSON.stringify(glances.map(g => [g.name, g.title, g.fields]));
+    if (key !== this._glanceBox.haagKey) {
+      this._glanceBox.haagKey = key;
+      this._glanceBox.replaceChildren(...glances.map(g => {
+        const panel = Object.assign(document.createElement('ha-expansion-panel'), { outlined: true });
+        panel.dataset.glance = g.name;
+        panel.style.cssText = '--expansion-panel-content-padding: 0; border-radius: var(--ha-border-radius-md); --ha-card-border-radius: var(--ha-border-radius-md); display: block';
+        const head = Object.assign(document.createElement('div'), { slot: 'header', textContent: g.title });
+        head.setAttribute('role', 'heading');
+        head.setAttribute('aria-level', '3');
+        const toggle = Object.assign(document.createElement('ha-switch'), { slot: 'event' });
+        toggle.setAttribute('aria-label', `${g.title} on`);
+        // Its clicks and keys work the switch only, not the section.
+        for (const type of ['click', 'keydown']) toggle.addEventListener(type, e => e.stopPropagation());
+        toggle.addEventListener('change', () =>
+          this._changed({ stopPropagation() {}, detail: { value: { ...this._shown, [g.switch.name]: toggle.checked } } }));
+        const content = document.createElement('div');
+        content.style.padding = '12px';
+        if (g.fields.length) content.append(this._newForm());
+        else content.textContent = 'No settings';
+        panel.append(head, toggle, content);
+        return panel;
+      }));
+    }
+    for (const panel of this._glanceBox.children) {
+      const g = glances.find(x => x.name === panel.dataset.glance);
+      panel.querySelector('ha-switch').checked = !!this._shown[g.switch.name];
+      const form = panel.querySelector('ha-form');
+      if (form) this._fill(form, g.fields);
+    }
   }
 
   // Setup warnings above the form: what's missing, what follows, and the
@@ -2299,7 +2380,6 @@ class HaagEditor extends HTMLElement {
         field('cycle'),
         field('theme'),
       ], true),
-      section('Glances', glances.map(n => field(`glances.${n}.enabled`, titleOf(n)))),
       section('People and calendars', [
         ...['exclude', 'include'].map(k => field(`providers.people.${k}`)),
         field('providers.calendar.calendars', 'Calendars shown'),
@@ -2402,21 +2482,19 @@ class HaagEditor extends HTMLElement {
 
   // What the form shows: each field's value from settings, else what Håg
   // finds on its own, else its default.
-  _data(schema) {
+  _data(fields) {
     const config = this._config;
     const def = config.default ?? DEFAULT_GLANCE;
     const found = { ...this._found, ...this._foundPeople() };
     const data = {};
-    for (const { schema: fields } of schema) {
-      for (const { name, type, toForm } of fields) {
-        if (type === 'constant') continue;
-        const glance = /^glances\.(.+)\.enabled$/.exec(name)?.[1];
-        const v = valueAt(config, name);
-        const unset = v == null || (Array.isArray(v) && !v.length);
-        const shown = glance ? (glance === def ? v !== false : v === true)
-          : unset ? found[name] ?? optionAt(name)?.default ?? undefined : v;
-        data[name] = toForm ? toForm(shown) : shown;
-      }
+    for (const { name, type, toForm, default: fallback } of fields) {
+      if (type === 'constant') continue;
+      const glance = /^glances\.(.+)\.enabled$/.exec(name)?.[1];
+      const v = valueAt(config, name);
+      const unset = v == null || (Array.isArray(v) && !v.length);
+      const shown = glance ? (glance === def ? v !== false : v === true)
+        : unset ? found[name] ?? optionAt(name)?.default ?? fallback : v;
+      data[name] = toForm ? toForm(shown) : shown;
     }
     return data;
   }

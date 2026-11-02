@@ -567,6 +567,8 @@ export const WEATHER_STYLE = `
   .wx .flash { fill: var(--flash); }
   .wx .static-bolt { display: none; stroke-width: .5; }
   @media (prefers-reduced-motion: reduce) { .stage[data-lightning="1"] .wx .static-bolt { display: inline; } }
+  /* Easter eggs off: nothing caught in the tornado, no spider. */
+  .stage[data-eggs="0"] .wx .orbit, .stage[data-eggs="0"] .wx .spider-at { display: none; }
 `;
 
 /* ---------- Markup ---------- */
@@ -680,6 +682,7 @@ export class Weather {
     this.day = null;
     this.dir = 1;                 // +1 drift right (also the no-data fallback), -1 left
     this.visible = true;
+    this.eggs = true;             // easter eggs (see setEggs)
     this.change = 6;
     this.hours = { now: 12, sun: [6, 12, 18], midnight: 0 };
     this.root.dataset.alert = '0';
@@ -1132,7 +1135,7 @@ export class Weather {
       fly([mover, spinner], rnd(60, 90), rnd(2200, 3500), rnd(0, 3000), rnd(2, 4), rnd(360, 900) * (Math.random() < .5 ? -1 : 1));
     }
     // Now and then, something odd.
-    if (forceEgg || Math.random() < 1 / 15) {
+    if (this.eggs && (forceEgg || Math.random() < 1 / 15)) {
       const names = Object.keys(EGGS), name = names[Math.floor(rnd(0, names.length))];
       const [mover, spinner] = place(b.mapY(rnd(12, 70)));
       EGGS[name](spinner);
@@ -1393,6 +1396,15 @@ export class Weather {
 
   // On screen or not: off screen, scripted animations pause (CSS ones
   // pause with the glance) and events stop.
+  // Easter eggs: what the tornado carries, the spider, the dragon, and odd
+  // things on the wind. Off, the tornado and the wind still blow.
+  setEggs(on) {
+    if (on === this.eggs) return;
+    this.eggs = on;
+    this.root.dataset.eggs = on ? '1' : '0';
+    if (this.b) this._events();
+  }
+
   setVisible(v) {
     if (v === this.visible) return;
     this.visible = v;
@@ -1461,7 +1473,7 @@ export class Weather {
     const sc = SCENES[this.cond];
     this.orbitAnims?.forEach(a => sc.exc && this.visible ? a.play() : a.pause());
     if (!this.visible || reduced.matches) return;
-    if (sc.exc) this.scheduleDragon(rnd(4, 8));
+    if (sc.exc && this.eggs) this.scheduleDragon(rnd(4, 8));
     if (sc.wind) this.scheduleGust(rnd(3, 6));
     // Lightning comes last, once the storm clouds are in.
     if (sc.lightning) this.enableTimer = setTimeout(() => this.scheduleBurst(rnd(1.5, 4)), this.change * 850);

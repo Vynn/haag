@@ -75,9 +75,9 @@ const initials = name => (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).
 // press against the edge.
 const PAIR_LEFT_MARGIN = 0.105;
 
-const APPT_COUNT = 4;                 // appointments shown
+const APPT_COUNT = 4;                 // appointments shown (setting `appointments`)
 const APPT_REFRESH = 5 * 60 * 1000;   // refetch every 5 minutes
-const APPT_DAYS = 30;                 // look-ahead window
+const APPT_DAYS = 30;                 // look-ahead window (setting `days`)
 const HOUR = 60 * 60 * 1000;
 const SOON_AHEAD = 1 * HOUR;          // soon: starts within this...
 const SOON_SINCE = 2 * HOUR;          // ...or started within this and still on
@@ -99,9 +99,9 @@ const hours = hass => ({ 12: { hour12: true }, 24: { hourCycle: 'h23' } })[hass?
 
 /**
  * Upcoming events across the given calendars, soonest first, including ones
- * in progress, over the next APPT_DAYS days.
+ * in progress, over the next `days` days.
  */
-async function fetchEvents(hass, calendars) {
+async function fetchEvents(hass, calendars, days = APPT_DAYS) {
   if (!calendars.length) return [];
   const now = new Date();
   const get = async days => {
@@ -115,7 +115,7 @@ async function fetchEvents(hass, calendars) {
       events.map(e => ({ calendar, summary: e.summary || '', location: e.location || '', start: e.start, end: e.end,
                          allDay: isAllDay(e.start), startAt: toDate(e.start), endAt: toDate(e.end) })));
   };
-  const events = await get(APPT_DAYS);
+  const events = await get(days);
   return events.filter(e => e.endAt > now).sort((a, b) => a.startAt - b.startAt);
 }
 
@@ -368,6 +368,7 @@ class SinnesroGlance extends HTMLElement {
     this._measure = document.createElement('canvas').getContext('2d');
     this._stage = root.querySelector('.stage');
     if (weather) this._wx = new weather.Weather(this._stage, root.querySelector('.wx-under'), root.querySelector('.wx-over'));
+    this._wx?.setEggs(this._settings?.easter_eggs !== false);
     this.addEventListener('haag-alertrow', () => this._relayout());
     // Off screen: animations pause.
     this.addEventListener('haag-visible', () => {
@@ -380,6 +381,12 @@ class SinnesroGlance extends HTMLElement {
 
   setConfig(settings) {
     this._settings = settings;
+    this._wx?.setEggs(settings.easter_eggs !== false);
+  }
+
+  // How many appointments at most (setting `appointments`).
+  _count() {
+    return Math.max(1, Math.round(this._settings?.appointments ?? APPT_COUNT));
   }
 
   set haag(haag) {
@@ -451,8 +458,8 @@ class SinnesroGlance extends HTMLElement {
   async _refreshEvents() {
     clearTimeout(this._eventsTimer);
     try {
-      this._events = await fetchEvents(this._hass, this._calendars);
-      this._apptLimit = APPT_COUNT;   // new events: start from the full count
+      this._events = await fetchEvents(this._hass, this._calendars, this._settings?.days ?? APPT_DAYS);
+      this._apptLimit = this._count();   // new events: start from the full count
     } catch (err) {
       console.error('Håg: calendar fetch failed', err);
       this._events = 'Err';
@@ -469,8 +476,8 @@ class SinnesroGlance extends HTMLElement {
   // Space may have grown (alert hidden, bigger screen, new events): go back to
   // the full appointment count; _layout() trims it again if it doesn't fit.
   _resetApptLimit() {
-    if ((this._apptLimit ?? APPT_COUNT) === APPT_COUNT) return;
-    this._apptLimit = APPT_COUNT;
+    if ((this._apptLimit ?? this._count()) === this._count()) return;
+    this._apptLimit = this._count();
     this._apptKey = null;
     this._renderAppointments();
   }
@@ -546,7 +553,7 @@ class SinnesroGlance extends HTMLElement {
     const now = new Date();
 
     let rows;
-    const upcoming = this._events === 'Err' ? [] : this._events.filter(e => e.endAt > now).slice(0, this._apptLimit ?? APPT_COUNT);
+    const upcoming = this._events === 'Err' ? [] : this._events.filter(e => e.endAt > now).slice(0, this._apptLimit ?? this._count());
     if (this._events === 'Err') {
       rows = [{ cls: 'appt-error err', icon: APPT_ICONS.err, text: 'Err' }];          // calendars failed
     } else if (!upcoming.length) {

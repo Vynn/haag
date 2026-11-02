@@ -124,8 +124,30 @@ const manifest = {
 | `element` | The web component's tag, defined by `glance.js`. |
 | `title` | The name people see: *Subject* Glance. |
 | `version` | The glance's version. |
+| `settings` | Optional: the glance's settings, below. |
 
-Fields for the glance's settings (defaults, labels for the 0.4 editor) come later.
+#### Settings
+
+`settings` lists what can be set in the glance's entry (`glances.<name>`). Håg checks each value, gives a notice naming the glance when one can't be used, fills in defaults, and passes the result to `setConfig`. Keys it doesn't list pass through unchecked. The dashboard editor shows each glance in its own section, with its on/off switch in the header and these settings inside.
+
+```js
+settings: [
+  { key: 'days', type: 'number', default: 30, min: 1, step: 1, unit: 'days', label: 'Days ahead', help: 'How far ahead to look' },
+  { key: 'easter_eggs', type: 'boolean', default: true, label: 'Easter eggs' },
+],
+```
+
+| Field | Value |
+|---|---|
+| `key` | The setting's name in the entry. Not `enabled`, which is Håg's. |
+| `type` | `text`, `number`, `seconds`, `time` (`"22:00"`), `choice`, `boolean`, `entity` or `entities`. |
+| `default` | The value when it's left out, or can't be used. |
+| `label`, `help` | What the editor shows. |
+| `min`, `max`, `step`, `unit` | For `number`: its range, step, and unit as shown. |
+| `choices`, `labels` | For `choice`: the values, and a name for each in the editor. |
+| `filter` | For `entity` and `entities`: which entities to offer, as Home Assistant's entity selector takes it (e.g. `{ domain: 'sensor' }`). |
+
+Settings for a glance's alerts (`alerts.<name>`) come with the first glance that raises alerts (0.5).
 
 ### The glance
 
