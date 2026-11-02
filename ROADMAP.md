@@ -44,7 +44,7 @@ The idle screen's illustrated look, and how glances work.
 
 - [x] A visual settings editor in Home Assistant's dashboard editor, matching the YAML
 - [x] Settings for people and calendars, including colors and linked people
-- [ ] Settings for each glance
+- [x] Settings for each glance
 - [x] Settings for alerts: which are on, their sensors, thresholds and timings
 - [x] Warnings for entities missing an area or other fields Håg uses
 
