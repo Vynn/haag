@@ -247,7 +247,7 @@ function discoverFloors(hass, reg, overrides = {}) {
     };
     const aq = [...AQ_PREFERRED, ...AQ_ALTERNATES].filter(k => slots[k]).slice(0, 3);
     const empty = !climate && !slots.temp && aq.length === 0;
-    return empty ? null : { id: floor.floor_id, name: floor.name, climate, slots, aq };
+    return empty ? null : { id: floor.floor_id, name: floor.name, climate, monitors: monitorIds, slots, aq };
   }).filter(Boolean);
 }
 
@@ -1007,12 +1007,14 @@ const TIMINGS = { after: 'wait', critical_after: 'critical after', hold: 'hold' 
 
 // Every option. `*` stands for any key at that level (a glance's name, a
 // floor's ID). `gui: false` keeps an option to YAML (the raw editor).
+// `labels` name a choice's values in the GUI; YAML keeps the values.
 // Types: text, seconds, number, choice, boolean, entity, entities,
 // devices, links.
 const OPTIONS = [
   { path: 'default', type: 'text', default: DEFAULT_GLANCE, label: 'Default glance', help: 'Shown when nothing else needs the screen' },
   { path: 'cycle', type: 'seconds', default: CYCLE, label: 'Cycle', help: 'Seconds per turn when several glances want the screen' },
-  { path: 'theme', type: 'choice', choices: THEMES, default: 'auto', label: 'Theme', help: 'auto follows the sun' },
+  { path: 'theme', type: 'choice', choices: THEMES, default: 'auto', label: 'Theme', help: 'Day and night colors',
+    labels: { auto: 'Auto (follows the sun)', dark: 'Dark', light: 'Light' } },
   { path: 'glances.*.enabled', type: 'boolean', default: false, label: 'On' },
   { path: 'providers.outdoor.temperature', type: 'entity', filter: { domain: 'sensor', device_class: 'temperature' }, label: 'Outdoor temperature' },
   { path: 'providers.outdoor.humidity', type: 'entity', filter: { domain: 'sensor', device_class: 'humidity' }, label: 'Outdoor humidity' },
@@ -1034,7 +1036,8 @@ const OPTIONS = [
     ...('limit' in a ? [{ path: `alerts.core.${key}.limit`, type: 'number', default: a.limit, label: `${a.label} limit` }] : []),
   ]),
   { path: 'alerts.weather.enabled', type: 'boolean', default: true, label: 'Weather alerts' },
-  { path: 'alerts.weather.source', type: 'choice', choices: Object.keys(WX_SOURCES), default: null, label: 'Weather alert source', help: 'Found automatically when not chosen' },
+  { path: 'alerts.weather.source', type: 'choice', choices: Object.keys(WX_SOURCES), labels: WX_SOURCES, default: null,
+    label: 'Weather alert source', help: 'Found automatically when not chosen' },
 ];
 
 const optionAt = path => OPTIONS.find(o => {
@@ -1245,6 +1248,7 @@ class HaagHost extends HTMLElement {
     this._stage = root.querySelector('.stage');
     this._layer = root.querySelector('.glances');
     this._row = root.querySelector('.alert-row');
+    this._row.addEventListener('click', e => { if (e.target.closest('a.settings')) this._openSettings(e); });
     this._running = new Map();   // name → { reg, el, visible, wants }
     this._loading = new Set();
     this._failed = new Set();
@@ -1766,9 +1770,9 @@ class HaagHost extends HTMLElement {
     setIcon(box, icon);
     fitAlertIcon(box, icon);
     slide.querySelector('.msg').textContent = alert.text;
-    // Settings opens edit mode (admins, storage-mode dashboards).
+    // Settings opens HA's Edit dashboard form (admins, storage-mode dashboards).
     slide.querySelector('.links').innerHTML = alert.help
-      ? `<a href="?edit=1">Settings</a><a href="${HELP_URL}" target="_blank" rel="noopener">Help</a>`
+      ? `<a class="settings" href="?edit=1">Settings</a><a href="${HELP_URL}" target="_blank" rel="noopener">Help</a>`
       : '';
     this._fit(slide);
   }
@@ -1819,6 +1823,17 @@ class HaagHost extends HTMLElement {
     if (room > 0 && width > room) fit.style.fontSize = `${Math.max(MIN_FIT, room / width * .99)}em`;
   }
 
+  // Open HA's Edit dashboard form, as its dashboard menu does. This uses
+  // HA's dashboard code, not a public API; without it, the link opens the
+  // code editor instead.
+  _openSettings(e) {
+    let root = this;
+    while (root && root.localName !== 'hui-root') root = root.getRootNode().host;
+    if (typeof root?._enableEditMode !== 'function') return;
+    e.preventDefault();
+    Promise.resolve().then(() => root._enableEditMode()).catch(() => location.assign('?edit=1'));
+  }
+
   // The row's band, relative to the screen.
   _alertBand() {
     const top = this.getBoundingClientRect().top;
@@ -1854,7 +1869,7 @@ function selectorOf(o) {
   return {
     seconds: { number: { min: 1, max: 3600, step: 1, mode: 'box', unit_of_measurement: 's' } },
     number: { number: { min: 0, step: 'any', mode: 'box' } },
-    choice: { select: { options: o.choices ?? [], mode: 'dropdown' } },
+    choice: { select: { options: (o.choices ?? []).map(v => ({ value: v, label: o.labels?.[v] ?? v })), mode: 'dropdown' } },
     boolean: { boolean: {} },
     entity: { entity: { ...filter } },
     entities: { entity: { multiple: true, ...filter } },
@@ -1882,12 +1897,34 @@ function unsetPath(obj, path) {
 class HaagEditor extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
+    if (!this._finding) this._finding = this._findAutomatic();
     this._render();
   }
 
   setConfig(config) {
     this._config = config;
     this._render();
+  }
+
+  // What Håg finds on its own, with no settings, for the help text under
+  // pickers left empty. Read-only.
+  async _findAutomatic() {
+    try {
+      const hass = this._hass, reg = await loadRegistries(hass);
+      const name = id => hass.states[id]?.attributes.friendly_name || id;
+      const found = {};
+      for (const [k, id] of Object.entries(discoverOutdoor(hass, reg, {}))) if (id) found[`providers.outdoor.${k}`] = name(id);
+      for (const f of discoverFloors(hass, reg, {})) {
+        if (f.monitors.length) found[`providers.floors.${f.id}.monitors`] = f.monitors.map(d => reg.deviceName[d] || d).join(', ');
+        if (f.climate) found[`providers.floors.${f.id}.climate`] = name(f.climate);
+      }
+      const calendars = discoverCalendars(hass, reg, {});
+      if (calendars.length) found['providers.calendar.calendars'] = `all ${calendars.length} calendars`;
+      this._found = found;
+      this._render();
+    } catch (err) {
+      console.warn("Håg: the editor couldn't look for sensors", err);
+    }
   }
 
   _render() {
@@ -1916,8 +1953,9 @@ class HaagEditor extends HTMLElement {
   // the GUI; the rest are kept for the code editor.
   _schema() {
     const field = (path, label) => {
-      const o = optionAt(path);
-      return { name: path, label: label ?? o.label, help: o.help, selector: selectorOf(o) };
+      const o = optionAt(path), v = valueAt(this._config, path);
+      const found = (v == null || (Array.isArray(v) && !v.length)) && this._found?.[path];
+      return { name: path, label: label ?? o.label, help: found ? `Found automatically: ${found}` : o.help, selector: selectorOf(o) };
     };
     const section = (title, fields, expanded = false) =>
       ({ type: 'expandable', name: title.toLowerCase(), flatten: true, title, expanded, schema: fields });
