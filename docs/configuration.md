@@ -26,6 +26,11 @@ strategy:
         - person.guest
       links:
         person.child: person.parent
+      calendars:
+        person.parent: calendar.work
+      colors:
+        person.child: "#7a3c00"       # quoted: YAML reads # as a comment
+        calendar.family: "#16a765"
     calendar:
       calendars:
         - calendar.family
@@ -143,13 +148,19 @@ Times follow the time format in your Home Assistant profile (12 or 24 hours, or 
 
 ## People
 
-`providers.people` chooses who appears.
+`providers.people` chooses who appears, which calendar is whose, and their colors.
 
 | Setting | Value |
 |---|---|
 | `exclude` | People not to show, such as guests. |
 | `include` | Show only these people. |
-| `links` | `person: other_person`. When someone has no location of their own (no phone, for example), they follow the other person's. YAML only for now. |
+| `links` | `person: other_person`. When someone has no location of their own (no phone, for example), they follow the other person's. |
+| `calendars` | `person: calendar`. Håg matches people to calendars by name on its own (`person.alex` and `calendar.alex`, or the same friendly name); this is for the ones it can't. |
+| `colors` | `person or calendar: "#hex"`. Quote the color: unquoted, YAML reads `#` as the start of a comment. |
+
+Each person and calendar has a color: the one set here, else the calendar's color in Home Assistant (Google Calendar sets one, for example), else one of Håg's six, in turn. A person and their calendar share it. The color shows on a person's icon and on their appointments. Any color keeps its hue and shifts in lightness until it's readable where it's drawn, by day and by night, so a pale yellow, for example, turns darker by day.
+
+In the editor, each person has their calendar, color and who they follow, followed by a color for each calendar that's no one's. A color picker can't be cleared there: to go back to the color Håg finds, remove it in the code editor.
 
 ## Calendar
 

@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>People Palette Study</title>
+<!--
+  Håg: colors for people and calendars that have none of their own.
+
+  - Six colors, each with a night and a day value, mixed by --daylight
+    in OKLab like the rest of the palette (see palette-day-night.html).
+    Fewer colors keep them distinct; anyone can set their own.
+  - Every value reaches 4.5:1 against the outdoor sky, the horizon glow
+    and the indoor base, so it can color text (initials, appointment
+    times) as well as borders and icons.
+  - Day values are deep because they must hold 4.5:1 on the day sky,
+    which is much darker than the indoor base.
+  - Colors from Home Assistant calendars keep their hue; their lightness
+    shifts just enough to reach 4.5:1 on what they sit on, so text
+    follows the color along with borders and icons.
+
+  Contrast ratios are measured live, at full opacity.
+-->
+<style>
+  @font-face { font-family: 'Haag Open Sans'; src: url('../dist/assets/open-sans.ttf'); font-weight: 300 800; }
+  @property --daylight {
+    syntax: '<number>';
+    inherits: true;
+    initial-value: 0;
+  }
+
+  :root {
+    /* Base palette, as in dist/haag.js */
+    --n-sky: #10162A;      --d-sky: #7CC8F2;
+    --n-horizon: #1D3442;  --d-horizon: #FFD6E7;
+    --n-home: #1E2433;     --d-home: #F6FAFF;
+    --n-text: #F1EADC;     --d-text: #0E1F3A;
+    --n-text-2: #A9B0C2;   --d-text-2: #34537A;
+    --n-coral: #FF7A68;    --d-coral: #D6336C;
+    --n-seaglass: #72D8C6; --d-seaglass: #0B8A5E;
+
+    /* People and calendars: hue (OKLCH) in the comment */
+    --n-p1: #ED914C;  --d-p1: #7A3C00;   /* ember,  55 */
+    --n-p2: #8DBC58;  --d-p2: #365501;   /* fern,  130 */
+    --n-p3: #10C4BC;  --d-p3: #025653;   /* lagoon, 190 */
+    --n-p4: #54B3FD;  --d-p4: #025081;   /* azure, 245 */
+    --n-p5: #B298F9;  --d-p5: #5B369E;   /* violet, 295 */
+    --n-p6: #E486C6;  --d-p6: #87216E;   /* orchid, 340 */
+
+    --daylight: 0;
+  }
+
+  .mixed {
+    --p: calc(var(--daylight) * 100%);
+    --sky:      color-mix(in oklab, var(--d-sky) var(--p), var(--n-sky));
+    --horizon:  color-mix(in oklab, var(--d-horizon) var(--p), var(--n-horizon));
+    --home:     color-mix(in oklab, var(--d-home) var(--p), var(--n-home));
+    --text:     color-mix(in oklab, var(--d-text) var(--p), var(--n-text));
+    --text-2:   color-mix(in oklab, var(--d-text-2) var(--p), var(--n-text-2));
+    --coral:    color-mix(in oklab, var(--d-coral) var(--p), var(--n-coral));
+    --seaglass: color-mix(in oklab, var(--d-seaglass) var(--p), var(--n-seaglass));
+    --p1: color-mix(in oklab, var(--d-p1) var(--p), var(--n-p1));
+    --p2: color-mix(in oklab, var(--d-p2) var(--p), var(--n-p2));
+    --p3: color-mix(in oklab, var(--d-p3) var(--p), var(--n-p3));
+    --p4: color-mix(in oklab, var(--d-p4) var(--p), var(--n-p4));
+    --p5: color-mix(in oklab, var(--d-p5) var(--p), var(--n-p5));
+    --p6: color-mix(in oklab, var(--d-p6) var(--p), var(--n-p6));
+  }
+  body.animate { transition: --daylight 2.5s ease-in-out; }   /* the switch at dawn and dusk */
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 16px;
+    background: #f4f4f4;
+    color: #222;
+    font: 14px/1.4 system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: center; }
+  .controls button { font: inherit; padding: 4px 10px; border: 1px solid #999; background: #fff; border-radius: 3px; cursor: pointer; }
+  .controls button[aria-pressed="true"] { background: #222; color: #fff; border-color: #222; }
+  .controls output { min-width: 4ch; color: #666; }
+  h2 { font-size: 13px; font-weight: 600; margin: 10px 0 0; width: min(100%, 560px); color: #444; }
+  p.note { max-width: 560px; color: #666; margin: 0; font-size: 12px; }
+
+  /* ---------- Preview ---------- */
+  .stage {
+    position: relative;
+    width: min(100%, 560px);
+    aspect-ratio: 1;
+    container-type: size;
+    overflow: hidden;
+    background: var(--home);
+    color: var(--text);
+    border-radius: 6px;
+    font-family: 'Haag Open Sans', system-ui, sans-serif;
+  }
+  .outdoor {
+    position: absolute;
+    inset: 0;
+    clip-path: polygon(0 0, 100% 0, 0 100%);
+    background: radial-gradient(120% 90% at 30% 85%, var(--horizon), transparent 60%), var(--sky);
+  }
+  .out-text { position: absolute; left: 6cqmin; top: 6cqmin; }
+  .in-text  { position: absolute; left: 56cqmin; top: 50cqmin; }
+  .t1 { font-size: 14cqmin; line-height: .9; }
+  .t2 { font-size: 4.5cqmin; }
+  .t3 { font-size: 2.8cqmin; color: var(--text-2); }
+  .row { display: flex; align-items: center; gap: 1.6cqmin; }
+  .ico { display: inline-block; width: .8em; height: .8em; border-radius: .15em; margin-right: .2em; vertical-align: -.05em; background: var(--text-2); }
+  .ico.coral { background: var(--coral); }
+  .ico.seaglass { background: var(--seaglass); }
+  .floor { margin-bottom: 2.6cqmin; }
+
+  /* One rounded square per person: border in their color; initials in
+     their color when readable. */
+  .people { display: flex; gap: .8cqmin; }
+  .person {
+    width: 3.9cqmin;
+    aspect-ratio: 1;
+    border: .35cqmin solid var(--c, var(--text-2));
+    border-radius: 30%;
+    display: grid;
+    place-items: center;
+    font-size: 1.5cqmin;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--ink, var(--text));
+    overflow: hidden;
+  }
+  /* Stand-in for a picture. */
+  .person.pic { background: linear-gradient(160deg, #c9a385, #7a5a48 70%); }
+
+  .appts { margin-top: 3cqmin; display: flex; flex-direction: column; gap: .4cqmin; }
+  .appt { display: flex; align-items: baseline; gap: .6em; }
+  .appt svg { width: 1em; height: 1em; flex: none; position: relative; top: .12em; color: var(--c); }
+  .appt .time { color: var(--ink, inherit); }
+  .appt.later { opacity: .55; }
+  .appt.soon { opacity: .7; }
+
+  /* ---------- Line-up: every color on every background ---------- */
+  .lineup { width: min(100%, 560px); display: grid; grid-template-columns: 1fr 1fr; border-radius: 6px; overflow: hidden; container-type: inline-size; }
+  .lineup > div { padding: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-family: 'Haag Open Sans', system-ui, sans-serif; }
+  .lineup .person { width: 30px; font-size: 11.5px; border-width: 2.7px; }
+  .lineup .on-sky  { background: var(--sky); }
+  .lineup .on-home { background: var(--home); }
+
+  /* ---------- Tables ---------- */
+  table { border-collapse: collapse; font-size: 13px; width: min(100%, 560px); }
+  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #ddd; }
+  th { font-weight: 500; color: #666; }
+  .chip { display: inline-block; width: 16px; height: 16px; border-radius: 3px; border: 1px solid #0002; vertical-align: -3px; margin-right: 6px; }
+  .bad { color: #b00020; }
+</style>
+</head>
+<body class="mixed">
+
+<div class="controls">
+  <button data-d="0">Night</button>
+  <button data-d="1">Day</button>
+  <label>Daylight <input id="dl" type="range" min="0" max="1" step="0.01" value="0"></label>
+  <output id="dl-out">0%</output>
+</div>
+<div class="controls">
+  Calendar colors:
+  <button data-src="haag" aria-pressed="true">Håg palette</button>
+  <button data-src="ha" aria-pressed="false">From Home Assistant</button>
+</div>
+
+<div class="stage" id="stage">
+  <div class="outdoor"></div>
+  <div class="out-text">
+    <div class="t2">Thursday, October 22</div>
+    <div class="t1">7:42</div>
+    <div class="row t2" style="margin-top:1.5cqmin"><span class="people" id="away"></span><span><span class="ico"></span>72°</span></div>
+    <div class="appts t3" id="appts"></div>
+  </div>
+  <div class="in-text">
+    <div class="floor"><div class="t3">First Floor</div><div class="row t2"><span><span class="ico coral"></span>73°</span><span class="people" id="f1"></span></div><div class="t3">48% · 690 ppm</div></div>
+    <div class="floor"><div class="t3">Second Floor</div><div class="row t2"><span><span class="ico seaglass"></span>70°</span><span class="people" id="f2"></span></div><div class="t3">52% · 640 ppm</div></div>
+  </div>
+</div>
+
+<h2>Line-up: all six, initials and borders</h2>
+<div class="lineup"><div class="on-sky" id="lu-sky"></div><div class="on-home" id="lu-home"></div></div>
+
+<h2>Håg palette</h2>
+<table>
+  <thead><tr><th>Color</th><th>Night</th><th>Day</th><th>Now</th><th>Sky</th><th>Glow</th><th>Indoor</th></tr></thead>
+  <tbody id="palette"></tbody>
+</table>
+
+<h2>Sample calendar colors from Home Assistant</h2>
+<table>
+  <thead><tr><th>Calendar</th><th>Sky</th><th>Drawn on sky</th><th>Indoor</th><th>Drawn indoor</th></tr></thead>
+  <tbody id="hacolors"></tbody>
+</table>
+<p class="note">Borders, calendar icons, appointment times and initials all take the color, shifted in lightness (same hue) just enough to reach 4.5:1 on what they sit on, checked as day and night change. Later and soon appointments are drawn at reduced opacity, as on the glance; ratios here are at full opacity.</p>
+
+<script>
+  const NAMES = ['Ember', 'Fern', 'Lagoon', 'Azure', 'Violet', 'Orchid'];
+  // Sample colors in the style Home Assistant calendars carry (hex).
+  const HA = ['#4986E7', '#16A765', '#FAD165', '#F691B2', '#9A9CFF', '#B3DC6C'];
+
+  // Sample household: two people with their own calendars, one with a
+  // picture, plus a shared calendar.
+  const PEOPLE = [
+    { name: 'Alex Rivera', slot: 1, where: 'f1' },
+    { name: 'Sam', slot: 2, where: 'away', pic: true },
+    { name: 'Jordan Lee', slot: 3, where: 'f2' },
+  ];
+  const APPTS = [   // soonest last, as on the glance
+    { time: 'Fri 9:00', text: 'Dentist', slot: 1, cls: 'later' },
+    { time: '6:30', text: 'Dinner with friends', slot: 4, cls: '' },
+    { time: '12:15', text: 'Lunch', slot: 3, cls: '' },
+    { time: '8:30', text: 'School run', slot: 2, cls: 'soon' },
+  ];
+
+  const body = document.body;
+  const slider = document.getElementById('dl');
+  const out = document.getElementById('dl-out');
+  let source = 'haag';
+
+  // Resolve any CSS color (including color-mix) to sRGB via a 1px canvas.
+  const ctx = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true });
+  function rgb(css) {
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = css;
+    ctx.fillRect(0, 0, 1, 1);
+    return [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3);
+  }
+  function lum([r, g, b]) {
+    const f = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  }
+  function contrast(a, b) {
+    const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (l1 + 0.05) / (l2 + 0.05);
+  }
+  const hex = c => '#' + c.map(v => v.toString(16).padStart(2, '0')).join('').toUpperCase();
+  const probe = document.createElement('div');
+  probe.style.display = 'none';
+  body.appendChild(probe);
+  const now = css => { probe.style.backgroundColor = css; return rgb(getComputedStyle(probe).backgroundColor); };
+  const rootValue = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  // OKLab, for shifting a color's lightness while keeping its hue.
+  const lin = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const gam = c => Math.round(255 * Math.min(1, Math.max(0, c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055)));
+  function toLab(c) {
+    const [r, g, b] = c.map(lin);
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+      1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+      0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s];
+  }
+  function fromLab([L, a, b]) {   // linear sRGB, may be out of gamut
+    const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+    const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+    const s = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+    return [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+      -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+      -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s];
+  }
+  // Lightness steps away from the background (darker on light, lighter on
+  // dark) until the color reaches the target; chroma eases off where the
+  // hue runs out of gamut.
+  function shift(css, on, target = 4.5) {
+    const c = now(css), bg = now(`var(--${on})`);
+    if (contrast(c, bg) >= target) return hex(c);
+    const [L0, a0, b0] = toLab(c);
+    const step = lum(bg) > 0.18 ? -0.005 : 0.005;
+    for (let L = L0; L > 0 && L < 1; L += step) {
+      for (let k = 1; k >= 0; k -= 0.05) {
+        const rgbLin = fromLab([L, a0 * k, b0 * k]);
+        if (rgbLin.every(v => v >= -1e-4 && v <= 1 + 1e-4)) {
+          const out = rgbLin.map(gam);
+          if (contrast(out, bg) >= target) return hex(out);
+          break;
+        }
+      }
+    }
+    return hex(step < 0 ? [0, 0, 0] : [255, 255, 255]);
+  }
+
+  // Color for a palette slot on a background: the mixed token, or a
+  // sample HA color shifted to 4.5:1 there.
+  const colorOf = (slot, on) => source === 'ha' ? shift(HA[(slot - 1) % HA.length], on) : `var(--p${slot})`;
+  const readable = (color, on) => contrast(now(color), now(`var(--${on})`)) >= 4.5;
+
+  const CAL = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M7 2h2v2h6V2h2v2h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2zM5 9v10h14V9z"/></svg>';
+  const initials = n => n.split(/\s+/).slice(0, 2).map(w => w[0]).join('');
+
+  function person(name, color, on, pic) {
+    const el = document.createElement('span');
+    el.className = 'person' + (pic ? ' pic' : '');
+    el.style.setProperty('--c', color);
+    if (!pic) {
+      el.textContent = initials(name);
+      if (readable(color, on)) el.style.setProperty('--ink', color);
+    }
+    return el;
+  }
+
+  function render() {
+    for (const id of ['f1', 'f2', 'away']) document.getElementById(id).replaceChildren();
+    for (const p of PEOPLE) {
+      const on = p.where === 'away' ? 'sky' : 'home';
+      document.getElementById(p.where).append(person(p.name, colorOf(p.slot, on), on, p.pic));
+    }
+    document.getElementById('appts').innerHTML = APPTS.map(a => {
+      const c = colorOf(a.slot, 'sky');
+      const ink = readable(c, 'sky') ? `--ink:${c}` : '';
+      return `<div class="appt ${a.cls}" style="--c:${c};${ink}">${CAL}<span><span class="time">${a.time}</span> ${a.text}</span></div>`;
+    }).join('');
+
+    for (const [id, on] of [['lu-sky', 'sky'], ['lu-home', 'home']]) {
+      document.getElementById(id).replaceChildren(...NAMES.map((n, i) => person(n, colorOf(i + 1, on), on)));
+    }
+
+    const ratio = (c, on, min = 4.5) => { const r = contrast(now(c), now(`var(--${on})`)); return `<span class="${r < min ? 'bad' : ''}">${r.toFixed(1)}</span>`; };
+    const chip = v => `<span class="chip" style="background:${v}"></span>`;
+    document.getElementById('palette').innerHTML = NAMES.map((n, i) => {
+      const t = `--p${i + 1}`, c = `var(${t})`;
+      return `<tr><td>${n}</td>
+        <td>${chip(rootValue('--n-p' + (i + 1)))}<code>${rootValue('--n-p' + (i + 1))}</code></td>
+        <td>${chip(rootValue('--d-p' + (i + 1)))}<code>${rootValue('--d-p' + (i + 1))}</code></td>
+        <td>${chip(hex(now(c)))}<code>${hex(now(c))}</code></td>
+        <td>${ratio(c, 'sky')}</td><td>${ratio(c, 'horizon')}</td><td>${ratio(c, 'home')}</td></tr>`;
+    }).join('');
+    document.getElementById('hacolors').innerHTML = HA.map(c => {
+      const sky = shift(c, 'sky'), home = shift(c, 'home');
+      const drawn = (v, on) => `${chip(v)}<code>${v}</code> ${v === c ? '' : ratio(v, on)}`;
+      return `<tr><td>${chip(c)}<code>${c}</code></td>
+        <td>${ratio(c, 'sky')}</td><td>${drawn(sky, 'sky')}</td>
+        <td>${ratio(c, 'home')}</td><td>${drawn(home, 'home')}</td></tr>`;
+    }).join('');
+  }
+
+  function setDaylight(v, animate) {
+    body.classList.toggle('animate', !!animate);
+    body.style.setProperty('--daylight', v);
+    slider.value = v;
+    out.textContent = Math.round(v * 100) + '%';
+    if (animate) {
+      const t0 = performance.now();
+      (function tick() { render(); if (performance.now() - t0 < 2700) requestAnimationFrame(tick); })();
+    } else render();
+  }
+
+  document.querySelectorAll('button[data-d]').forEach(b =>
+    b.addEventListener('click', () => setDaylight(Number(b.dataset.d), true)));
+  slider.addEventListener('input', () => setDaylight(Number(slider.value), false));
+  document.querySelectorAll('button[data-src]').forEach(b => b.addEventListener('click', () => {
+    source = b.dataset.src;
+    document.querySelectorAll('button[data-src]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    render();
+  }));
+  setDaylight(0, false);
+  document.fonts.ready.then(render);
+</script>
+</body>
+</html>

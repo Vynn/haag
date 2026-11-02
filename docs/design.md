@@ -40,10 +40,26 @@ The alert row is a band across the middle, in the band's wash for information. W
 
 Two palettes, a dark night and a bright day, switch at sunrise and sunset with a short transition. The target for all text is a contrast of at least 4.5:1 against the sky in every condition.
 
+## People and calendars
+
+People and calendars carry a color: on a person's icon border and initials, and on an appointment's icon and time. Any color keeps its hue and shifts in lightness until it reaches 4.5:1 on what it's drawn on, by day and by night, so it can carry text. Those without a color of their own take one of six, in turn, each 4.5:1 or better on the sky, its glow and indoors:
+
+| | Night | Day |
+|---|---|---|
+| Ember | `#ED914C` | `#7A3C00` |
+| Fern | `#8DBC58` | `#365501` |
+| Lagoon | `#10C4BC` | `#025653` |
+| Azure | `#54B3FD` | `#025081` |
+| Violet | `#B298F9` | `#5B369E` |
+| Orchid | `#E486C6` | `#87216E` |
+
+Day values are deep because the day sky is much darker than the indoor side. Six keep them distinct; anyone can set their own.
+
 ## Design studies
 
 The `design/` folder holds the working studies (open them in a browser):
 
 - `wireframe-idle.html`: the idle screen layout.
 - `palette-day-night.html`: the day and night palettes.
+- `palette-people.html`: colors for people and calendars, and how calendar colors shift by day and night.
 - `weather-study.html`: every weather condition, with controls for time, moon phase, wind and season.

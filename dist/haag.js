@@ -440,6 +440,132 @@ function discoverCalendars(hass, reg, overrides = {}) {
 }
 
 /* ------------------------------------------------------------------------
+   People and calendar colors
+   Each person and calendar has a color: one set in settings
+   (`providers.people.colors: { entity_id: "#hex" }`), else its calendar's
+   from HA, else one from Håg's palette. A person and their calendar
+   share: either's setting, then the calendar's own.
+   People match calendars by name (person.alex ↔ calendar.alex), or by
+   `providers.people.calendars: { person_id: calendar_id }`.
+   Drawn colors keep their hue and shift in lightness until they reach
+   4.5:1 on what they're drawn on, by day and by night, so text can take
+   them too.
+   ------------------------------------------------------------------------ */
+
+// Backgrounds by night and day: the outdoor sky and its glow, and the
+// indoor base. The stage's palette uses them; colors are checked on them.
+const GROUNDS = {
+  sky:     { night: '#10162A', day: '#7CC8F2' },
+  horizon: { night: '#1D3442', day: '#FFD6E7' },
+  home:    { night: '#1E2433', day: '#F6FAFF' },
+};
+const ON = { sky: ['sky', 'horizon'], home: ['home'] };
+
+// For people and calendars without a color, in turn: each value is
+// 4.5:1 or better on every ground (design/palette-people.html).
+const PEOPLE_PALETTE = [
+  { night: '#ED914C', day: '#7A3C00' },   // ember
+  { night: '#8DBC58', day: '#365501' },   // fern
+  { night: '#10C4BC', day: '#025653' },   // lagoon
+  { night: '#54B3FD', day: '#025081' },   // azure
+  { night: '#B298F9', day: '#5B369E' },   // violet
+  { night: '#E486C6', day: '#87216E' },   // orchid
+];
+const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+const READABLE = 4.5;
+
+// Colors as linear sRGB, OKLab, and WCAG contrast.
+const toLinear = c => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+const toGamma = c => c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055;
+const rgbOf = hex => {
+  const h = hex.length === 4 ? hex.replace(/\w/g, '$&$&') : hex;
+  return [1, 3, 5].map(i => toLinear(parseInt(h.slice(i, i + 2), 16) / 255));
+};
+const hexOf = rgb => '#' + rgb.map(c => Math.round(255 * toGamma(Math.min(1, Math.max(0, c)))).toString(16).padStart(2, '0')).join('');
+const luminance = ([r, g, b]) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+const contrast = (a, b) => {
+  const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+};
+function oklab([r, g, b]) {
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s];
+}
+function linearOf([L, a, b]) {   // may fall outside sRGB
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+  return [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s];
+}
+
+// A color stepped in lightness, away from the grounds, until it's
+// readable on all of them. The hue stays; chroma eases off only where
+// the hue runs out of sRGB.
+function readableOn(hex, grounds) {
+  const passes = rgb => grounds.every(g => contrast(rgb, g) >= READABLE);
+  if (passes(rgbOf(hex))) return hex;
+  const [L0, a, b] = oklab(rgbOf(hex));
+  const step = luminance(grounds[0]) > 0.18 ? -0.005 : 0.005;
+  for (let L = L0 + step; L > 0 && L < 1; L += step) {
+    for (let k = 1; k >= 0; k -= 0.05) {
+      const c = linearOf([L, a * k, b * k]);
+      if (!c.every(v => v > -1e-4 && v < 1 + 1e-4)) continue;
+      const out = hexOf(c);
+      if (passes(rgbOf(out))) return out;
+      break;
+    }
+  }
+  return step < 0 ? '#000000' : '#ffffff';
+}
+
+// What a person or calendar looks like on the sky or indoors: its day
+// and night values, mixed with the rest of the palette.
+function tint(color, on = 'home') {
+  const at = time => readableOn(color, ON[on].map(k => rgbOf(GROUNDS[k][time])));
+  const { day, night } = typeof color === 'number' ? PEOPLE_PALETTE[color] : { day: at('day'), night: at('night') };
+  return `color-mix(in oklab, ${day} var(--day-mix), ${night})`;
+}
+
+/**
+ * Each person's calendar, and every person's and calendar's color:
+ * { calendars: { person_id: calendar_id }, colors: { entity_id: hex |
+ * palette index } }. Palette colors go in turn, people first; a person
+ * and their calendar share one.
+ */
+function discoverColors(hass, reg, people, calendars, settings = {}) {
+  const set = settings.colors || {};
+  const name = id => (hass.states[id]?.attributes?.friendly_name || '').trim().toLowerCase();
+  const all = Object.keys(hass.states).filter(id => id.startsWith('calendar.'));
+  const cal = {};
+  for (const p of people.ids) {
+    const c = settings.calendars?.[p]
+      ?? all.find(c => c.split('.')[1] === p.split('.')[1])
+      ?? all.find(c => name(c) && name(c) === name(p));
+    if (c) cal[p] = c;
+  }
+  const fromHa = id => reg.entities.find(e => e.entity_id === id)?.options?.calendar?.color;
+  // A calendar's own color in settings, else its person's (the first, if
+  // several share it), else HA's.
+  const owner = c => Object.keys(cal).sort().map(p => cal[p] === c && set[p]).find(Boolean);
+  const calendarColor = c => set[c] ?? owner(c) ?? (HEX.test(fromHa(c) ?? '') ? fromHa(c) : null);
+  const slots = new Map();
+  const slot = key => {
+    if (!slots.has(key)) slots.set(key, slots.size % PEOPLE_PALETTE.length);
+    return slots.get(key);
+  };
+  const colors = {};
+  for (const p of [...people.ids].sort()) colors[p] = set[p] ?? (cal[p] && calendarColor(cal[p])) ?? slot(cal[p] ?? p);
+  for (const c of [...new Set([...calendars, ...Object.values(cal)])].sort()) colors[c] = calendarColor(c) ?? slot(c);
+  return { calendars: cal, colors };
+}
+
+/* ------------------------------------------------------------------------
    Household alerts
    Built-in alerts for things without a glance of their own: hazards,
    leaks, things left open or unlocked, and air quality. Sensors are found
@@ -1009,7 +1135,7 @@ const TIMINGS = { after: 'wait', critical_after: 'critical after', hold: 'hold' 
 // floor's ID). `gui: false` keeps an option to YAML (the raw editor).
 // `labels` name a choice's values in the GUI; YAML keeps the values.
 // Types: text, seconds, number, choice, boolean, entity, entities,
-// devices, links.
+// devices, links (entity → entity), colors (entity → hex).
 const OPTIONS = [
   { path: 'default', type: 'text', default: DEFAULT_GLANCE, label: 'Default glance', help: 'Shown when nothing else needs the screen' },
   { path: 'cycle', type: 'seconds', default: CYCLE, label: 'Cycle', help: 'Seconds per turn when several glances want the screen' },
@@ -1025,7 +1151,9 @@ const OPTIONS = [
   { path: 'providers.floors.*.climate', type: 'entity', filter: { domain: 'climate' }, label: 'thermostat' },
   { path: 'providers.people.exclude', type: 'entities', filter: { domain: 'person' }, label: 'People left out', help: 'Guests, for example' },
   { path: 'providers.people.include', type: 'entities', filter: { domain: 'person' }, label: 'Only these people' },
-  { path: 'providers.people.links', type: 'links', gui: false, label: 'Linked people' },
+  { path: 'providers.people.links', type: 'links', label: 'Linked people' },
+  { path: 'providers.people.calendars', type: 'links', label: "People's calendars" },
+  { path: 'providers.people.colors', type: 'colors', label: 'Colors', format: 'hex in quotes, like "#16a765"' },
   { path: 'providers.calendar.calendars', type: 'entities', filter: { domain: 'calendar' }, label: 'Calendars', help: 'Every calendar when none are chosen' },
   { path: 'alerts.turn', type: 'seconds', default: TURN, label: 'Turn', help: 'Seconds per alert when several take turns' },
   ...Object.entries(CORE_ALERTS).flatMap(([key, a]) => [
@@ -1040,11 +1168,14 @@ const OPTIONS = [
     label: 'Weather alert source', help: 'Found automatically when not chosen' },
 ];
 
+// A path's keys. A key in brackets is taken whole, so it can hold an
+// entity ID: `providers.people.colors[person.alex]`.
+const keysOf = path => path.match(/\[[^\]]*\]|[^.[\]]+/g).map(k => k[0] === '[' ? k.slice(1, -1) : k);
 const optionAt = path => OPTIONS.find(o => {
-  const a = o.path.split('.'), b = path.split('.');
+  const a = o.path.split('.'), b = keysOf(path);
   return a.length === b.length && a.every((p, i) => p === '*' || p === b[i]);
 });
-const valueAt = (obj, path) => path.split('.').reduce((v, k) => (v && typeof v === 'object' ? v[k] : undefined), obj);
+const valueAt = (obj, path) => keysOf(path).reduce((v, k) => (v && typeof v === 'object' ? v[k] : undefined), obj);
 const isStrings = v => Array.isArray(v) && v.every(x => typeof x === 'string');
 
 // A value checked against its option: the value, or the default with a
@@ -1064,6 +1195,7 @@ function checked(config, path) {
     entities: () => isStrings(v),
     devices: () => isStrings(v),
     links: () => v && typeof v === 'object' && Object.values(v).every(x => typeof x === 'string'),
+    colors: () => v && typeof v === 'object' && Object.values(v).every(x => HEX.test(x)),
   }[o.type]();
   if (ok) return o.type === 'seconds' || o.type === 'number' ? n : v;
   const label = cap(o.label);
@@ -1072,7 +1204,7 @@ function checked(config, path) {
     : `using ${o.default}${o.type === 'seconds' ? ' s' : ''}`;
   notice('info', o.type === 'seconds' || o.type === 'number'
     ? `${label} setting isn't a number · ${fallback}`
-    : `${label} setting not recognized · ${fallback}`, o.choices ? o.choices.join(', ') : path);
+    : `${label} setting not recognized · ${fallback}`, o.choices ? o.choices.join(', ') : o.format ? `${path}: ${o.format}` : path);
   return o.default ?? null;
 }
 
@@ -1091,7 +1223,7 @@ function readSettings(config) {
     .map(k => [k, get(`providers.outdoor.${k}`)]).filter(([, v]) => v !== null));
   const floors = Object.fromEntries(Object.keys(objectAt(config, 'providers.floors')).map(id =>
     [id, Object.fromEntries(['monitors', 'climate'].map(k => [k, get(`providers.floors.${id}.${k}`)]).filter(([, v]) => v !== null))]));
-  const people = Object.fromEntries(['exclude', 'include', 'links']
+  const people = Object.fromEntries(['exclude', 'include', 'links', 'calendars', 'colors']
     .map(k => [k, get(`providers.people.${k}`)]).filter(([, v]) => v !== null));
   const calendars = get('providers.calendar.calendars');
   const core = Object.fromEntries(Object.entries(CORE_ALERTS).map(([key, a]) => [key, {
@@ -1136,9 +1268,9 @@ const HOST_STYLE = `
      (0 night, 1 day). Glances inherit the mixed colors. Values are
      placeholders until the text pass. */
   .stage {
-    --n-sky: #10162A;       --d-sky: #7CC8F2;        /* outdoor base */
-    --n-horizon: #1D3442;   --d-horizon: #FFD6E7;    /* outdoor glow */
-    --n-home: #1E2433;      --d-home: #F6FAFF;       /* indoor base */
+    --n-sky: ${GROUNDS.sky.night};       --d-sky: ${GROUNDS.sky.day};        /* outdoor base */
+    --n-horizon: ${GROUNDS.horizon.night};   --d-horizon: ${GROUNDS.horizon.day};    /* outdoor glow */
+    --n-home: ${GROUNDS.home.night};      --d-home: ${GROUNDS.home.day};       /* indoor base */
     --n-band: #FFFFFF14;    --d-band: #FFFFFFB3;     /* alert row */
     --n-text: #F1EADC;      --d-text: #0E1F3A;
     --n-text-2: #A9B0C2;    --d-text-2: #34537A;     /* secondary */
@@ -1352,11 +1484,15 @@ class HaagHost extends HTMLElement {
       notice('warning', "Couldn't read Home Assistant's setup", err);
     }
     const people = discoverPeople(hass, p.people);
+    const calendars = discoverCalendars(hass, reg, p.calendar);
+    const { calendars: theirs, colors } = discoverColors(hass, reg, people, calendars, p.people);
+    this._colors = colors;
+    this._tints = new Map();
     this._providers = {
       outdoor: discoverOutdoor(hass, reg, p.outdoor),
       floors: discoverFloors(hass, reg, p.floors),
-      people: { ...people, groups: linkGroups(people) },
-      calendars: discoverCalendars(hass, reg, p.calendar),
+      people: { ...people, groups: linkGroups(people), calendars: theirs },
+      calendars,
       value: ref => numericValue(this._hass, ref),
       unit: ref => unitOf(this._hass, ref),
       hvac: climate => hvacStatus(this._hass, climate),
@@ -1434,12 +1570,23 @@ class HaagHost extends HTMLElement {
       get daylight() { return host._daylight; },
       layout: { angle: SPLIT_ANGLE },
       icon: setIcon,
+      colorOf: (id, on) => host._colorOf(id, on),
       get alertrow() { return host._alertBand(); },
       alerts: { set, delete: del, clear },   // its own, at any severity; the core picks the icon
       get visible() { return entry.visible; },
       request() { entry.wants = true; host._schedule(); },
       release() { entry.wants = false; host._schedule(); },
     };
+  }
+
+  // A person's or calendar's color, readable on the sky or indoors (`on`:
+  // 'sky' or 'home'); null for anything else.
+  _colorOf(id, on = 'home') {
+    const color = this._colors?.[id];
+    if (color === undefined || !ON[on]) return null;
+    const key = `${id} ${on}`;
+    if (!this._tints.has(key)) this._tints.set(key, tint(color, on));
+    return this._tints.get(key);
   }
 
   // What's on screen: glances that want it take turns, in settings order;
@@ -1878,21 +2025,26 @@ function selectorOf(o) {
 }
 
 function setPath(obj, path, value) {
-  const keys = path.split('.'), last = keys.pop();
+  const keys = keysOf(path), last = keys.pop();
   for (const k of keys) obj = (obj[k] && typeof obj[k] === 'object') ? obj[k] : (obj[k] = {});
   obj[last] = value;
 }
 
 // Removes a value, and any section it leaves empty.
-function unsetPath(obj, path) {
-  const [k, ...rest] = path.split('.');
+function unsetPath(obj, path, keys = keysOf(path)) {
+  const [k, ...rest] = keys;
   if (!obj || typeof obj !== 'object' || !(k in obj)) return;
   if (!rest.length) delete obj[k];
   else {
-    unsetPath(obj[k], rest.join('.'));
+    unsetPath(obj[k], null, rest);
     if (obj[k] && typeof obj[k] === 'object' && !Object.keys(obj[k]).length) delete obj[k];
   }
 }
+
+// HA's color picker works in [r, g, b]; settings keep hex.
+const isColorField = name => name.startsWith('providers.people.colors[');
+const rgbList = hex => [1, 3, 5].map(i => parseInt((hex.length === 4 ? hex.replace(/\w/g, '$&$&') : hex).slice(i, i + 2), 16));
+const hexString = rgb => '#' + rgb.map(c => Math.round(c).toString(16).padStart(2, '0')).join('');
 
 class HaagEditor extends HTMLElement {
   set hass(hass) {
@@ -1920,6 +2072,7 @@ class HaagEditor extends HTMLElement {
       const calendars = discoverCalendars(hass, reg, {});
       if (calendars.length) found['providers.calendar.calendars'] = calendars;
       this._found = found;
+      this._reg = reg;
       this._render();
     } catch (err) {
       console.warn("Håg: the editor couldn't look for sensors", err);
@@ -1973,9 +2126,62 @@ class HaagEditor extends HTMLElement {
         field(`providers.floors.${f.floor_id}.monitors`, `${f.name} air-quality monitors`),
         field(`providers.floors.${f.floor_id}.climate`, `${f.name} thermostat`),
       ])),
-      section('People', ['exclude', 'include'].map(k => field(`providers.people.${k}`))),
-      section('Calendars', [field('providers.calendar.calendars')]),
+      section('People and calendars', [
+        ...['exclude', 'include'].map(k => field(`providers.people.${k}`)),
+        field('providers.calendar.calendars', 'Calendars shown'),
+        ...this._people(),
+      ]),
     ];
+  }
+
+  // People and calendars under the current settings, read quietly (the
+  // host gives notices for settings it can't use).
+  _lookup() {
+    const p = this._config.providers?.people || {};
+    const list = v => isStrings(v) ? v : undefined;
+    const map = v => v && typeof v === 'object' && !Array.isArray(v) ? v : undefined;
+    const colors = Object.fromEntries(Object.entries(map(p.colors) || {}).filter(([, c]) => HEX.test(c)));
+    const settings = { exclude: list(p.exclude), include: list(p.include), calendars: map(p.calendars), colors };
+    const shown = list(this._config.providers?.calendar?.calendars);
+    const reg = this._reg || { entities: [] };
+    const people = discoverPeople(this._hass, settings);
+    const calendars = discoverCalendars(this._hass, reg, shown ? { calendars: shown } : {});
+    const { calendars: theirs, colors: found } = discoverColors(this._hass, reg, people, calendars, settings);
+    return { people, calendars, theirs, colors: found };
+  }
+
+  // Under each person, a subheading and their calendar, color and who
+  // they follow; then a color for each calendar that's no one's.
+  _people() {
+    const hass = this._hass;
+    const { people, calendars, theirs } = this._lookup();
+    const name = id => hass.states[id]?.attributes?.friendly_name || id;
+    const key = (map, id) => `providers.people.${map}[${id}]`;
+    const color = (id, label = 'Color') => ({ name: key('colors', id), label, selector: { color_rgb: {} } });
+    const unmatched = calendars.filter(c => !Object.values(theirs).includes(c));
+    return [
+      ...people.ids.flatMap(id => [
+        { type: 'constant', name: `person ${id}`, label: name(id) },
+        { name: key('calendars', id), label: 'Calendar', selector: { entity: { filter: { domain: 'calendar' } } } },
+        color(id),
+        { name: key('links', id), label: 'Follows', help: "Where they are when they have no location of their own",
+          selector: { entity: { filter: { domain: 'person' } } } },
+      ]),
+      ...(unmatched.length ? [{ type: 'constant', name: 'calendars', label: 'Other calendars' }] : []),
+      ...unmatched.map(c => color(c, name(c))),
+    ];
+  }
+
+  // What Håg finds for people and calendars under the current settings:
+  // matched calendars, and colors (a palette color shows its night value).
+  _foundPeople() {
+    if (!this._reg) return {};
+    const { theirs, colors } = this._lookup();
+    return Object.fromEntries([
+      ...Object.entries(theirs).map(([id, c]) => [`providers.people.calendars[${id}]`, c]),
+      ...Object.entries(colors).map(([id, c]) =>
+        [`providers.people.colors[${id}]`, typeof c === 'number' ? PEOPLE_PALETTE[c].night : c]),
+    ]);
   }
 
   // What the form shows: each field's value from settings, else what Håg
@@ -1983,14 +2189,17 @@ class HaagEditor extends HTMLElement {
   _data(schema) {
     const config = this._config;
     const def = config.default ?? DEFAULT_GLANCE;
+    const found = { ...this._found, ...this._foundPeople() };
     const data = {};
     for (const { schema: fields } of schema) {
-      for (const { name } of fields) {
+      for (const { name, type } of fields) {
+        if (type === 'constant') continue;
         const glance = /^glances\.(.+)\.enabled$/.exec(name)?.[1];
         const v = valueAt(config, name);
         const unset = v == null || (Array.isArray(v) && !v.length);
         data[name] = glance ? (glance === def ? v !== false : v === true)
-          : unset ? this._found?.[name] ?? optionAt(name)?.default ?? undefined : v;
+          : unset ? found[name] ?? optionAt(name)?.default ?? undefined : v;
+        if (isColorField(name) && typeof data[name] === 'string' && HEX.test(data[name])) data[name] = rgbList(data[name]);
       }
     }
     return data;
@@ -2006,7 +2215,7 @@ class HaagEditor extends HTMLElement {
       const v = data[key];
       if (JSON.stringify(v) === JSON.stringify(this._shown[key])) continue;
       if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) unsetPath(config, key);
-      else setPath(config, key, v);
+      else setPath(config, key, isColorField(key) ? hexString(v) : v);
     }
     this._config = config;
     this._render();   // what's shown follows the settings: a cleared picker shows what Håg finds again

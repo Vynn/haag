@@ -255,6 +255,8 @@ const STYLE = `
   }
   @media (prefers-reduced-motion: reduce) { .appt.soon { animation: none; opacity: 1; } }
   .appt-error .ico { color: var(--coral); }   /* calendar error (calendar-alert icon) */
+  /* The calendar's color on the icon and the time. */
+  .appt > .ico, .appt .when { color: var(--tint, currentColor); }
 
   /* Each appointment: icon, then its lines (the title, and the location
      when it's soon). Each later day steps in by one indent, following the
@@ -279,11 +281,13 @@ const STYLE = `
   }
 
   .people { display: flex; gap: calc(.8 * var(--u)); align-items: center; }
-  /* One rounded square per person: their HA picture, or initials. */
+  /* One rounded square per person: their HA picture, or initials. Border
+     and initials in their color. */
   .person {
     width: var(--portrait);   /* border-box: the border is inside this size */
     aspect-ratio: 1;
-    border: calc(.35 * var(--u)) solid var(--line);
+    border: calc(.35 * var(--u)) solid var(--tint, var(--line));
+    color: var(--tint, currentColor);
     border-radius: 30%;
     flex: none;
     overflow: hidden;
@@ -568,7 +572,9 @@ class SinnesroGlance extends HTMLElement {
           // The soonest may wrap, unless its location takes the second line.
           cls: `appt${later ? ' later' : ''}${soon ? ' soon' : ''}${e === upcoming[0] && !where ? ' wrap' : ''}`,
           icon: later ? APPT_ICONS.later : APPT_ICONS.soon,
-          text: `${when} ${e.summary}`,
+          when,
+          text: e.summary,
+          tint: this._haag.colorOf(e.calendar, 'sky'),
           where,
           indent: days.indexOf(dateKey(e.startAt)),
         };
@@ -584,8 +590,15 @@ class SinnesroGlance extends HTMLElement {
       div.style.setProperty('--indent', r.indent || 0);
       div.innerHTML = '<span class="ico"></span><span class="lines"><span class="text"></span></span>';
       this._icon(div.firstElementChild, r.icon);
+      if (r.tint) div.style.setProperty('--tint', r.tint);
       // Event text is never parsed as HTML.
-      div.querySelector('.text').textContent = r.text;
+      const text = div.querySelector('.text');
+      if (r.when) {
+        const when = document.createElement('span');
+        when.className = 'when';
+        when.textContent = r.when;
+        text.append(when, ` ${r.text}`);
+      } else text.textContent = r.text;
       if (r.where) {
         const where = document.createElement('span');
         where.className = 'where';
@@ -697,7 +710,7 @@ class SinnesroGlance extends HTMLElement {
       (at[key] ||= []).push(id);
     }
     let changed = false;
-    const fill = (spot, ids, emptyFrame) => {
+    const fill = (spot, ids, emptyFrame, on) => {
       if (!spot) return;
       // Same group together; within a group, people with their own location
       // first, then those following a link; then by person. Groups of 2+ get
@@ -714,6 +727,8 @@ class SinnesroGlance extends HTMLElement {
         const st = hass.states[id];
         const el = document.createElement('span');
         el.className = 'person';
+        const tint = this._haag.colorOf(id, on);
+        if (tint) el.style.setProperty('--tint', tint);
         const pic = st?.attributes?.entity_picture;
         if (pic) {
           const img = document.createElement('img');
@@ -744,8 +759,8 @@ class SinnesroGlance extends HTMLElement {
       }
       spot.replaceChildren(...nodes);
     };
-    for (const [floor, spot] of spots) fill(spot, at[floor] || [], false);
-    fill(away, at.__away || [], true);   // nobody away: the breathing frame
+    for (const [floor, spot] of spots) fill(spot, at[floor] || [], false, 'home');
+    fill(away, at.__away || [], true, 'sky');   // nobody away: the breathing frame
     return changed;
   }
 

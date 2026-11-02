@@ -159,7 +159,8 @@ Switching between glances is a crossfade until transitions arrive in 0.5.
 
 | | |
 |---|---|
-| `haag.providers` | Discovery results (`outdoor`, `floors`, `people`, `calendars`), with settings applied, and readers for their current state: `value(ref)`, `unit(ref)`, `hvac(climate)`, `locate()`. |
+| `haag.providers` | Discovery results (`outdoor`, `floors`, `people` with each person's `calendars`, `calendars`), with settings applied, and readers for their current state: `value(ref)`, `unit(ref)`, `hvac(climate)`, `locate()`. |
+| `haag.colorOf(entity_id, on)` | A person's or calendar's color, as a CSS color readable at 4.5:1 on `'sky'` or `'home'` (the default), by day and by night. It follows the switch between them on its own. `null` for anything else. |
 | `haag.daylight` | Whether day colors are showing: the `theme` setting, or the sun when it's `auto`. |
 | `haag.layout` | The shared geometry: the split's `angle` (the line runs through the center). Helpers for placing content along it move here with the second glance (0.5). |
 | `haag.icon(element, name)` | Draws a Home Assistant icon, filling the element. Fitting it to the text is up to the glance. |
