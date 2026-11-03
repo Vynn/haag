@@ -6,7 +6,7 @@ Håg is its own glanceable dashboard framework, built as a Home Assistant dashbo
 
 - **The default glance** shows when nothing else needs the screen. Håg's is `sinnesro`, shown as Overview Glance: the time, the weather, indoors and outdoors.
 - **Other glances** are off until turned on. Once on, they run in the background and ask for the screen when they have something to show.
-- **Taking turns:** when several glances want the screen, they take turns every 30 seconds. Rules for priority and cooldown come with the second glance.
+- **Taking turns:** glances with something to show take turns with the default glance, 30 seconds each. All are equal: none cuts in, and alerts bring up only the alert row.
 
 Håg's main file is the core. It draws the alert row and provides what glances share: discovery, alerts, the typeface, day and night colors, icons and the diagonal layout.
 
@@ -31,7 +31,7 @@ Built-in glances come with Håg. Other glances install like any dashboard plugin
 strategy:
   type: custom:haag
   default: sinnesro     # shown when nothing else needs the screen
-  cycle: 30             # seconds per turn when several glances want the screen
+  cycle: 30             # seconds per turn, 10 to 60
   glances:
     laundry:            # listed first, so it goes first
       enabled: true
@@ -40,10 +40,10 @@ strategy:
       enabled: true
 ```
 
-- One entry per glance, under its name. ◇ Entry order is the order glances take turns.
+- One entry per glance, under its name. Entry order is the order glances take turns, after the default glance.
 - A glance with no entry, or with `enabled: false`, is off and isn't loaded. Built-in glances too.
 - `default` names any installed glance. The default glance is on unless its entry says `enabled: false`.
-- ◇ `cycle` sets the seconds per turn (30 if left out), in YAML or the editor's General section.
+- `cycle` sets the seconds per turn, 10 to 60 (30 if left out), in YAML or the editor's General section.
 
 Shared settings are in [configuration](configuration.md).
 
@@ -175,7 +175,16 @@ The default glance never asks. Other glances:
 - `haag.release()`: done.
 - `haag.visible`: whether the glance is on screen. A `haag-visible` event on the glance says when it changes; the glance pauses animation while hidden.
 
-Switching between glances is a crossfade until transitions arrive in 0.5.
+Håg runs the turns:
+
+- **Order:** the default glance, then the glances asking, in entry order, `cycle` seconds each. With nothing else asking, the default glance shows alone.
+- **Joining:** a glance that asks joins once the glance on screen has had a full turn.
+- **Leaving:** a glance that releases leaves at once, and the next one gets a full turn.
+- **Timing is Håg's:** a glance only says whether it has something to show.
+- **Alerts don't change the turns.** A glance can show an alert's state in its own content, but it keeps its place.
+- **Touch:** a tap on the right half of the screen goes to the next glance, and on the left half to the one before; that glance gets a full turn. Taps just above and below the alert row do nothing, and taps on it are the alert's (see [alerts](alerts.md#touching-an-alert)).
+
+Switching between glances is a crossfade until transitions arrive in 0.5.1.
 
 ### What Håg provides
 
@@ -198,7 +207,7 @@ Inherited through CSS: the typeface, the size unit `cqmin` (1% of the shorter si
 | `--home` | The indoor side. |
 | `--text`, `--text-2` | Text and secondary text. `--text-2-out` is secondary text on the sky. |
 | `--coral`, `--seaglass` | Accents: heating and errors, cooling. |
-| `--band`, `--mist` | The alert row's wash, and haze. |
+| `--band`, `--mist` | The alert row's information wash (near-white, by day and by night), and haze. |
 
 Each mixes a night and a day value (`--n-sky`, `--d-sky`, …) by `--haag-daylight`, 0 at night and 1 by day, which switches over 2.5 seconds.
 
@@ -210,8 +219,8 @@ Håg draws it above every glance, by the same rules for every glance:
 - **What the glance is told:** `haag.alertrow` gives `showing`, and the band's `top` and `bottom` in pixels. A `haag-alertrow` event on the glance says when it changes.
 - **What the glance does:** keeps its content out of the band, or moves it aside as the default glance's center blocks do.
 - **Sending alerts:** `haag.alerts`, the same API Håg's own alerts use. See [alerts](alerts.md).
-- **Touch:** only the row takes touches. What touching an alert does comes in 0.5.
+- **Touch:** a tap on an alert shows its glance; the next tap snoozes it. See [alerts](alerts.md#touching-an-alert).
 
 ## Not decided yet
 
-- **Behavior rules and cooldown,** drafted with the second glance (0.5): priority, how long a glance keeps the screen after it's done, and a limit for one that never lets go.
+- **Transitions** (0.5.1): Håg will run them the same way for every glance, so each glance will describe its parts to Håg. How is still to come.

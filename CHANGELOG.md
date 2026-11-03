@@ -8,7 +8,15 @@ In progress.
 
 ### Added
 
+- Glances take turns with the default glance, all equal, `cycle` seconds each (now 10 to 60). A glance that's done leaves at once; alerts bring up only the alert row.
+- Touch: a tap on the right half of the screen shows the next glance, on the left half the one before.
+- Touching an alert: the first tap shows its glance, the next snoozes it, with an undo. Snoozes are kept on the display, for each alert's `snooze` setting. Glances can make an alert dismissable instead (`dismiss: true`).
 - An overall easter eggs setting (`easter_eggs`, on by default, in the editor's General section) that every glance follows; a glance's own setting can still turn them off just for it. For glance authors: `haag.easterEggs`.
+
+### Changed
+
+- Information alerts are near-white with dark text, by day and by night, to be read first.
+- The default glance takes turns with the others instead of waiting until they're done.
 
 ## 0.4.0 · 2026-11-02
 

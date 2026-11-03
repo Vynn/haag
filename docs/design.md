@@ -29,10 +29,11 @@ The outdoor side carries an illustrated weather background for each of Home Assi
 
 ## Alerts
 
-The alert row is a band across the middle, in the band's wash for information. Warnings turn it yellow with dark text, critical alerts red with white text, by day and by night; those two colors appear nowhere else. Each severity has its own icon, sized to the text. Alerts take turns by sliding left, and the band's color fades between severities. See [alerts](alerts.md).
+The alert row is a band across the middle. For information it's near-white with dark text, by day and by night, so it's read first. Warnings turn it yellow with dark text, critical alerts red with white text, by day and by night; those two colors appear nowhere else. Each severity has its own icon, sized to the text. Alerts take turns by sliding left, and the band's color fades between severities. See [alerts](alerts.md).
 
 | | Night | Day |
 |---|---|---|
+| Information | `#FFFFFF` at 90%, with the day text color | The same |
 | Warning | `#C99A3A`, with the night sky's color as text | `#F6D365`, with the day text color |
 | Critical | `#C9433E`, white text | `#B42318`, white text |
 

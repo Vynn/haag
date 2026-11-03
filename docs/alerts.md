@@ -10,7 +10,7 @@ Every alert reaches the row the same way, whoever sends it: Håg's own household
 
 | Severity | Looks | For example |
 |---|---|---|
-| Information | The band's own wash, in the text color | A door left open, an upcoming storm watch |
+| Information | Near-white, with dark text, by day and by night | A door left open, an upcoming storm watch |
 | Warning | Yellow, with dark text | A water leak, high CO₂, a jammed lock |
 | Critical | Red, with white text | Smoke, carbon monoxide or gas; extreme weather |
 
@@ -25,7 +25,17 @@ Each severity has its own icon. The yellow and red are used for alerts only. The
 - Håg's own startup alert shows alone, with its notices taking turns beside it (see [glances](glances.md#starting-up)).
 - A turn slides the old alert out to the left as the band's color changes. With reduced motion, they crossfade.
 - Each alert is one line. Long text shrinks to fit, down to 70% of its size, and past that its end is cut, so what matters goes first.
-- Touching an alert, and snoozing it, come in 0.5.
+- Alerts don't change which glance is on screen.
+
+## Touching an alert
+
+- **The first tap** shows the alert's glance for a turn, and keeps the alert on the row for that turn. Household alerts, weather alerts and notices belong to the default glance.
+- **The next tap,** or the first if the alert's glance is already on screen, snoozes the alert. The row says so for 5 seconds ("Snoozed for 15 min"), with Undo.
+- **Some alerts can't be snoozed:** smoke, carbon monoxide and gas alarms, and extreme weather. Håg's own startup alert ignores taps.
+- **A snoozed alert comes back** when the snooze ends, if it's still active. One that turns more severe stays snoozed until then.
+- **Snoozes are kept on this display only,** in the browser. Nothing is written to Home Assistant.
+- **How long:** each alert's `snooze` setting (see [configuration](configuration.md#alerts)). Left out, an alert that waits before it shows snoozes for that wait (doors, windows, gates and unlocked locks: 5 minutes) or its hold (air quality: 15 minutes), up to an hour. Everything else snoozes for 15 minutes.
+- **A glance can make an alert dismissable** (below): a tap then dismisses it, and it stays away until the glance removes it.
 
 ## The alerts API
 
@@ -44,7 +54,7 @@ haag.alerts.clear();
 
 | Call | |
 |---|---|
-| `set(key, { level, text })` | Shows an alert, or updates the one with that key. `level` is `info`, `warning` or `critical` (`info` if it's anything else). `text` is one line: subject, then state, in sentence case. |
+| `set(key, { level, text, dismiss })` | Shows an alert, or updates the one with that key. `level` is `info`, `warning` or `critical` (`info` if it's anything else). `text` is one line: subject, then state, in sentence case. `dismiss: true` makes a tap dismiss it instead of snoozing it. |
 | `delete(key)` | Removes one alert. |
 | `clear()` | Removes all of this source's alerts. |
 
@@ -53,7 +63,8 @@ haag.alerts.clear();
 - **Each alert counts on its own** in the turns.
 - **The icon** comes from the severity. The core picks it.
 - **A glance's alerts show even while the glance has the screen,** so they work the same wherever the glance is.
-- **A glance's alerts are cleared** when it stops or fails to load.
+- **A glance's alerts are cleared** when it stops or fails to load. What was dismissed stays dismissed.
+- **Dismissing:** a dismissed alert stays hidden until the glance deletes it, even if the glance sets it again. Once the undo has passed, the glance gets a `haag-dismissed` event, with the key as `detail.key`, so it can end that state (a load that's been emptied, for example).
 - **Holding the row and showing alone** are for Håg's own alerts only. A glance's alerts always take turns.
 
 ## Household alerts

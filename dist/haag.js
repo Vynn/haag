@@ -1142,7 +1142,7 @@ function setupLine(check) {
 const GLANCE_FORMAT = 'haag-glance/v1';
 const BUILT_IN = ['sinnesro', 'vitvaror'];
 const DEFAULT_GLANCE = 'sinnesro';
-const CYCLE = 30;           // seconds per turn when several glances want the screen
+const CYCLE = 30;           // seconds per turn when glances take turns (10–60)
 const STARTUP_LIMIT = 60;   // seconds before an empty screen turns critical
 const SPLIT_ANGLE = 45;     // the diagonal, from horizontal
 const NAME = /^[a-z][a-z0-9_-]*$/;
@@ -1156,6 +1156,10 @@ const LEVEL_ICON = { info: 'mdi:information', warning: 'mdi:alert', critical: 'm
 const TURN = 8;        // seconds per alert when several take turns
 const MOVE = 700;      // ms per turn's slide; matches --move
 const MIN_FIT = .7;    // long text shrinks to this share of its size, then is cut
+const TAP_GAP = .05;   // near the row (share of the shorter side), taps don't change the glance
+const CONFIRM_TIME = 5000;   // ms a snooze's confirmation, with its undo, stays
+const SNOOZES = 'haag-snoozes';   // browser storage: snoozed and dismissed alerts
+const DISMISS_LIMIT = 24 * 60 * MINUTE;   // a dismissal its glance never deletes is forgotten after this
 
 // Håg's notices: in the alert row of every display, and in the browser
 // console with any detail. Each is given once. Information notices leave
@@ -1244,6 +1248,11 @@ const CORE_ALERTS = {
 const coverOf = w => w.kind === 'leak' || w.kind === 'lock' || w.kind === 'aqi' ? w.kind : `${w.kind}:${w.cls}`;
 const CORE_ALERT_OF = Object.fromEntries(Object.entries(CORE_ALERTS).flatMap(([key, a]) => a.covers.map(c => [c, key])));
 const TIMINGS = { after: 'wait', critical_after: 'critical after', hold: 'hold' };
+// Snoozing: every alert but the hazards. Left out, a snooze lasts the
+// alert's wait or hold, up to an hour, or SNOOZE for alerts that show at once.
+const SNOOZE = 900;
+const snoozes = a => !a.covers[0].startsWith('hazard:');
+const snoozeDefault = s => Math.min(3600, s.after ?? s.hold ?? SNOOZE);
 const ESCALATION = { warning_after: 'seconds', warning_at: 'time', warning_until: 'time' };
 
 // Every option. `*` stands for any key at that level (a glance's name, a
@@ -1252,8 +1261,8 @@ const ESCALATION = { warning_after: 'seconds', warning_at: 'time', warning_until
 // Types: text, seconds, number, time ("22:00"), choice, boolean, entity,
 // entities, devices, links (entity → entity), colors (entity → hex).
 const OPTIONS = [
-  { path: 'default', type: 'text', default: DEFAULT_GLANCE, label: 'Default glance', help: 'Shown when nothing else needs the screen' },
-  { path: 'cycle', type: 'seconds', default: CYCLE, label: 'Cycle', help: 'Seconds per turn when several glances want the screen' },
+  { path: 'default', type: 'text', default: DEFAULT_GLANCE, label: 'Default glance', help: 'Takes turns with the others, and shows alone when nothing else needs the screen' },
+  { path: 'cycle', type: 'seconds', default: CYCLE, min: 10, max: 60, label: 'Cycle', help: 'Seconds per turn when glances take turns, 10 to 60' },
   { path: 'theme', type: 'choice', choices: THEMES, default: 'auto', label: 'Theme', help: 'Day and night colors',
     labels: { auto: 'Auto (follows the sun)', dark: 'Dark', light: 'Light' } },
   { path: 'easter_eggs', type: 'boolean', default: true, label: 'Easter eggs', help: 'Off turns them off in every glance' },
@@ -1280,10 +1289,12 @@ const OPTIONS = [
     ...('limit' in a ? [{ path: `alerts.core.${key}.limit`, type: 'number', default: a.limit, label: `${a.label} limit` }] : []),
     ...(a.escalates ? Object.entries(ESCALATION).map(([t, type]) =>
       ({ path: `alerts.core.${key}.${t}`, type, default: null, label: `${a.label} ${t.replace('_', ' ')}` })) : []),
+    ...(snoozes(a) ? [{ path: `alerts.core.${key}.snooze`, type: 'seconds', default: null, label: `${a.label} snooze` }] : []),
   ]),
   { path: 'alerts.weather.enabled', type: 'boolean', default: true, label: 'Weather alerts' },
   { path: 'alerts.weather.source', type: 'choice', choices: Object.keys(WX_SOURCES), labels: WX_SOURCES, default: null,
     label: 'Weather alert source', help: 'Found automatically when not chosen' },
+  { path: 'alerts.weather.snooze', type: 'seconds', default: SNOOZE, label: 'Weather alert snooze' },
   { path: 'warnings.ignore', type: 'entities', gui: false, label: 'Setup warnings left out' },
 ];
 
@@ -1308,7 +1319,7 @@ function checked(config, path, o = optionAt(path), title) {
   const inRange = !(n < o.min) && !(n > o.max);
   const ok = ({
     text: () => typeof v === 'string' && v !== '',
-    seconds: () => n > 0,
+    seconds: () => n > 0 && inRange,
     number: () => n > 0 && inRange,
     time: () => typeof v === 'string' && TIME.test(v),
     choice: () => o.choices.includes(v),
@@ -1364,6 +1375,7 @@ function readSettings(config) {
     exclude: key === 'outdoor_air' ? [] : get(`alerts.core.${key}.exclude`) ?? [],
     ...Object.fromEntries(['after', 'critical_after', 'hold', 'limit'].filter(t => t in a).map(t => [t, get(`alerts.core.${key}.${t}`)])),
     ...(a.escalates && Object.fromEntries(Object.keys(ESCALATION).map(t => [t, get(`alerts.core.${key}.${t}`)]))),
+    ...(snoozes(a) && { snooze: get(`alerts.core.${key}.snooze`) }),
   }]));
   return {
     glances,
@@ -1375,7 +1387,7 @@ function readSettings(config) {
     easterEggs: get('easter_eggs'),
     turn: get('alerts.turn'),
     providers: { outdoor, floors, people, calendar: calendars ? { calendars } : {} },
-    alerts: { core, weather: { enabled: get('alerts.weather.enabled'), source: get('alerts.weather.source') } },
+    alerts: { core, weather: { enabled: get('alerts.weather.enabled'), source: get('alerts.weather.source'), snooze: get('alerts.weather.snooze') } },
     warnings: { ignore: get('warnings.ignore') ?? [] },
   };
 }
@@ -1407,7 +1419,7 @@ const HOST_STYLE = `
     --n-sky: ${GROUNDS.sky.night};       --d-sky: ${GROUNDS.sky.day};        /* outdoor base */
     --n-horizon: ${GROUNDS.horizon.night};   --d-horizon: ${GROUNDS.horizon.day};    /* outdoor glow */
     --n-home: ${GROUNDS.home.night};      --d-home: ${GROUNDS.home.day};       /* indoor base */
-    --n-band: #FFFFFF14;    --d-band: #FFFFFFB3;     /* alert row */
+    --n-band: #FFFFFFE6;    --d-band: #FFFFFFE6;     /* alert row: light by day and night, to be read first */
     --n-text: #F1EADC;      --d-text: #0E1F3A;
     --n-text-2: #A9B0C2;    --d-text-2: #34537A;     /* secondary */
     --n-coral: #FF7A68;     --d-coral: #D6336C;      /* heating, errors */
@@ -1438,6 +1450,10 @@ const HOST_STYLE = `
     overflow: hidden;
     background: linear-gradient(var(--haag-split), var(--sky) 50%, var(--home) 50%);
     color: var(--text);
+    /* Taps move between glances: no selecting, zooming or tap flash. */
+    user-select: none;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
   /* Day and night switch quickly, at sunrise and sunset. */
   .stage.animate { transition: --haag-daylight 2.5s ease-in-out; }
@@ -1466,8 +1482,9 @@ const HOST_STYLE = `
   }
   .stage.animate .alert-row { transition: opacity var(--move), visibility var(--move), background-color var(--move), color var(--move); }
   .alert-row.hidden { opacity: 0; visibility: hidden; }
-  /* Severity: a wash for information; warning and critical fill the band. */
-  .alert-row.info { background: var(--band); }
+  /* Severity: a light wash for information, with day text; warning and
+     critical fill the band. */
+  .alert-row.info { background: var(--band); color: var(--d-text); }
   .alert-row.warning { background: var(--warn); color: var(--warn-ink); }
   .alert-row.critical { background: var(--crit); color: #FFFFFF; }
   /* Long text shrinks to fit (the .fit size, set in code), then is cut. */
@@ -1508,6 +1525,14 @@ const HOST_TEMPLATE = `
   </div>
 `;
 
+// Snoozes and dismissals kept in this browser: { snoozed: { id: until },
+// dismissed: { id: when } }.
+function loadSnoozes() {
+  let s;
+  try { s = JSON.parse(localStorage.getItem(SNOOZES)); } catch {}
+  return { snoozed: { ...s?.snoozed }, dismissed: { ...s?.dismissed } };
+}
+
 class HaagHost extends HTMLElement {
   constructor() {
     super();
@@ -1516,7 +1541,7 @@ class HaagHost extends HTMLElement {
     this._stage = root.querySelector('.stage');
     this._layer = root.querySelector('.glances');
     this._row = root.querySelector('.alert-row');
-    this._row.addEventListener('click', e => { if (e.target.closest('a.settings')) this._openSettings(e); });
+    this._stage.addEventListener('click', e => this._tap(e));
     this._running = new Map();   // name → { reg, el, visible, wants }
     this._loading = new Set();
     this._failed = new Set();
@@ -1528,6 +1553,7 @@ class HaagHost extends HTMLElement {
     this._home = this._alertsFor('home', true);      // household alerts
     this._weather = this._alertsFor('weather', true);
     this._notices = this._alertsFor('notice', true);
+    this._snoozes = loadSnoozes();
     this._showNotices = this._showNotices.bind(this);
     this._sync = this._sync.bind(this);
   }
@@ -1583,6 +1609,7 @@ class HaagHost extends HTMLElement {
     this._resize.observe(this);
     document.fonts.ready.then(() => { if (this.isConnected) refit(); });
     this._timeTurns();
+    this._snoozesChanged();
     this._household();
     this._weatherAlerts();
     // Animate only after the first frame, so nothing fades in on load.
@@ -1599,6 +1626,8 @@ class HaagHost extends HTMLElement {
     clearTimeout(this._alertTimer);
     clearTimeout(this._homeTimer);
     clearTimeout(this._wxTimer);
+    clearTimeout(this._snoozeTimer);
+    if (this._undoing) this._confirmed();
     this._resize?.disconnect();
     this._turnTimer = null;
     this._countTimer = null;
@@ -1688,7 +1717,7 @@ class HaagHost extends HTMLElement {
       this._layer.append(entry.el);
       this._running.set(name, entry);
     } catch (err) {
-      entry?.alerts.clear();   // anything it raised before failing
+      entry?.alerts.drop();   // anything it raised before failing
       this._failed.add(name);
       const title = reg.manifest?.title || `Glance "${name}"`;
       notice('warning', err.newer ? `${title} needs a newer Håg` : `${title} didn't load`, { file: reg.url, error: err });
@@ -1700,7 +1729,7 @@ class HaagHost extends HTMLElement {
 
   _stop(name) {
     const entry = this._running.get(name);
-    entry?.alerts.clear();
+    entry?.alerts.drop();
     entry?.el.remove();
     this._running.delete(name);
   }
@@ -1734,29 +1763,66 @@ class HaagHost extends HTMLElement {
     return this._tints.get(key);
   }
 
-  // What's on screen: glances that want it take turns, in settings order;
-  // otherwise the default glance.
-  _schedule(rotate = false) {
+  // Glances in turn: the default first, then those asking, in settings order.
+  _rotation() {
+    const { def, order } = this._settings;
+    return [...(this._running.has(def) ? [def] : []), ...order.filter(n => this._running.get(n)?.wants)];
+  }
+
+  // What's on screen. `move`: 1 or -1 steps through the turns (the timer, a
+  // tap at the side); a name shows that glance for a turn, in the turns or
+  // not (a tap on its alert). Otherwise the screen changes only when what's
+  // on it leaves the turns. Each turn lasts `cycle`.
+  _schedule(move = 0) {
     if (!this._settings) return;
-    const { def, order, cycle } = this._settings;
-    const asking = order.filter(n => this._running.get(n)?.wants);
-    let next = this._showing;
-    if (!asking.length) next = this._running.has(def) ? def : null;
-    else if (rotate || !asking.includes(next)) next = asking[(asking.indexOf(next) + 1) % asking.length];
-    const changed = next !== this._showing;
-    if (changed) this._show(next);
-    if (asking.length < 2) {
+    const turns = this._rotation();
+    const cur = this._showing;
+    const stays = this._running.has(cur) && (turns.includes(cur) || cur === this._visit);
+    let next = cur;
+    if (typeof move === 'string') next = move;
+    else if (move || !stays) {
+      // From a visit, the turns carry on from the glance before it.
+      const from = turns.includes(cur) ? cur : this._place;
+      next = move === -1 && from !== cur && turns.includes(from) ? from : this._neighbour(turns, from, move || 1);
+    }
+    const turned = next !== cur || !!move;
+    this._order = turns;
+    if (turned) {
+      this._visit = typeof move === 'string' ? move : null;
+      this._show(next);
+    }
+    // A glance that starts asking while another shows alone joins once that
+    // one has had a turn.
+    const more = turns.length > 1 || (next !== null && !turns.includes(next));
+    if (!more) {
       clearTimeout(this._turnTimer);
       this._turnTimer = null;
-    } else if (changed || rotate || !this._turnTimer) {
+    } else if (turned || !this._turnTimer) {
+      const turn = this._settings.cycle * 1000;
       clearTimeout(this._turnTimer);
-      this._turnTimer = setTimeout(() => { this._turnTimer = null; this._schedule(true); }, cycle * 1000);
+      this._turnTimer = setTimeout(() => { this._turnTimer = null; this._schedule(1); },
+        turned ? turn : Math.max(0, this._shownAt + turn - Date.now()));
     }
     this._updateAlert();
   }
 
+  // The glance after `from` (step 1) or before it (-1) in the turns, by its
+  // place in the last turns if it has left them.
+  _neighbour(turns, from, step) {
+    const list = turns.includes(from) ? turns : this._order ?? [];
+    const i = list.indexOf(from);
+    for (let k = 1; k <= list.length; k++) {
+      const n = list[((i + k * step) % list.length + list.length) % list.length];
+      if (turns.includes(n)) return n;
+    }
+    return turns[0] ?? null;
+  }
+
   _show(name) {
     this._showing = name;
+    this._shownAt = Date.now();
+    if (this._order?.includes(name)) this._place = name;
+    this._held = null;   // a tapped alert stays on the row for one turn
     for (const [n, entry] of this._running) {
       const on = n === name;
       if (entry.visible === on) continue;
@@ -1764,6 +1830,19 @@ class HaagHost extends HTMLElement {
       entry.el.classList.toggle('on', on);
       entry.el.dispatchEvent(new Event('haag-visible'));
     }
+    this._timeTurns();
+  }
+
+  // A tap on the screen: the right half goes to the next glance, the left
+  // half back. Taps on the row are its own; just above and below it, they
+  // do nothing.
+  _tap(e) {
+    if (e.composedPath().includes(this._row)) return this._tapRow(e);
+    const box = this.getBoundingClientRect();
+    const band = this._alertBand();
+    const y = e.clientY - box.top, gap = Math.min(box.width, box.height) * TAP_GAP;
+    if (band.showing && y > band.top - gap && y < band.bottom + gap) return;
+    if (this._showing) this._schedule(e.clientX - box.left < box.width / 2 ? -1 : 1);
   }
 
   // ----- Day and night -----
@@ -1930,26 +2009,30 @@ class HaagHost extends HTMLElement {
 
   // One source's alerts (Håg's own, household, weather, a glance): set,
   // delete and clear by key, kept apart from other sources'. Only core
-  // sources may hold the row, show alone or carry help links. replace()
-  // sets a whole list ([{ key, ... }]) and deletes the rest.
+  // sources may hold the row, show alone or carry help links; only glances
+  // may make an alert dismissable, and their delete forgets the dismissal.
+  // replace() sets a whole list ([{ key, ... }]) and deletes the rest;
+  // drop() removes all and keeps dismissals (a glance stopping).
   _alertsFor(source, core = false) {
     const host = this, keys = new Set(), id = key => `${source}:${key}`;
-    const set = (key, { level, text, since, hold, own, help } = {}) => {
+    const set = (key, { level, text, since, hold, own, help, dismiss } = {}) => {
       keys.add(key);
       host._raise(id(key), { level: LEVELS.includes(level) ? level : 'info', text: String(text ?? ''), since,
-        ...(core && { hold: !!hold, own: !!own, help: typeof help === 'string' ? help : !!help }) });
+        ...(core ? { hold: !!hold, own: !!own, help: typeof help === 'string' ? help : !!help } : { dismiss: !!dismiss }) });
     };
-    const del = key => {
+    const del = (key, forget = !core) => {
       keys.delete(key);
       host._clear(id(key));
+      if (forget) host._forget(id(key));
     };
     return {
       set,
-      delete: del,
-      clear: () => [...keys].forEach(del),
+      delete: key => del(key),
+      clear: () => [...keys].forEach(k => del(k)),
+      drop: () => [...keys].forEach(k => del(k, false)),
       replace(list) {
         const now = new Set(list.map(a => a.key));
-        [...keys].filter(k => !now.has(k)).forEach(del);
+        [...keys].filter(k => !now.has(k)).forEach(k => del(k));
         for (const { key, ...a } of list) set(key, a);
       },
     };
@@ -1957,15 +2040,17 @@ class HaagHost extends HTMLElement {
 
   // Raise or update an alert by id. level: info, warning or critical.
   // hold: the alert stays put and others wait (holders take turns among
-  // themselves). own: Håg's own alert, shown alone. help: settings and
-  // help links (true, or the help page's URL). since: when it started
-  // (newest goes first); kept on update.
-  _raise(id, { level = 'info', text = '', hold = false, own = false, help = false, since } = {}) {
+  // themselves), and can't be snoozed. own: Håg's own alert, shown alone.
+  // help: settings and help links (true, or the help page's URL). since:
+  // when it started (newest goes first); kept on update. dismiss: a tap
+  // dismisses it instead of snoozing. undo: an undo link (a snooze's
+  // confirmation).
+  _raise(id, { level = 'info', text = '', hold = false, own = false, help = false, since, dismiss = false, undo = false } = {}) {
     const old = this._alerts.get(id);
     since ??= old?.since ?? Date.now();
     if (old && old.level === level && old.text === text && old.hold === hold && old.own === own &&
-        old.help === help && old.since === since) return;
-    this._alerts.set(id, { id, level, text, hold, own, help, since });
+        old.help === help && old.since === since && old.dismiss === dismiss && old.undo === undo) return;
+    this._alerts.set(id, { id, level, text, hold, own, help, since, dismiss, undo });
     this._pick();
   }
 
@@ -1977,8 +2062,11 @@ class HaagHost extends HTMLElement {
   // severity; otherwise the highest severity present, and only its holders
   // if it has any. Newest first.
   _turns() {
-    const all = [...this._alerts.values()];
-    const own = all.filter(a => a.own);
+    const all = [...this._alerts.values()].filter(a => !this._muted(a.id));
+    // A snooze's confirmation shows alone, unless a hazard or Håg's own alert is up.
+    const confirm = this._alerts.get('haag:confirm');
+    if (confirm && !all.some(a => a.hold || (a.own && a !== confirm))) return [confirm];
+    const own = all.filter(a => a.own && a !== confirm);
     if (own.length) return [...own, ...all.filter(a => a.id.startsWith('notice:'))].sort((a, b) => b.since - a.since);
     const top = Math.max(-1, ...all.map(a => LEVELS.indexOf(a.level)));
     let turns = all.filter(a => LEVELS.indexOf(a.level) === top);
@@ -2004,9 +2092,10 @@ class HaagHost extends HTMLElement {
     this._timeTurns(next !== cur);
   }
 
-  // Turns run while more than one alert takes them.
+  // Turns run while more than one alert takes them, and not while a tapped
+  // alert is held.
   _timeTurns(restart = false) {
-    if (this._queue.length < 2) {
+    if (this._queue.length < 2 || this._held === this._current) {
       clearTimeout(this._alertTimer);
       this._alertTimer = null;
     } else if (restart || !this._alertTimer) {
@@ -2055,7 +2144,7 @@ class HaagHost extends HTMLElement {
   }
 
   _fill(slide, alert) {
-    const key = `${alert.level}|${alert.help}|${alert.text}`;
+    const key = `${alert.level}|${alert.help}|${alert.undo}|${alert.text}`;
     if (slide.dataset.key === key) return;
     slide.dataset.key = key;
     const icon = LEVEL_ICON[alert.level];
@@ -2064,8 +2153,8 @@ class HaagHost extends HTMLElement {
     fitAlertIcon(box, icon);
     slide.querySelector('.msg').textContent = alert.text;
     // Settings opens HA's Edit dashboard form (admins, storage-mode dashboards).
-    slide.querySelector('.links').innerHTML = alert.help
-      ? `<a class="settings" href="?edit=1">Settings</a><a href="${typeof alert.help === 'string' ? alert.help : HELP_URL}" target="_blank" rel="noopener">Help</a>`
+    slide.querySelector('.links').innerHTML = alert.undo ? '<a class="undo" href="#">Undo</a>'
+      : alert.help ? `<a class="settings" href="?edit=1">Settings</a><a href="${typeof alert.help === 'string' ? alert.help : HELP_URL}" target="_blank" rel="noopener">Help</a>`
       : '';
     this._fit(slide);
   }
@@ -2116,6 +2205,97 @@ class HaagHost extends HTMLElement {
     if (room > 0 && width > room) fit.style.fontSize = `${Math.max(MIN_FIT, room / width * .99)}em`;
   }
 
+  // ----- Touching an alert -----
+
+  // A tap on the row: its links; otherwise the alert's glance for a turn,
+  // with the alert held on the row. On that glance, a tap snoozes it.
+  _tapRow(e) {
+    const link = e.target.closest('a');
+    if (link?.classList.contains('settings')) return this._openSettings(e);
+    if (link?.classList.contains('undo')) {
+      e.preventDefault();
+      return this._undo();
+    }
+    const alert = this._alerts.get(this._current);
+    if (link || !alert || alert.own) return;
+    const name = alert.id.startsWith('glance:') ? alert.id.split(':')[1] : this._settings.def;
+    if (!this._running.has(name) || this._showing === name) return this._snooze(alert);
+    this._schedule(name);
+    this._held = alert.id;
+    this._timeTurns();
+  }
+
+  // Snooze an alert for its length, or dismiss it if its glance allows;
+  // the row says so, with an undo, for CONFIRM_TIME. Holders can't be.
+  _snooze(alert) {
+    if (alert.hold) return;
+    if (this._undoing) this._confirmed();
+    const ms = this._snoozeLength(alert.id) * 1000;
+    if (alert.dismiss) this._snoozes.dismissed[alert.id] = Date.now();
+    else this._snoozes.snoozed[alert.id] = Date.now() + ms;
+    this._snoozesChanged();
+    this._undoing = alert.id;
+    this._confirmTimer = setTimeout(() => this._confirmed(), CONFIRM_TIME);
+    this._raise('haag:confirm', { level: 'info', text: alert.dismiss ? 'Dismissed' : `Snoozed for ${duration(ms)}`, own: true, undo: true });
+  }
+
+  // Seconds a tap snoozes an alert for: its setting; left out, household
+  // alerts their wait or hold (up to an hour), and the rest SNOOZE.
+  _snoozeLength(id) {
+    const source = id.slice(0, id.indexOf(':')), key = id.slice(id.indexOf(':') + 1);
+    const { core, weather } = this._settings.alerts;
+    if (source === 'weather') return weather.snooze;
+    if (source !== 'home') return SNOOZE;
+    const s = core[CORE_ALERT_OF[key === 'unlocked' || key === 'jammed' ? 'lock' : key]] ?? {};
+    return s.snooze ?? (key === 'jammed' ? SNOOZE : snoozeDefault(s));
+  }
+
+  // The undo ran out. A dismissed glance alert's glance is told, so it can
+  // end that state.
+  _confirmed() {
+    const id = this._undoing;
+    clearTimeout(this._confirmTimer);
+    this._undoing = null;
+    this._clear('haag:confirm');
+    if (!id.startsWith('glance:') || !(id in this._snoozes.dismissed)) return;
+    const [, name, ...key] = id.split(':');
+    this._running.get(name)?.el.dispatchEvent(new CustomEvent('haag-dismissed', { detail: { key: key.join(':') } }));
+  }
+
+  _undo() {
+    const id = this._undoing;
+    if (!id) return;
+    clearTimeout(this._confirmTimer);
+    this._undoing = null;
+    delete this._snoozes.snoozed[id];
+    delete this._snoozes.dismissed[id];
+    this._snoozesChanged();
+    this._clear('haag:confirm');
+  }
+
+  // Snoozed until its time, or dismissed until its glance deletes it.
+  _muted(id) {
+    return id in this._snoozes.dismissed || this._snoozes.snoozed[id] > Date.now();
+  }
+
+  _forget(id) {
+    if (!(id in this._snoozes.dismissed)) return;
+    delete this._snoozes.dismissed[id];
+    this._snoozesChanged();
+  }
+
+  // Drop what's over, keep the rest in this browser, and look again when
+  // the next snooze ends.
+  _snoozesChanged() {
+    const now = Date.now(), { snoozed, dismissed } = this._snoozes;
+    for (const id in snoozed) if (!(snoozed[id] > now)) delete snoozed[id];
+    for (const id in dismissed) if (!(dismissed[id] > now - DISMISS_LIMIT)) delete dismissed[id];
+    try { localStorage.setItem(SNOOZES, JSON.stringify(this._snoozes)); } catch {}
+    clearTimeout(this._snoozeTimer);
+    const next = Math.min(...Object.values(snoozed));
+    this._snoozeTimer = next < Infinity ? setTimeout(() => { this._snoozesChanged(); this._pick(); }, next - now + 50) : null;
+  }
+
   // Open HA's Edit dashboard form, as its dashboard menu does. This uses
   // HA's dashboard code, not a public API; without it, the link opens the
   // code editor instead.
@@ -2160,7 +2340,7 @@ async function loadHaForm() {
 function selectorOf(o) {
   const filter = o.filter && { filter: o.filter };
   return {
-    seconds: { number: { min: 1, max: 3600, step: 1, mode: 'box', unit_of_measurement: 's' } },
+    seconds: { number: { min: o.min ?? 1, max: o.max ?? 3600, step: 1, mode: 'box', unit_of_measurement: 's' } },
     number: { number: { min: o.min ?? 0, max: o.max, step: o.step ?? 'any', mode: 'box', unit_of_measurement: o.unit } },
     time: { time: { no_second: true } },
     choice: { select: { options: (o.choices ?? []).map(v => ({ value: v, label: o.labels?.[v] ?? v })), mode: 'dropdown' } },
@@ -2428,9 +2608,16 @@ class HaagEditor extends HTMLElement {
           { ...field(`${base}.warning_at`, 'Warning from'), help: `${state} from this time: a warning` },
           { ...field(`${base}.warning_until`, 'Warning until'), help: 'Sunrise when left empty' });
       }
+      if (snoozes(a)) {
+        const set = t => t in a ? Number(on(`${base}.${t}`)) || a[t] : undefined;
+        fields.push({ ...field(`${base}.snooze`, 'Snooze'), default: snoozeDefault({ after: set('after'), hold: set('hold') }),
+          help: key === 'locks' ? 'How long a tap snoozes it; jammed locks 15 min unless set' : 'How long a tap snoozes it' });
+      }
     }
     fields.push({ type: 'constant', name: 'weather', label: 'Weather' }, field('alerts.weather.enabled'));
-    if (on('alerts.weather.enabled') !== false) fields.push(field('alerts.weather.source', 'Source'));
+    if (on('alerts.weather.enabled') !== false) {
+      fields.push(field('alerts.weather.source', 'Source'), { ...field('alerts.weather.snooze', 'Snooze'), help: 'How long a tap snoozes one' });
+    }
     return fields;
   }
 

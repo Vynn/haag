@@ -53,10 +53,10 @@ strategy:
 
 | Setting | Value |
 |---|---|
-| `default` | The glance shown when nothing else needs the screen. Overview Glance (`sinnesro`) if left out. |
-| `cycle` | Seconds per turn when several glances want the screen. 30 if left out. |
+| `default` | The glance shown when nothing else needs the screen, and first in the turns when something does. Overview Glance (`sinnesro`) if left out. |
+| `cycle` | Seconds per turn when glances take turns, 10 to 60. 30 if left out. |
 | `easter_eggs` | `false` turns off the easter eggs in every glance. On if left out; a glance's own `easter_eggs` can still turn them off just for it. |
-| `glances.<name>.enabled` | `true` turns a glance on. Entry order is the order glances take turns. |
+| `glances.<name>.enabled` | `true` turns a glance on. Entry order is the order glances take turns, after the default glance. |
 | `glances.<name>.<setting>` | A glance's own settings. Each glance lists its own; in the editor, each glance has a section with its switch in the header. |
 
 Overview Glance (`glances.sinnesro`):
@@ -119,7 +119,9 @@ strategy:
 | `alerts.core.leak.critical_after` | Seconds before a leak turns critical. 900 if left out. |
 | `alerts.core.<alert>.hold` | Seconds a reading stays past its limit before the alert shows. 900 if left out. |
 | `alerts.core.<alert>.limit` | The reading's limit, in the unit below. Converted to each sensor's own unit. |
+| `alerts.core.<alert>.snooze` | Seconds a tap snoozes the alert for. Not for `smoke`, `co` and `gas`, which can't be snoozed. Left out: its `after` or `hold`, up to 3600, or 900 for alerts that show at once (jammed locks too). |
 | `alerts.weather.enabled` | `false` turns weather alerts off. On if left out. |
+| `alerts.weather.snooze` | Seconds a tap snoozes a weather alert for. 900 if left out. Extreme weather can't be snoozed. |
 | `alerts.weather.source` | The weather alert integration to use, when more than one is installed: `nina`, `environment_canada`, `dwd_weather_warnings`, `meteoalarm`, `cap_alerts`, `nws_alerts` or `weatheralerts`. Found automatically if left out. |
 
 The household alerts (`<alert>`), with their timings and limits when left out:
@@ -138,7 +140,7 @@ The household alerts (`<alert>`), with their timings and limits when left out:
 
 Times of day are in Home Assistant's time zone. Quote them: unquoted, YAML can read `21:00` as a number.
 
-In the editor, the Alerts section lists the household alerts, then weather. Turning an alert on shows the sensors Håg found for it, all ticked: untick any that aren't really that thing, and they're saved under `exclude`. Sensors found later are watched without being ticked first. Its timings, limit and warning settings follow.
+In the editor, the Alerts section lists the household alerts, then weather. Turning an alert on shows the sensors Håg found for it, all ticked: untick any that aren't really that thing, and they're saved under `exclude`. Sensors found later are watched without being ticked first. Its timings, limit, warning settings and snooze follow.
 
 ## Time and numbers
 
