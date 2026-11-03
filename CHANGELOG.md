@@ -2,6 +2,14 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
+## 0.5.0 · unreleased
+
+In progress.
+
+### Added
+
+- An overall easter eggs setting (`easter_eggs`, on by default, in the editor's General section) that every glance follows; a glance's own setting can still turn them off just for it. For glance authors: `haag.easterEggs`.
+
 ## 0.4.0 · 2026-11-02
 
 The configuration editor: the first alpha. A pre-release. See [configuration](docs/configuration.md).

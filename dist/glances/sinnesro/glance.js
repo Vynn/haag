@@ -372,7 +372,7 @@ class SinnesroGlance extends HTMLElement {
     this._measure = document.createElement('canvas').getContext('2d');
     this._stage = root.querySelector('.stage');
     if (weather) this._wx = new weather.Weather(this._stage, root.querySelector('.wx-under'), root.querySelector('.wx-over'));
-    this._wx?.setEggs(this._settings?.easter_eggs !== false);
+    this._wx?.setEggs(this._eggs());
     this.addEventListener('haag-alertrow', () => this._relayout());
     // Off screen: animations pause.
     this.addEventListener('haag-visible', () => {
@@ -385,7 +385,12 @@ class SinnesroGlance extends HTMLElement {
 
   setConfig(settings) {
     this._settings = settings;
-    this._wx?.setEggs(settings.easter_eggs !== false);
+    this._wx?.setEggs(this._eggs());
+  }
+
+  // On overall (haag.easterEggs) and not turned off here.
+  _eggs() {
+    return this._haag?.easterEggs !== false && this._settings?.easter_eggs !== false;
   }
 
   // How many appointments at most (setting `appointments`).

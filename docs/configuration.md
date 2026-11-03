@@ -55,6 +55,7 @@ strategy:
 |---|---|
 | `default` | The glance shown when nothing else needs the screen. Overview Glance (`sinnesro`) if left out. |
 | `cycle` | Seconds per turn when several glances want the screen. 30 if left out. |
+| `easter_eggs` | `false` turns off the easter eggs in every glance. On if left out; a glance's own `easter_eggs` can still turn them off just for it. |
 | `glances.<name>.enabled` | `true` turns a glance on. Entry order is the order glances take turns. |
 | `glances.<name>.<setting>` | A glance's own settings. Each glance lists its own; in the editor, each glance has a section with its switch in the header. |
 
@@ -64,7 +65,7 @@ Overview Glance (`glances.sinnesro`):
 |---|---|
 | `appointments` | The most appointments shown. 4 if left out. When space runs short, the furthest are dropped first. |
 | `days` | How many days ahead appointments come from. 30 if left out. |
-| `easter_eggs` | `false` leaves out the easter eggs: what's caught in a tornado (cows, a dinosaur and junk), the giant spider, the dragon, and the odd things that blow through on a gust. The tornado, wind, space station and shooting stars stay. On if left out. |
+| `easter_eggs` | `false` leaves out Overview's easter eggs: what's caught in a tornado (cows, a dinosaur and junk), the giant spider, the dragon, and the odd things that blow through on a gust. The tornado, wind, space station and shooting stars stay. On if left out, unless the overall `easter_eggs` is off. |
 
 ## Day and night
 

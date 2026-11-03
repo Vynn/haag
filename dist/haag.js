@@ -1256,6 +1256,7 @@ const OPTIONS = [
   { path: 'cycle', type: 'seconds', default: CYCLE, label: 'Cycle', help: 'Seconds per turn when several glances want the screen' },
   { path: 'theme', type: 'choice', choices: THEMES, default: 'auto', label: 'Theme', help: 'Day and night colors',
     labels: { auto: 'Auto (follows the sun)', dark: 'Dark', light: 'Light' } },
+  { path: 'easter_eggs', type: 'boolean', default: true, label: 'Easter eggs', help: 'Off turns them off in every glance' },
   { path: 'glances.*.enabled', type: 'boolean', default: false, label: 'On' },
   { path: 'providers.outdoor.temperature', type: 'entity', filter: { domain: 'sensor', device_class: 'temperature' }, label: 'Outdoor temperature' },
   { path: 'providers.outdoor.humidity', type: 'entity', filter: { domain: 'sensor', device_class: 'humidity' }, label: 'Outdoor humidity' },
@@ -1371,6 +1372,7 @@ function readSettings(config) {
     order: Object.keys(glances).filter(n => NAME.test(n) && n !== def && glances[n]?.enabled === true && on(n)),
     cycle: get('cycle'),
     theme: get('theme'),
+    easterEggs: get('easter_eggs'),
     turn: get('alerts.turn'),
     providers: { outdoor, floors, people, calendar: calendars ? { calendars } : {} },
     alerts: { core, weather: { enabled: get('alerts.weather.enabled'), source: get('alerts.weather.source') } },
@@ -1710,6 +1712,7 @@ class HaagHost extends HTMLElement {
     return {
       providers: this._providers,
       get daylight() { return host._daylight; },
+      get easterEggs() { return host._settings.easterEggs; },   // a glance's own setting can still turn them off
       layout: { angle: SPLIT_ANGLE },
       icon: setIcon,
       colorOf: (id, on) => host._colorOf(id, on),
@@ -2379,6 +2382,7 @@ class HaagEditor extends HTMLElement {
           selector: { select: { mode: 'dropdown', options: glances.map(n => ({ value: n, label: titleOf(n) })) } } },
         field('cycle'),
         field('theme'),
+        field('easter_eggs'),
       ], true),
       section('People and calendars', [
         ...['exclude', 'include'].map(k => field(`providers.people.${k}`)),

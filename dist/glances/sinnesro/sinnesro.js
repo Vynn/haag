@@ -11,7 +11,7 @@ const manifest = {
     { key: 'days', type: 'number', default: 30, min: 1, step: 1, unit: 'days', label: 'Days ahead',
       help: 'How far ahead appointments come from' },
     { key: 'easter_eggs', type: 'boolean', default: true, label: 'Easter eggs',
-      help: "What's caught in a tornado, the spider, the dragon, and odd things on the wind" },
+      help: "What's caught in a tornado, the spider, the dragon, and odd things on the wind; off here even when they're on overall" },
   ],
 };
 
