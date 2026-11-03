@@ -1140,7 +1140,7 @@ function setupLine(check) {
    ------------------------------------------------------------------------ */
 
 const GLANCE_FORMAT = 'haag-glance/v1';
-const BUILT_IN = ['sinnesro'];
+const BUILT_IN = ['sinnesro', 'vitvaror'];
 const DEFAULT_GLANCE = 'sinnesro';
 const CYCLE = 30;           // seconds per turn when several glances want the screen
 const STARTUP_LIMIT = 60;   // seconds before an empty screen turns critical
