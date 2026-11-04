@@ -116,7 +116,7 @@ The first glance after Overview Glance: washers, dryers, washer-dryers and dishw
 
 ## 1.0 · Feature complete
 
-- [ ] Glances and notices share one priority order
+- [x] One rotation: active glances take equal turns in the order they ask, the default first; no priority. Alerts only bring up the row.
 - [ ] Stable settings format
 - [ ] Complete documentation
 - [ ] Listed in the default HACS and Home Assistant Marketplace catalog

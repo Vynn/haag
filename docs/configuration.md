@@ -56,7 +56,7 @@ strategy:
 | `default` | The glance shown when nothing else needs the screen, and first in the turns when something does. Overview Glance (`sinnesro`) if left out. |
 | `cycle` | Seconds per turn when glances take turns, 10 to 60. 30 if left out. |
 | `easter_eggs` | `false` turns off the easter eggs in every glance. On if left out; a glance's own `easter_eggs` can still turn them off just for it. |
-| `glances.<name>.enabled` | `true` turns a glance on. Entry order is the order glances take turns, after the default glance. |
+| `glances.<name>.enabled` | `true` turns a glance on. Glances take turns in the order they ask, after the default glance. |
 | `glances.<name>.<setting>` | A glance's own settings. Each glance lists its own; in the editor, each glance has a section with its switch in the header. |
 
 Overview Glance (`glances.sinnesro`):

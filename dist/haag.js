@@ -1690,7 +1690,8 @@ class HaagHost extends HTMLElement {
     this._layer = root.querySelector('.glances');
     this._row = root.querySelector('.alert-row');
     this._stage.addEventListener('click', e => this._tap(e));
-    this._running = new Map();   // name → { reg, el, visible, wants }
+    this._running = new Map();   // name → { reg, el, visible, wants, asked }
+    this._asks = 0;              // requests so far: turn order
     this._loading = new Set();
     this._failed = new Set();
     this._showing = null;
@@ -1898,7 +1899,8 @@ class HaagHost extends HTMLElement {
       get alertrow() { return host._alertBand(); },
       alerts: { set, delete: del, clear },   // its own, at any severity; the core picks the icon
       get visible() { return entry.visible; },
-      request() { entry.wants = true; host._schedule(); },
+      // Asking again keeps a glance's place; after a release, it goes to the back.
+      request() { if (!entry.wants) entry.asked = ++host._asks; entry.wants = true; host._schedule(); },
       release() { entry.wants = false; host._schedule(); },
     };
     return haag;
@@ -1914,10 +1916,12 @@ class HaagHost extends HTMLElement {
     return this._tints.get(key);
   }
 
-  // Glances in turn: the default first, then those asking, in settings order.
+  // Glances in turn: the default first, then those asking, in the order they asked.
   _rotation() {
     const { def, order } = this._settings;
-    return [...(this._running.has(def) ? [def] : []), ...order.filter(n => this._running.get(n)?.wants)];
+    const asked = n => this._running.get(n).asked;
+    const asking = order.filter(n => this._running.get(n)?.wants).sort((a, b) => asked(a) - asked(b));
+    return [...(this._running.has(def) ? [def] : []), ...asking];
   }
 
   // What's on screen. `move`: 1 or -1 steps through the turns (the timer, a

@@ -41,7 +41,7 @@ strategy:
       enabled: true
 ```
 
-- One entry per glance, under its name. Entry order is the order glances take turns, after the default glance.
+- One entry per glance, under its name. Glances take turns in the order they ask, after the default glance.
 - A glance with no entry, or with `enabled: false`, is off and isn't loaded. Built-in glances too.
 - `default` names any installed glance. The default glance is on unless its entry says `enabled: false`.
 - `cycle` sets the seconds per turn, 10 to 60 (30 if left out), in YAML or the editor's General section.
@@ -201,8 +201,8 @@ The default glance never asks. Other glances:
 
 Håg runs the turns:
 
-- **Order:** the default glance, then the glances asking, in entry order, `cycle` seconds each. With nothing else asking, the default glance shows alone.
-- **Joining:** a glance that asks joins once the glance on screen has had a full turn.
+- **Order:** the default glance, then the glances asking, in the order they asked, `cycle` seconds each. With nothing else asking, the default glance shows alone.
+- **Joining:** a glance that asks joins at the back, once the glance on screen has had a full turn. Asking again while asking keeps its place.
 - **Leaving:** a glance that releases leaves at once, and the next one gets a full turn.
 - **Timing is Håg's:** a glance only says whether it has something to show.
 - **Alerts don't change the turns.** A glance can show an alert's state in its own content, but it keeps its place.
