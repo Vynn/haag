@@ -47,20 +47,23 @@ The idle screen's illustrated look, and how glances work.
 - [x] Settings for alerts: which are on, their sensors, thresholds and timings
 - [x] Warnings for entities missing an area or other fields Håg uses
 
-## 0.5 · Laundry glance
+## 0.5 · Appliance glance
 
-The first glance after Overview Glance.
+The first glance after Overview Glance: washers, dryers, washer-dryers and dishwashers.
 
-- [ ] Rules for priority and cooldown when several glances want the screen
-- [ ] Transitions between glances
-- [ ] Touch to move between glances or pause
-- [ ] Snoozing alerts by touch
-- [ ] Shows while the washer or dryer is running, and when a load is done
-- [ ] Cycle progress, time remaining and finish time
-- [ ] Current phase (wash, rinse, spin, dry) where available
-- [ ] Washer and dryer together when both are running
-- [ ] A finished load waiting to be emptied (until the door opens, where a door sensor exists)
-- [ ] Errors shown clearly
+- [x] Glances take turns, the default glance among them, with no priority or cooldown
+- [ ] Transitions between glances (0.5.1)
+- [x] Touch to move between glances
+- [x] Snoozing alerts by touch
+- [x] Shows while a machine is running, and for a while after its cycle ends
+- [x] Cycle progress, time remaining and finish time
+- [x] Current phase (wash, rinse, spin, dry) where available
+- [x] Up to three machines together
+- [x] A finished load waiting to be emptied (until the door opens, where a door sensor exists)
+- [x] Errors shown clearly
+- [x] Alert settings for each glance
+- [x] An overall easter eggs setting
+- [x] Layout helpers for glance authors
 - [ ] Installs through the Home Assistant Marketplace, with the first build after the Marketplace's stable release
 
 ## 0.6 · 3D printer glance
@@ -122,5 +125,4 @@ The first glance after Overview Glance.
 
 - **Now playing** (after 1.0): what's playing in which room, with artwork.
 - **Robot vacuum** (after 1.0): cleaning now and where, the map, stuck or in error, the dock needing attention.
-- **Dishwasher** (to decide): running, finish time, clean dishes waiting to be emptied.
 - **Settings import and export** (revisit at 1.0): worth it if it lets glances be bundled with their settings. Home Assistant's code editor already copies settings out and in.
