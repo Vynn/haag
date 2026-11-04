@@ -147,6 +147,9 @@ const STYLE = `
     background: var(--home);
   }
   .stage.paused * { animation-play-state: paused !important; }
+  /* Between glances Håg paints the sky and home colors; the glow stays here. */
+  :host([between]) .stage { background: none; }
+  :host([between]) .sky { background: radial-gradient(120% 90% at 30% 85%, var(--horizon), transparent 60%); }
 
   /* Outdoor side: sky with a soft horizon glow, cut at the split. The
      weather draws over it. */
@@ -182,9 +185,10 @@ const STYLE = `
 
   .line { display: flex; gap: calc(1.2 * var(--u)); align-items: baseline; }
 
-  /* Clock: tight box around the numerals; AM/PM hangs outside it, top-aligned
-     by _alignAmPm(), so _layout() can tuck it toward the line. */
-  .time { position: relative; line-height: .8; }
+  /* Clock: Håg draws it. This stands in for layout to measure, then Håg's
+     takes its place: tight box around the numerals; AM/PM hangs outside it,
+     top-aligned by _alignAmPm(), so _layout() can tuck it toward the line. */
+  .time { position: relative; line-height: .8; visibility: hidden; }
   /* The numerals' own box must be as tight as the line (inline boxes include
      the font's full height, which would push the layout around). */
   .time [data-live="time"] { display: inline-block; line-height: .8; }
@@ -356,6 +360,8 @@ const TEMPLATE = `
     <!-- One cluster per indoor floor, built from discovery. -->
     <section class="side indoor" aria-label="Indoor"></section>
 
+    <slot name="clock"></slot>
+
     <!-- Weather that crosses the text: fog over the clock, snow on the alert row. -->
     <svg class="wx wx-over" aria-hidden="true"></svg>
 
@@ -384,6 +390,16 @@ class SinnesroGlance extends HTMLElement {
   setConfig(settings) {
     this._settings = settings;
     this._wx?.setEggs(this._eggs());
+  }
+
+  // For Håg's transitions: the two grounds, the weather, and the text but the clock.
+  parts() {
+    const a = this._haag.layout.angle, root = this.shadowRoot;
+    return {
+      wedges: [{ from: 180 - a, to: 360 - a, color: 'var(--sky)' }, { from: 360 - a, to: 540 - a, color: 'var(--home)' }],
+      scene: [...root.querySelectorAll('.sky, .wx')],
+      text: [...this._out, ...this._in].filter(el => !el.querySelector('.time')).map(el => [...el.children]),
+    };
   }
 
   // On overall (haag.easterEggs) and not turned off here.
@@ -529,11 +545,9 @@ class SinnesroGlance extends HTMLElement {
     const tz = this._hass?.config?.time_zone;   // HA's time zone, not the browser's
     const locale = this._hass?.language || navigator.language;
 
-    // The clock, with AM/PM in a separate label (none on 24 hours).
-    const parts = new Intl.DateTimeFormat(timeLocale(this._hass), { hour: 'numeric', minute: '2-digit', ...hours(this._hass), timeZone: tz }).formatToParts(now);
-    const pick = type => parts.find(p => p.type === type)?.value ?? '';
-    this._live.time.textContent = `${pick('hour')}:${pick('minute')}`;
-    this._live.ampm.textContent = pick('dayPeriod').toUpperCase();
+    // The clock's stand-in, with AM/PM in a separate label (none on 24 hours).
+    this._live.time.textContent = this._haag.clock.time;
+    this._live.ampm.textContent = this._haag.clock.period;
 
     // Long-form date above the time.
     this._live.date.textContent = new Intl.DateTimeFormat(locale, { weekday: 'long', month: 'long', day: 'numeric', timeZone: tz }).format(now);
@@ -968,7 +982,12 @@ class SinnesroGlance extends HTMLElement {
       const reading = el.querySelector('.status-line .line > [data-slot]:not([hidden])');
       if (reading) anchor = tx + reading.getBoundingClientRect().left - base.left;
       const time = el.querySelector('.time');
-      if (time) clock = ty + l.baseline(time) - base.top;
+      if (time) {
+        clock = ty + l.baseline(time) - base.top;
+        const r = time.getBoundingClientRect();
+        this._haag.clock.place({ x: tx + r.left - base.left, y: ty + r.top - base.top,
+          size: parseFloat(getComputedStyle(time).fontSize), ampm: this._px('--t2'), color: 'var(--text)' });
+      }
       y = ty + o.top - cgap;
     }
 

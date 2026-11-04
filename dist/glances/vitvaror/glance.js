@@ -285,6 +285,7 @@ class ApplianceGlance extends HTMLElement {
     this._drum = new Drum(this._stage, {
       band: () => this._haag?.alertrow ?? { showing: false, top: 0, bottom: 0 },
       gap: () => (this._lay ??= this._haag.layout.on(this._stage)).gap,
+      clock: () => this._haag?.clock,
     });
     // Off screen, the drum stops; the alert row moves the text.
     this.addEventListener('haag-visible', () => this._drum.setVisible(this._haag.visible));
@@ -300,6 +301,10 @@ class ApplianceGlance extends HTMLElement {
   }
 
   // ----- Glance API (docs/glances.md) -----
+
+  parts() {
+    return this._drum.parts();
+  }
 
   setConfig(settings) {
     this._settings = settings;

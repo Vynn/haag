@@ -18,7 +18,7 @@ Håg is open source, and every glance, built in or not, follows this one contrac
 A glance isn't a Home Assistant card, and the difference is deliberate:
 
 - You don't place glances on a dashboard. Håg shows each one when it's relevant.
-- Håg owns the screen. Layout, colors, typeface and the alert row are the same for every glance.
+- Håg owns the screen. Layout, colors, typeface, the clock and the alert row are the same for every glance.
 - A glance works only inside Håg.
 - Underneath, Håg fills its dashboard with a single Home Assistant card that hosts the glances.
 
@@ -183,6 +183,7 @@ class MyGlance extends HTMLElement {
   setConfig(settings) {}   // its entry from settings
   set hass(hass) {}        // Home Assistant's state, on every change
   set haag(haag) {}        // what Håg provides, below
+  parts() {}               // optional, for transitions, below
 }
 customElements.define('my-glance', MyGlance);
 ```
@@ -208,7 +209,7 @@ Håg runs the turns:
 - **Alerts don't change the turns.** A glance can show an alert's state in its own content, but it keeps its place.
 - **Touch:** a tap on the right half of the screen goes to the next glance, and on the left half to the one before; that glance gets a full turn. Taps just above and below the alert row do nothing, and taps on it are the alert's (see [alerts](alerts.md#touching-an-alert)).
 
-Switching between glances is a crossfade until transitions arrive in 0.5.1.
+Moving between glances is a [transition](#transitions).
 
 ### What Håg provides
 
@@ -222,6 +223,7 @@ Switching between glances is a crossfade until transitions arrive in 0.5.1.
 | `haag.icon(element, name)` | Draws a Home Assistant icon, filling the element. Fitting it to the text is up to the glance. |
 | `haag.alerts` | This glance's alerts: `set`, `delete` and `clear`. See [alerts](alerts.md#the-alerts-api). |
 | `haag.alertrow` | Whether the alert row shows, and where. |
+| `haag.clock` | Where the clock goes and how it looks. See [the clock](#the-clock). |
 
 Inherited through CSS: the typeface, the size unit `cqmin` (1% of the shorter side), and the palette:
 
@@ -262,6 +264,60 @@ Håg draws it above every glance, by the same rules for every glance:
 - **Sending alerts:** `haag.alerts`, the same API Håg's own alerts use. See [alerts](alerts.md).
 - **Touch:** a tap on an alert shows its glance; the next tap snoozes it. See [alerts](alerts.md#touching-an-alert).
 
-## Not decided yet
+### The clock
 
-- **Transitions** (0.5.1): Håg will run them the same way for every glance, so each glance will describe its parts to Håg. How is still to come.
+The time belongs to Håg. It draws one clock, above the glance and below the alert row, and keeps it to Home Assistant's time zone and time format. The glance says where it goes and how it looks:
+
+```js
+haag.clock.place({ x, y, size, ampm, color, align });
+```
+
+| | |
+|---|---|
+| `x`, `y` | The top-left of the numerals' box, in pixels from the stage's top-left. With `align: 'colon'`, `x` is where the colon's middle goes, and it stays there as the time changes. |
+| `size` | The numerals' font size, in pixels. |
+| `ampm` | AM/PM's font size, in pixels. If left out, in Overview Glance's proportion to the numerals. |
+| `color` | Any CSS color Håg can read: its palette or a color value, not the glance's own variables. `--text` if left out. |
+
+- **When:** place it once it's known, also while off screen, and again when it changes. On screen, a new place slides there, a new size scaling with it, in Håg's usual move, 700 ms.
+- **Measuring:** `haag.clock.measure(size, ampm)` gives its `width` with AM/PM, its `height`, and `colon`, the colon's middle from its left.
+- **The text:** `haag.clock.time` and `haag.clock.period` give the time and AM/PM (empty on 24 hours), for a layout that measures its own copy. Overview Glance does.
+- **Drawing over it:** a `<slot name="clock"></slot>` in the glance's shadow root puts the clock at that level, so what comes later crosses over it, as Overview Glance's fog does. Between glances it's above both.
+
+A glance that doesn't place it shows no clock.
+
+### Transitions
+
+Håg moves between glances the same way for every glance, in 1.3 seconds:
+
+- **The rays** from the center turn from one glance's wedges to the next's: 180° between the same number, otherwise 360°, splitting or merging on the way, the colors crossfading inside them. To or from a single wedge, the rays turn as the single color grows from the center or as they open from it.
+- **The scene** fades, in place.
+- **Text** bursts straight out from the center, growing as it fades, and comes back in the same way.
+- **The clock** slides and scales to its new place, with the rays.
+- **The alert row** stays put.
+
+With reduced motion, or when a glance gives no parts, it's a crossfade. A glance gives its parts through a method on the element, which Håg calls as a transition starts:
+
+```js
+parts() {
+  return {
+    wedges: [{ from: 135, to: 315, color: 'var(--sky)' }, { from: 315, to: 495, color: 'var(--home)' }],
+    scene: [this._weather],
+    text: [this._title, [this._label, this._value]],
+    turn(spans, opacity) {},
+    done() {},
+  };
+}
+```
+
+| | |
+|---|---|
+| `wedges` | Required. The background, all the way around: degrees clockwise from 3 o'clock, each with a color Håg can read. One wedge is a single color. |
+| `scene` | Elements in the background to fade, such as weather. |
+| `text` | Blocks of text. An array moves as one block. |
+| `turn(spans, opacity)` | Optional. Called on every frame to draw a scene through the turning wedges: `spans` matches `wedges`, each with its `from` and `to` now, and `opacity` is how far the scene has faded in or out. |
+| `done()` | Optional. The transition is over: draw at rest again. |
+
+- **The background:** Håg paints the wedges under the glances and sets the `between` attribute on both, so a glance stops painting its own: `:host([between]) .stage { background: none; }`.
+- **Styles:** Håg sets `opacity` on the scene, and `translate`, `scale`, `transform-origin` and `opacity` on the text, and clears them after. Leave those to Håg on these elements.
+- **On screen:** both glances are during a transition, so `haag.visible` stays true for the leaving one until it ends.

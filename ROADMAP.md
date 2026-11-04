@@ -52,7 +52,7 @@ The idle screen's illustrated look, and how glances work.
 The first glance after Overview Glance: washers, dryers, washer-dryers and dishwashers.
 
 - [x] Glances take turns, the default glance among them, with no priority or cooldown
-- [ ] Transitions between glances (0.5.1)
+- [x] Transitions between glances (0.5.1)
 - [x] Touch to move between glances
 - [x] Snoozing alerts by touch
 - [x] Shows while a machine is running, and for a while after its cycle ends

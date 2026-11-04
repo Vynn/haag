@@ -43,6 +43,7 @@ function parts(active) {
 
 // While the alert row shows, thirds turn 15° clockwise into a Y.
 const Y_TURN = 15, TURN_TIME = 700;   // degrees; ms, as Håg's moves
+const CLOCK_SIZE = 1.5;               // the clock's numerals, to the machines' names
 
 export const DRUM_STYLE = `
   .stage {
@@ -62,11 +63,13 @@ export const DRUM_STYLE = `
     --ground-dryer: color-mix(in oklab, var(--home) 88%, var(--coral));
     --ground-dishwasher: color-mix(in oklab, var(--home) 88%, var(--seaglass));
   }
+  /* Between glances Håg paints the ground. */
+  :host([between]) .stage { background: none !important; }
   .stage svg { position: absolute; inset: 0; width: 100%; height: 100%; }
   .stage.paused *, .stage .paused * { animation-play-state: paused !important; }
   .labels { position: absolute; inset: 0; pointer-events: none; }
   /* Each part's text in two blocks, the name and its two lines. */
-  .lab { position: absolute; translate: -50% 0; text-align: center; white-space: nowrap; line-height: 1.15; color: var(--in-text); }
+  .lab { position: absolute; transform: translateX(-50%); text-align: center; white-space: nowrap; line-height: 1.15; color: var(--in-text); }
   .lab .t2 { font-size: var(--size); }
   .lab .t3 { font-size: calc(var(--size) * .58); color: var(--in-text-2); }
   .lab.error .t3:first-of-type { color: var(--in-coral); }
@@ -533,15 +536,15 @@ function segBox(x0, y0, x1, y1, [l, t, r, b]) {
   one change at a time; anything else changes in place.
 */
 export class Drum {
-  constructor(stage, { band, gap }) {
-    Object.assign(this, { stage, band, gapOf: gap });
+  constructor(stage, { band, gap, clock }) {
+    Object.assign(this, { stage, band, gapOf: gap, clockOf: clock });
     this.svg = stage.querySelector('svg');
     this.labels = stage.querySelector('.labels');
     this.machines = new Map();   // key → its latest, while shown or wanted
     this.target = [];            // keys wanted, in kind order
     this.sims = [];              // loads in motion
     this.geo = null;
-    this.row = band().showing ? 1 : 0;   // 0 without the alert row, 1 with it
+    this.row = this.rowTo = band().showing ? 1 : 0;   // 0 without the alert row, 1 with it; rowTo: where it's going
     this.turn = 0;
     this.visible = false;
   }
@@ -598,6 +601,8 @@ export class Drum {
   setRow(showing) {
     const target = showing ? 1 : 0, from = this.row, t0 = performance.now();
     cancelAnimationFrame(this.rowFrame);
+    this.rowTo = target;
+    this.placeClock();
     if (!this.visible || reduce.matches) {
       this.row = target;
       if (this.geo) this.applyGeometry(this.geo.moving);
@@ -651,11 +656,11 @@ export class Drum {
     stage.style.background = '';
     if (active.length && R > 0) {
       const ps = parts(active);
-      this.row = this.band().showing ? 1 : 0;
+      this.row = this.rowTo = this.band().showing ? 1 : 0;
       // Layers: the parts' insides, their rings, then the rim and the dividers over all.
       const layer = () => svgEl('g', {}, svg);
-      const geo = this.geo = { cx, cy, R, ps, refs: [], leaving: [], stagger: 0, three: ps.length === 3 ? 1 : 0, defs: svgEl('defs', {}, svg),
-        band: this.bandHeight(), gap: this.gapOf() + R * .0175 };   // from the divider's edge
+      const geo = this.geo = { cx, cy, R, ps, refs: [], leaving: [], three: ps.length === 3 ? 1 : 0, defs: svgEl('defs', {}, svg),
+        band: this.bandHeight(), space: this.gapOf(), gap: this.gapOf() + R * .0175 };   // gap: from the divider's edge
       geo.inside = layer();
       geo.rings = layer();
       svgEl('circle', { class: 'rim', cx, cy, r: R, 'stroke-width': R * .07 }, svg);
@@ -665,7 +670,7 @@ export class Drum {
       if (ps.length > 1) geo.refs.forEach(r => this.addDivider(r));
       this.fitLabels();
       this.applyGeometry();
-    }
+    } else this.placeClock();
     if (ghost) {
       stage.append(ghost);
       ghost.animate({ opacity: [1, 0] }, { duration: TURN_TIME, easing: 'ease-in-out' }).onfinish = () => ghost.remove();
@@ -948,22 +953,56 @@ export class Drum {
     return lo;
   }
 
+  // A part's edges, ring and divider, between these angles.
+  drawEdges(r, from, to, gap) {
+    const { cx, cy, R } = this.geo, ring = R * 1.13, open = to - from - 2 * gap > .5;
+    r.clipPath.setAttribute('d', wedgePath(cx, cy, R, from, to));
+    r.track.setAttribute('d', open ? arcPath(cx, cy, ring, from + gap, to - gap) : '');
+    r.arc.setAttribute('d', open && r.p > 0 ? arcPath(cx, cy, ring, from + gap, from + gap + (to - from - 2 * gap) * r.p) : '');
+    if (r.divider) {
+      Object.entries({ x1: cx, y1: cy, x2: cx + R * 1.2 * Math.cos(rad(to)), y2: cy + R * 1.2 * Math.sin(rad(to)) })
+        .forEach(([k, v]) => r.divider.setAttribute(k, v));
+    }
+  }
+
+  // For Håg's transitions: the grounds, the text, and the drum drawn through
+  // the turning wedges, fading.
+  parts() {
+    const geo = this.geo;
+    if (!geo) return { wedges: [{ from: -45, to: 315, color: 'var(--home)' }] };
+    const all = [...geo.refs, ...geo.leaving], gap = all.length > 1 ? 4 : 0;
+    const ground = kind => {
+      const probe = document.createElement('i');
+      probe.style.color = `var(--ground-${kind})`;
+      this.stage.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    };
+    return {
+      wedges: all.map(r => ({ from: r.part.from + this.turn, to: r.part.to + this.turn, color: ground(this.machines.get(r.part.key).kind) })),
+      text: all.map(r => [r.name, r.lines]),
+      turn: (spans, opacity) => {
+        this.turning = true;
+        this.svg.style.opacity = opacity;
+        if (this.geo === geo) all.forEach((r, i) => this.drawEdges(r, spans[i].from, spans[i].to, gap));
+      },
+      done: () => {
+        this.turning = false;
+        this.svg.style.opacity = '';
+        if (this.geo) this.applyGeometry(this.geo.moving);
+      },
+    };
+  }
+
   // Edges, rings, ground and (unless a sweep is moving it) text, for the
   // current turn.
   applyGeometry(moving = false) {
-    const geo = this.geo, { cx, cy, R } = geo, all = [...geo.refs, ...geo.leaving];
-    const gap = all.length > 1 ? 4 : 0, ring = R * 1.13;
+    if (this.turning) return;   // Håg is drawing it, between glances
+    const geo = this.geo, { cx, cy } = geo, all = [...geo.refs, ...geo.leaving];
+    const gap = all.length > 1 ? 4 : 0;
     this.turn = this.row * Y_TURN * geo.three;
-    for (const r of all) {
-      const from = r.part.from + this.turn, to = r.part.to + this.turn, open = to - from - 2 * gap > .5;
-      r.clipPath.setAttribute('d', wedgePath(cx, cy, R, from, to));
-      r.track.setAttribute('d', open ? arcPath(cx, cy, ring, from + gap, to - gap) : '');
-      r.arc.setAttribute('d', open && r.p > 0 ? arcPath(cx, cy, ring, from + gap, from + gap + (to - from - 2 * gap) * r.p) : '');
-      if (r.divider) {
-        Object.entries({ x1: cx, y1: cy, x2: cx + R * 1.2 * Math.cos(rad(to)), y2: cy + R * 1.2 * Math.sin(rad(to)) })
-          .forEach(([k, v]) => r.divider.setAttribute(k, v));
-      }
-    }
+    for (const r of all) this.drawEdges(r, r.part.from + this.turn, r.part.to + this.turn, gap);
     // Ground: the same wedges, out to the edges.
     const start = all[0].part.from + this.turn;
     const wedges = all.map(r => {
@@ -975,37 +1014,64 @@ export class Drum {
     if (!moving) this.placeLabels();
   }
 
-  // Each text in its part, at row (0 without the alert row, 1 with it):
+  // Each text in its part with nothing to clear, at row (0 without the alert
+  // row, 1 with it):
   // - one machine: the name above the drum's middle and its lines below, a
-  //   gap the alert row's height between, so nothing moves when the row shows;
-  // - halves: side by side across the split, centered on the middle (or
-  //   staggered, geo.stagger, when they can't share a height), each a gap
-  //   from the split; with the row they slide apart along it, the upper
-  //   text above the row and the lower below, as Overview's do;
-  // - thirds: partway out along the part's middle; turning into the Y
-  //   carries the lower two down to just under the alert row.
-  anchors(r, row) {
-    const { cx, cy, R, ps, refs } = this.geo;
-    const hn = r.name.offsetHeight, h = hn + r.lines.offsetHeight, clear = this.geo.band / 2 + R * .05;
-    if (ps.length === 1) return { x: cx, name: cy - clear - hn, lines: cy + clear };
-    const t = ps.length === 3 ? row * Y_TURN : 0, mid = rad((r.part.from + r.part.to) / 2 + t);
-    if (ps.length === 2) {
-      const side = Math.sin(mid) < 0 ? -1 : 1;   // the upper part, or the lower
-      const tall = Math.max(...refs.map(q => q.name.offsetHeight + q.lines.offsetHeight));
-      const stagger = this.geo.stagger;
-      const c = cy + side * (stagger * tall / 2 + (clear + h / 2 - stagger * tall / 2) * row);
-      const top = c - h / 2, nx = Math.cos(mid), ny = Math.sin(mid);
-      // Across from the split: the corner nearest it, a gap away.
-      let near = Infinity;
-      for (const [el, y] of [[r.name, top], [r.lines, top + hn]]) {
-        const w = el.offsetWidth / 2, bh = el.offsetHeight;
-        if (bh) for (const ex of [-w, w]) for (const ey of [y, y + bh]) near = Math.min(near, ex * nx + (ey - cy) * ny);
-      }
-      return { x: cx + (this.geo.gap - near) / nx, name: top, lines: top + hn };
+  //   gap the alert row's height between;
+  // - halves and thirds: partway out along the part's middle; the thirds
+  //   turn into the Y with the row.
+  rest(r, row) {
+    const { cx, cy, R, ps, band } = this.geo, hn = r.name.offsetHeight, h = hn + r.lines.offsetHeight;
+    if (ps.length === 1) {
+      const clear = band / 2 + R * .05;
+      return { x: cx, name: cy - clear - hn, lines: cy + clear };
     }
-    let c = cy + R * .55 * Math.sin(mid);
-    if (row && Math.sin(mid) > .2) c += (cy + clear + h / 2 - c) * row;
-    return { x: cx + R * .55 * Math.cos(mid), name: c - h / 2, lines: c - h / 2 + hn };
+    const t = ps.length === 3 ? row * Y_TURN : 0, mid = rad((r.part.from + r.part.to) / 2 + t), d = R * (ps.length === 2 ? .5 : .55);
+    const c = cy + d * Math.sin(mid);
+    return { x: cx + d * Math.cos(mid), name: c - h / 2, lines: c - h / 2 + hn };
+  }
+
+  // How far the text slides at row (0 or 1) to clear the clock and the row by
+  // a gap, as Overview's clusters do, straight up and down: text above the
+  // middle up, below it down, each side as one.
+  clearing(row, clock) {
+    const { cx, cy, ps, refs, band, space } = this.geo;
+    const top = row ? cy - band / 2 - space - clock.height : cy - clock.height / 2, bottom = top + clock.height;
+    const left = cx - clock.colon, right = left + clock.width;
+    let up = 0, down = 0;
+    for (const r of refs) {
+      const a = this.rest(r, row), hn = r.name.offsetHeight, hl = r.lines.offsetHeight;
+      const boxes = ps.length === 1 ? [[r.name.offsetWidth, a.name, hn], [r.lines.offsetWidth, a.lines, hl]]
+        : [[Math.max(r.name.offsetWidth, r.lines.offsetWidth), a.name, hn + hl]];
+      for (const [w, y, h] of boxes) {
+        if (!h) continue;
+        const over = a.x + w / 2 + space > left && a.x - w / 2 - space < right;
+        if (y + h / 2 < cy) up = Math.max(up, y + h - Math.min(over ? top - space : Infinity, row ? cy - band / 2 - space : Infinity));
+        else down = Math.max(down, Math.max(over && !row ? bottom + space : -Infinity, row ? cy + band / 2 + space : -Infinity) - y);
+      }
+    }
+    return { up, down };
+  }
+
+  // Each text's place at row: where it rests, slid clear.
+  anchors(r, row) {
+    const { cy, ps, slide } = this.geo, a = this.rest(r, row);
+    const up = lerp(slide[0].up, slide[1].up, row), down = lerp(slide[0].down, slide[1].down, row);
+    if (ps.length === 1) return { x: a.x, name: a.name - up, lines: a.lines + down };
+    const by = a.name + (r.name.offsetHeight + r.lines.offsetHeight) / 2 < cy ? -up : down;
+    return { x: a.x, name: a.name + by, lines: a.lines + by };
+  }
+
+  // Håg's clock: its numerals half again the names' size, its colon on the
+  // drum's axis, at the center or just above the alert row. Håg moves it as
+  // the text moves.
+  placeClock() {
+    const clock = this.clockOf();
+    if (!clock) return;
+    const W = this.stage.clientWidth, H = this.stage.clientHeight, geo = this.geo;
+    const size = geo?.clockSize ?? CLOCK_SIZE * .09 * Math.min(W, H), { height } = clock.measure(size);
+    const y = this.rowTo ? H / 2 - (geo?.band ?? this.bandHeight()) / 2 - (geo?.space ?? this.gapOf()) - height : H / 2 - height / 2;
+    clock.place({ x: W / 2, y, size, color: 'var(--d-text)', align: 'colon' });
   }
 
   placeLabels() {
@@ -1016,10 +1082,9 @@ export class Drum {
   }
 
   // Shrinks the text until every part's fits: clear of the rim and the
-  // dividers, and of the alert row while it shows. Checked with and without
-  // the row, so the size holds when it comes and goes. Halves stagger first
-  // (sharing 3/4 of their height, then 2/3) and shrink only when that's not
-  // enough. One size for every part, so the texts match.
+  // dividers, and of the alert row while it shows, once slid clear of the
+  // clock. Checked with and without the row, so the size holds when it comes
+  // and goes. One size for every part, so the texts match.
   fitLabels() {
     const geo = this.geo, { cx, cy, R, ps } = geo, edge = geo.gap - 1, bh = geo.band / 2 + R * .03;
     const inside = (px, py, part, t) => {
@@ -1040,20 +1105,19 @@ export class Drum {
         return [[-w, 0], [w, 0], [-w, h], [w, h]].every(([x, y]) => inside(a.x + x, top + y, r.part, t));
       });
     };
-    const staggers = ps.length === 2 ? [0, 1 / 4, 1 / 3] : [0];
     const base = [9, 7, 6][ps.length - 1] * Math.min(this.stage.clientWidth, this.stage.clientHeight) / 100;   // one machine, halves, thirds
     for (let k = 1; ; k *= .94) {
       for (const r of geo.refs) setSize(r, base * k);
-      for (const s of staggers) {
-        geo.stagger = s;
-        if (k < .6 || geo.refs.every(r => fits(r, 0) && fits(r, 1))) return;
-      }
+      geo.clockSize = base * k * CLOCK_SIZE;
+      const clock = this.clockOf()?.measure(geo.clockSize) ?? { width: 0, height: 0, colon: 0 };
+      geo.slide = [this.clearing(0, clock), this.clearing(1, clock)];
+      if (k < .6 || geo.refs.every(r => fits(r, 0) && fits(r, 1))) break;
     }
+    this.placeClock();
   }
 }
 
-// A leaving text's way out, p from 0 to 1: it fades. (0.5.1 may add
-// others, such as sliding off the screen or bursting outward.)
+// A leaving text's way out, p from 0 to 1: it fades.
 const exit = (r, p) => { r.name.style.opacity = r.lines.style.opacity = Math.max(0, 1 - p); };
 const at = r => ({ x: parseFloat(r.name.style.left), name: parseFloat(r.name.style.top),
   lines: parseFloat(r.lines.style.top), size: parseFloat(r.name.style.getPropertyValue('--size')) });

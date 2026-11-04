@@ -1546,6 +1546,75 @@ function readSettings(config) {
    picks the one on screen, and draws the alert row above it.
    ------------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------------
+   Between glances: rays turn from one glance's wedges to the next's, text
+   bursts out and in, and the clock slides and scales between its places.
+   Each glance gives its parts (docs/glances.md).
+   ------------------------------------------------------------------------ */
+
+const BETWEEN = 1300;   // ms from one glance to the next
+// Shares of that time, overlapping: text out, the rays and the clock, text in.
+const OUT = [0, .45], RAYS = [.2, .8], IN = [.55, 1];
+
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = u => u < .5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2;
+const during = ([s, e], t) => ease(Math.min(1, Math.max(0, (t - s) / (e - s))));
+const norm = a => (a % 360 + 360) % 360;
+const wrap = a => norm(a + 180) - 180;   // to -180..180
+
+// Wedges as a conic gradient from the center (degrees clockwise from 3
+// o'clock); a single wedge is its plain color.
+function paintWedges(layer, wedges) {
+  if (wedges.length < 2) { layer.style.background = wedges[0].color; return; }
+  const start = wedges[0].from;
+  const stops = wedges.map(w => ({ color: w.color, at: norm(w.from - start), width: Math.max(0, w.to - w.from) })).sort((p, q) => p.at - q.at);
+  layer.style.background = `conic-gradient(from ${start + 90}deg at 50% 50%, ${stops.map(s => `${s.color} ${s.at}deg ${s.at + s.width}deg`).join(', ')})`;
+}
+
+// Rays turning from A to B: both padded to the same number (a ray splits
+// off, or two merge), then paired for the least travel beyond the turn.
+function pairRays(A, B, turn) {
+  const sorted = ws => ws.map(w => ({ ...w, from: norm(w.from), to: norm(w.from) + (w.to - w.from) })).sort((p, q) => p.from - q.from);
+  const a0 = sorted(A), b0 = sorted(B), N = Math.max(a0.length, b0.length);
+  const pads = ws => {   // every way to split rays to reach N: a zero-width wedge at the split ray
+    let out = [ws];
+    for (let k = ws.length; k < N; k++) out = out.flatMap(list => list.map((w, i) => {
+      const copy = [...list];
+      copy.splice(i, 0, { ...w, to: w.from });
+      return copy;
+    }));
+    return out;
+  };
+  let best = null;
+  for (const a of pads(a0)) for (const b of pads(b0)) for (let k = 0; k < N; k++) {
+    const cost = a.reduce((sum, w, i) => sum + Math.abs(wrap(b[(i + k) % N].from - w.from - turn)), 0);
+    if (!best || cost < best.cost) best = { cost, a, b: a.map((_, i) => b[(i + k) % N]) };
+  }
+  return best;
+}
+
+// A glance's own wedges from the turning ones: a split one is joined again.
+function ownSpans(paired, wedges, count) {
+  const out = Array(count);
+  wedges.forEach((w, k) => {
+    const i = paired[k].i;
+    if (out[i]) out[i].to += w.to - w.from;
+    else out[i] = { from: w.from, to: w.to };
+  });
+  return out;
+}
+
+// The time now as Home Assistant writes it (12 or 24 hours, or the locale's
+// own), in its time zone. `period` is AM or PM, empty on 24 hours.
+function clockNow(hass, now = new Date()) {
+  const style = hass?.locale?.time_format;
+  const locale = style === 'system' ? undefined : hass?.language || navigator.language;
+  const parts = new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit',
+    ...{ 12: { hour12: true }, 24: { hourCycle: 'h23' } }[style], timeZone: hass?.config?.time_zone }).formatToParts(now);
+  const pick = type => parts.find(p => p.type === type)?.value ?? '';
+  return { hour: pick('hour'), minute: pick('minute'), period: pick('dayPeriod').toUpperCase() };
+}
+
 const HOST_STYLE = `
   :host {
     /* One size unit for everything: 1% of the screen's shorter side, times
@@ -1606,7 +1675,8 @@ const HOST_STYLE = `
   /* Day and night switch quickly, at sunrise and sunset. */
   .stage.animate { transition: --haag-daylight 2.5s ease-in-out; }
 
-  /* Glances fill the screen; switching crossfades. */
+  /* Glances fill the screen; without parts, switching crossfades. */
+  .glances { position: absolute; inset: 0; isolation: isolate; }
   .glances > * {
     position: absolute;
     inset: 0;
@@ -1615,6 +1685,21 @@ const HOST_STYLE = `
     transition: opacity var(--move), visibility var(--move);
   }
   .glances > .on { opacity: 1; visibility: visible; }
+
+  /* Between glances: the rays under them, the coming glance over the leaving one. */
+  .rays, .rays > * { position: absolute; inset: 0; }
+  .stage:not(.between) .rays { display: none; }
+  .stage.between .glances > * { transition: none; }
+  .glances > .coming { z-index: 1; }
+
+  /* The clock: one element, placed and styled by the glance on screen. A box
+     tight around the numerals, with AM/PM hanging outside it. */
+  .clock { position: absolute; left: 0; top: 0; line-height: .8; white-space: nowrap; transform-origin: 0 0; pointer-events: none; }
+  .clock .digits { display: inline-block; line-height: .8; }
+  .clock .ampm { position: absolute; left: 100%; top: 0; margin-left: .127em; line-height: 1; }
+  .clock.hidden, .clock.probe { visibility: hidden; }
+  .stage.animate .clock { transition: transform var(--move); }
+  .stage.between .clock { transition: none; }
 
   /* Alert row: full width through the center, above every glance. Each
      alert is a slide of one line, its icon on the text's baseline; a turn
@@ -1667,7 +1752,10 @@ const HOST_STYLE = `
 
 const HOST_TEMPLATE = `
   <div class="stage">
+    <div class="rays"><div></div><div></div></div>
     <div class="glances"></div>
+    <div class="clock hidden"><span class="digits"></span><span class="ampm"></span></div>
+    <div class="clock probe"><span class="digits"></span><span class="ampm"></span></div>
     <div class="alert-row hidden" role="status"></div>
     <div class="version">Håg v${VERSION}</div>
   </div>
@@ -1688,6 +1776,8 @@ class HaagHost extends HTMLElement {
     const root = this.shadowRoot;
     this._stage = root.querySelector('.stage');
     this._layer = root.querySelector('.glances');
+    this._rays = root.querySelector('.rays');
+    [this._clock, this._clockProbe] = root.querySelectorAll('.clock');
     this._row = root.querySelector('.alert-row');
     this._stage.addEventListener('click', e => this._tap(e));
     this._running = new Map();   // name → { reg, el, visible, wants, asked }
@@ -1720,7 +1810,10 @@ class HaagHost extends HTMLElement {
     const first = !this._hass;
     this._hass = hass;
     this._updateDaylight();
-    if (first) this._discover();
+    if (first) {
+      this._discover();
+      this._tickClock();
+    }
     for (const { el } of this._running.values()) el.hass = hass;
     this._household();
     this._weatherAlerts();
@@ -1754,10 +1847,13 @@ class HaagHost extends HTMLElement {
       this._fitCache?.clear();
       this._household();
       this._fit();
+      this._endBetween();
+      this._applyClock(false);
     };
     this._resize ??= new ResizeObserver(refit);
     this._resize.observe(this);
     document.fonts.ready.then(() => { if (this.isConnected) refit(); });
+    this._tickClock();
     this._timeTurns();
     this._snoozesChanged();
     this._household();
@@ -1770,6 +1866,7 @@ class HaagHost extends HTMLElement {
     registryListeners.delete(this._sync);
     noticeListeners.delete(this._showNotices);
     clearTimeout(this._noticeTimer);
+    clearTimeout(this._clockTimer);
     clearTimeout(this._turnTimer);
     clearTimeout(this._limitTimer);
     clearTimeout(this._countTimer);
@@ -1880,6 +1977,8 @@ class HaagHost extends HTMLElement {
 
   _stop(name) {
     const entry = this._running.get(name);
+    this._endBetween();
+    if (this._clock.parentNode === entry?.el) this._seatClock(null);
     entry?.alerts.drop();
     entry?.el.remove();
     this._running.delete(name);
@@ -1897,6 +1996,18 @@ class HaagHost extends HTMLElement {
       icon: setIcon,
       colorOf: (id, on) => host._colorOf(id, on),
       get alertrow() { return host._alertBand(); },
+      clock: {
+        get time() { const { hour, minute } = clockNow(host._hass); return `${hour}:${minute}`; },
+        get period() { return clockNow(host._hass).period; },
+        measure: (size, ampm) => host._clockBox(size, ampm),
+        place(where) {
+          const key = JSON.stringify(where);
+          if (key === entry.clockKey) return;
+          entry.clockKey = key;
+          entry.clock = where;
+          if (host._running.get(host._showing) === entry) host._applyClock();
+        },
+      },
       alerts: { set, delete: del, clear },   // its own, at any severity; the core picks the icon
       get visible() { return entry.visible; },
       // Asking again keeps a glance's place; after a release, it goes to the back.
@@ -1979,18 +2090,253 @@ class HaagHost extends HTMLElement {
   }
 
   _show(name) {
+    this._endBetween();
+    const from = this._running.get(this._showing), to = this._running.get(name);
+    const parts = this._partsBetween(from, to);
     this._showing = name;
     this._shownAt = Date.now();
     if (this._order?.includes(name)) this._place = name;
     this._held = null;   // a tapped alert stays on the row for one turn
+    if (parts) this._stage.classList.add('between');
     for (const [n, entry] of this._running) {
       const on = n === name;
-      if (entry.visible === on) continue;
+      // Leaving through a transition, it stays on screen until that ends.
+      if (entry.visible === on || (parts && entry === from)) continue;
       entry.visible = on;
       entry.el.classList.toggle('on', on);
       entry.el.dispatchEvent(new Event('haag-visible'));
     }
+    if (parts) this._runBetween(from, to, ...parts);
+    else this._crossfadeClock(from, to);
     this._timeTurns();
+  }
+
+  // Both glances' parts, or null to crossfade: on first showing, with reduced
+  // motion, or when a glance gives none.
+  _partsBetween(from, to) {
+    if (!from || !to || from === to || document.hidden || !this._stage.classList.contains('animate')
+      || matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
+    try {
+      const parts = [from.el.parts?.(), to.el.parts?.()];
+      return parts.every(p => p?.wedges?.length) ? parts : null;
+    } catch (err) {
+      console.error("Håg: a glance's parts failed", err);
+      return null;
+    }
+  }
+
+  _endBetween() {
+    this._between?.();
+  }
+
+  _runBetween(from, to, a, b) {
+    const stage = this._stage, W = stage.clientWidth, H = stage.clientHeight, m = Math.min(W, H);
+    const box = stage.getBoundingClientRect(), cx = box.left + W / 2, cy = box.top + H / 2;
+    from.el.setAttribute('between', '');
+    to.el.setAttribute('between', '');
+    to.el.classList.add('coming');
+
+    // Each block of text leaves straight out from the center, growing as it
+    // fades, as one about its middle, and comes back the same way.
+    const blocks = list => (list ?? []).map(item => {
+      const els = [item].flat().filter(Boolean);
+      const shown = els.map(e => [e, e.getBoundingClientRect()]).filter(([, r]) => r.width);
+      if (!shown.length) return { els, x: 0, y: 0 };
+      const rs = shown.map(([, r]) => r);
+      const gx = (Math.min(...rs.map(r => r.left)) + Math.max(...rs.map(r => r.right))) / 2;
+      const gy = (Math.min(...rs.map(r => r.top)) + Math.max(...rs.map(r => r.bottom))) / 2;
+      for (const [e, r] of shown) {
+        const own = new DOMMatrix(getComputedStyle(e).transform);
+        e.style.transformOrigin = `${gx - r.left + own.e}px ${gy - r.top + own.f}px`;
+      }
+      const len = Math.hypot(gx - cx, gy - cy) || 1;
+      return { els, x: (gx - cx) / len * m * .4, y: (gy - cy) / len * m * .4 };
+    });
+    const burst = (t, p) => {
+      for (const e of t.els) {
+        e.style.translate = `${t.x * p}px ${t.y * p}px`;
+        e.style.scale = 1 + .3 * p;
+        e.style.opacity = 1 - p;
+      }
+    };
+    const textA = blocks(a.text), textB = blocks(b.text);
+
+    // The clock, above both glances, from one's place to the other's. With
+    // only one place, it fades with the text.
+    const clock = this._clock, [, am] = clock.children;
+    const ca = this._clockAt(from), cb = this._clockAt(to), s = ca ?? cb, e = cb ?? ca;
+    const base = s ? Math.max(s.size, e.size) : 0;
+    this._seatClock(null);
+    clock.classList.toggle('hidden', !s);
+    if (s) clock.style.fontSize = `${base}px`;
+    const moveClock = (ray, out, inn) => {
+      if (!s) return;
+      const p = ca && cb ? ray : 0, k = lerp(s.size, e.size, p) / base;
+      clock.style.transform = `translate(${lerp(s.x, e.x, p)}px, ${lerp(s.y, e.y, p)}px) scale(${k})`;
+      am.style.fontSize = `${lerp(s.ampm, e.ampm, p) / k}px`;
+      am.style.top = `${lerp(s.top, e.top, p) / k}px`;
+      clock.style.color = `color-mix(in oklab, ${e.color} ${p * 100}%, ${s.color})`;
+      clock.style.opacity = ca && cb ? '' : ca ? 1 - out : inn;
+    };
+
+    // Rays turn 180° between the same number, else 360°, splitting or merging
+    // on the way, the colors crossfading inside them. To or from none, they
+    // turn as the incoming ground grows from the center, or as it opens.
+    const [bgA, bgB] = this._rays.children;
+    const own = ws => ws.map((w, i) => ({ ...w, i }));
+    const ra = a.wedges.length > 1 ? a.wedges.length : 0, rb = b.wedges.length > 1 ? b.wedges.length : 0;
+    const turn = ra === rb ? 180 : 360, layered = !ra || !rb;
+    const pair = layered ? null : pairRays(own(a.wedges), own(b.wedges), turn);
+    const reach = Math.hypot(W, H) / 2;
+    const rays = ray => {
+      if (layered) {
+        const split = ra ? a : b, shift = ra ? 360 * ray : -360 * (1 - ray);
+        const turning = split.wedges.map(w => ({ ...w, from: w.from + shift, to: w.to + shift }));
+        paintWedges(bgA, ra ? turning : a.wedges);
+        paintWedges(bgB, ra ? b.wedges : turning);
+        bgB.style.webkitMaskImage = bgB.style.maskImage = `radial-gradient(circle at 50% 50%, #000 ${reach * ray}px, transparent ${reach * ray + 1}px)`;
+        return [ra ? turning : a.wedges, ra ? b.wedges : turning];
+      }
+      const N = pair.a.length, at = k => pair.a[k].from + (turn + wrap(pair.b[k].from - pair.a[k].from - turn)) * ray;
+      const wedges = pair.a.map((w, k) => ({ from: at(k), to: at((k + 1) % N) + (k === N - 1 ? 360 : 0),
+        color: `color-mix(in oklab, ${pair.b[k].color} ${ray * 100}%, ${w.color})` }));
+      paintWedges(bgA, wedges);
+      return [ownSpans(pair.a, wedges, a.wedges.length), ownSpans(pair.b, wedges, b.wedges.length)];
+    };
+
+    const frame = t => {
+      const out = during(OUT, t), ray = during(RAYS, t), inn = during(IN, t);
+      const [spansA, spansB] = rays(ray);
+      for (const el of a.scene ?? []) el.style.opacity = 1 - ray;
+      for (const el of b.scene ?? []) el.style.opacity = ray;
+      a.turn?.(spansA, 1 - ray);
+      b.turn?.(spansB, ray);
+      for (const x of textA) burst(x, out);
+      for (const x of textB) burst(x, 1 - inn);
+      moveClock(ray, out, inn);
+    };
+
+    let raf = 0;
+    this._between = () => {
+      this._between = null;
+      cancelAnimationFrame(raf);
+      for (const x of [...textA, ...textB]) for (const el of x.els) {
+        el.style.translate = el.style.scale = el.style.opacity = el.style.transformOrigin = '';
+      }
+      for (const el of [...(a.scene ?? []), ...(b.scene ?? [])]) el.style.opacity = '';
+      a.done?.();
+      b.done?.();
+      from.el.removeAttribute('between');
+      to.el.removeAttribute('between');
+      to.el.classList.remove('coming');
+      from.visible = false;
+      from.el.classList.remove('on');
+      from.el.dispatchEvent(new Event('haag-visible'));
+      bgA.style.cssText = bgB.style.cssText = '';
+      this._applyClock(false);
+      // Crossfading comes back a frame later, once the leaving glance is gone.
+      requestAnimationFrame(() => { if (!this._between) stage.classList.remove('between'); });
+    };
+
+    frame(0);
+    // Time starts once the coming glance has drawn, which can be a long frame.
+    const start = t0 => {
+      const tick = now => {
+        const t = Math.min(1, (now - t0) / BETWEEN);
+        frame(t);
+        if (t < 1) raf = requestAnimationFrame(tick);
+        else this._endBetween();
+      };
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(() => { raf = requestAnimationFrame(start); });
+  }
+
+  // ----- The clock -----
+
+  // The digits, every minute on the minute.
+  _tickClock() {
+    clearTimeout(this._clockTimer);
+    const now = new Date(), { hour, minute, period } = clockNow(this._hass, now);
+    for (const el of [this._clock, this._clockProbe]) {
+      const [digits, am] = el.children, colon = document.createElement('span');
+      colon.className = 'colon';
+      colon.textContent = ':';
+      digits.replaceChildren(hour, colon, minute);
+      am.textContent = period;
+    }
+    this._applyClock();
+    this._clockTimer = setTimeout(() => this._tickClock(), 60000 - (now.getSeconds() * 1000 + now.getMilliseconds()) + 50);
+  }
+
+  // The clock's measures at this size. AM/PM keeps Overview's proportion to
+  // the numerals unless given, top-aligned to them by measured cap height.
+  _clockBox(size, ampm = size * 5.5 / 14) {
+    const p = this._clockProbe, [, am] = p.children, colon = p.querySelector('.colon');
+    const l = this._clockLay ??= layoutOn(this._stage);
+    p.style.fontSize = `${size}px`;
+    am.style.fontSize = `${ampm}px`;
+    am.style.top = '0px';
+    return {
+      width: am.textContent ? am.offsetLeft + am.offsetWidth : p.offsetWidth,
+      height: p.offsetHeight,
+      colon: colon ? colon.offsetLeft + colon.offsetWidth / 2 : 0,
+      ampm,
+      top: (l.baseline(p) - l.capHeight(p)) - (l.baseline(am) - l.capHeight(am)),
+    };
+  }
+
+  // Where a glance has put the clock, in full.
+  _clockAt(entry) {
+    const c = entry?.clock;
+    if (!c) return null;
+    const box = this._clockBox(c.size, c.ampm);
+    return { x: c.align === 'colon' ? c.x - box.colon : c.x, y: c.y, size: c.size, ampm: box.ampm, top: box.top, color: c.color ?? 'var(--text)' };
+  }
+
+  // In the glance's own <slot name="clock"> if it has one, so what it draws
+  // later crosses over the clock; else above the glance.
+  _seatClock(entry) {
+    const clock = this._clock, slot = entry?.el.shadowRoot?.querySelector('slot[name="clock"]');
+    if (slot) {
+      clock.slot = 'clock';
+      if (clock.parentNode !== entry.el) entry.el.append(clock);
+    } else if (clock.parentNode !== this._stage) this._stage.insertBefore(clock, this._row);
+  }
+
+  // The clock where the glance on screen wants it. A new place slides there
+  // over Håg's usual move, a new size scaling with it, as glances' content does.
+  _applyClock(animate = true) {
+    if (this._between) return;
+    const entry = this._running.get(this._showing), at = this._clockAt(entry), clock = this._clock, [, am] = clock.children;
+    const was = this._clockShown, flip = animate && at && was && was.size !== at.size;
+    this._clockShown = at;
+    this._seatClock(entry);
+    clock.classList.toggle('hidden', !at);
+    if (!at) return;
+    if (!animate || flip) clock.style.transition = 'none';
+    if (flip) clock.style.transform = `translate(${was.x}px, ${was.y}px) scale(${was.size / at.size})`;
+    clock.style.fontSize = `${at.size}px`;
+    clock.style.color = at.color;
+    clock.style.opacity = '';
+    am.style.fontSize = `${at.ampm}px`;
+    am.style.top = `${at.top}px`;
+    if (flip) { void clock.offsetWidth; clock.style.transition = ''; }
+    clock.style.transform = `translate(${at.x}px, ${at.y}px)`;
+    if (!animate) { void clock.offsetWidth; clock.style.transition = ''; }
+  }
+
+  // Without parts: the clock crossfades with the glances.
+  _crossfadeClock(from, to) {
+    const clock = this._clock, timing = { duration: MOVE, easing: 'ease-in-out' };
+    const moves = from !== to && this._stage.classList.contains('animate');
+    if (moves && from && !clock.classList.contains('hidden')) {
+      const ghost = clock.cloneNode(true);
+      this._stage.insertBefore(ghost, this._row);
+      ghost.animate({ opacity: [1, 0] }, timing).onfinish = () => ghost.remove();
+    }
+    this._applyClock(false);
+    if (moves && this._clockShown) clock.animate({ opacity: [0, 1] }, timing);
   }
 
   // A tap on the screen: the right half goes to the next glance, the left

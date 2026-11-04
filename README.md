@@ -16,7 +16,7 @@ Håg shows *glances*. The default one, Overview Glance, is the idle screen, spli
 - **Indoors:** one row per floor with its heating or cooling status, temperature, humidity, air quality, and who's on that floor.
 - **Alert row:** a full-width band through the middle for what needs attention now: smoke, carbon monoxide and gas alarms, water leaks, doors, windows and locks left open, air quality, weather alerts, and alerts from glances. See [alerts](docs/alerts.md).
 
-**Appliance Glance**, off until turned on, shows washers, dryers, washer-dryers and dishwashers while they run: one drum shared by up to three machines, each with its contents, progress and time left. After a cycle ends, a machine stays for a while with an alert, until its door opens or the alert is dismissed. It reads [seven appliance integrations](#appliances), core and custom.
+**Appliance Glance**, off until turned on, shows washers, dryers, washer-dryers and dishwashers while they run: one drum shared by up to three machines, each with its contents, progress and time left, and the clock at its center. After a cycle ends, a machine stays for a while with an alert, until its door opens or the alert is dismissed. It reads [seven appliance integrations](#appliances), core and custom.
 
 Håg is designed square-first and works in portrait and landscape, from a Raspberry Pi kiosk to a tablet or a 4K screen. Colors follow day and night.
 
