@@ -2,6 +2,14 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
+## 0.5.1 · unreleased
+
+In progress.
+
+### Added
+
+- Install steps for the Home Assistant Marketplace (2026.11 and later) beside HACS (2026.10), with one link that opens either, and how to get pre-releases. See the [README](README.md#install).
+
 ## 0.5.0 · 2026-11-04
 
 The Appliance Glance, and glances taking turns, with touch. A pre-release. See [glances](docs/glances.md).

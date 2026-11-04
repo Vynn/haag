@@ -64,7 +64,7 @@ The first glance after Overview Glance: washers, dryers, washer-dryers and dishw
 - [x] Alert settings for each glance
 - [x] An overall easter eggs setting
 - [x] Layout helpers for glance authors
-- [ ] Installs through the Home Assistant Marketplace, with the first build after the Marketplace's stable release
+- [ ] Installs through the Home Assistant Marketplace, with the first build after the Marketplace's stable release (0.5.1)
 
 ## 0.6 · 3D printer glance
 

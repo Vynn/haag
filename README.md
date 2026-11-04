@@ -57,7 +57,18 @@ The Appliance Glance reads machines from these Home Assistant integrations. Each
 
 ## Install
 
-Håg is a dashboard plugin for HACS, and for the Home Assistant Marketplace from 2026.11. Until it's listed in the default catalog, add it as a custom repository: in HACS, open the ⋮ menu, choose *Custom repositories*, add `https://github.com/Vynn/haag` with the type *Dashboard*, then find Håg and download it. HACS adds the dashboard resource for you.
+Håg is a dashboard plugin. From Home Assistant 2026.11 it installs through the Marketplace, which replaces HACS; on 2026.10, through HACS. Until it's in the default catalog, add it from its link, which opens whichever you have:
+
+[![Open your Home Assistant instance and open Håg in the Marketplace or HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Vynn&repository=haag&category=plugin)
+
+Or add it by hand:
+
+- **Marketplace (2026.11 and later):** in Settings → Marketplace, choose *Add from link* and enter `https://github.com/Vynn/haag`. Adding from a link needs a GitHub sign-in, which reads only public information. Then open Håg and choose *Install*.
+- **HACS (2026.10):** open the ⋮ menu, choose *Custom repositories*, add `https://github.com/Vynn/haag` with the type *Dashboard*, then find Håg and choose *Download*.
+
+Either way, the dashboard resource is added for you. Reload the browser afterwards.
+
+Until 1.0, every Håg build is a pre-release. To get them, turn on pre-releases for Håg: the *Pre-release* switch in the Marketplace, or beta versions in HACS. Without it, the Marketplace installs the latest commit, which may be unfinished.
 
 ## Set up
 

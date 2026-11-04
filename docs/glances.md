@@ -26,7 +26,7 @@ For authors, a glance is still a web component, and it gets Home Assistant's sta
 
 ## Install, turn on, configure
 
-Built-in glances come with Håg. Other glances install like any dashboard plugin, through HACS or the Home Assistant Marketplace. Either way, turn them on in settings:
+Built-in glances come with Håg. Other glances install like any dashboard plugin: through the Home Assistant Marketplace from 2026.11 (*Install*), or HACS on 2026.10 (*Download*). Either way, turn them on in settings:
 
 ```yaml
 strategy:
