@@ -4,7 +4,7 @@ const manifest = {
   name: 'sinnesro',
   element: 'haag-sinnesro',
   title: 'Overview Glance',
-  version: '0.4.0',
+  version: '0.5.0',
   settings: [
     { key: 'appointments', type: 'number', default: 4, min: 1, step: 1, label: 'Appointments',
       help: 'The most shown; the furthest go first when space runs short' },

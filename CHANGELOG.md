@@ -2,9 +2,9 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
-## 0.5.0 · unreleased
+## 0.5.0 · 2026-11-04
 
-In progress.
+The Appliance Glance, and glances taking turns, with touch. A pre-release. See [glances](docs/glances.md).
 
 ### Added
 
@@ -20,6 +20,10 @@ In progress.
 
 - Information alerts are near-white with dark text, by day and by night, to be read first.
 - The default glance takes turns with the others instead of waiting until they're done.
+
+### Known issues
+
+- After Home Assistant restarts, a machine that still reports its last cycle as finished can show "Cycle ended" for up to `rest`, on a display with no record of that cycle.
 
 ## 0.4.0 · 2026-11-02
 
