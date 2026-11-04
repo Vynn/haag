@@ -66,6 +66,7 @@ haag.alerts.clear();
 - **A glance's alerts are cleared** when it stops or fails to load. What was dismissed stays dismissed.
 - **Dismissing:** a dismissed alert stays hidden until the glance deletes it, even if the glance sets it again. Once the undo has passed, the glance gets a `haag-dismissed` event, with the key as `detail.key`, so it can end that state (a load that's been emptied, for example).
 - **Holding the row and showing alone** are for Håg's own alerts only. A glance's alerts always take turns.
+- **Settings:** a glance lists its alerts in its manifest, and each can then be turned off or given a snooze under `alerts.<glance>.<alert>` (see [glances](glances.md#alerts)). A key's part before any `:` names its alert: `error:dryer` is the `error` alert.
 
 ## Household alerts
 
@@ -161,9 +162,20 @@ Håg's own messages about its setup. They take turns in the row at their severit
 
 Information notices leave the row after 5 minutes. Warnings stay until the display reloads. When nothing can show at all, Håg's startup alert turns critical instead (see [glances](glances.md#starting-up)).
 
+## Appliance alerts
+
+The Appliance Glance raises one alert per machine:
+
+| Alert | Severity | Says | A tap |
+|---|---|---|---|
+| `ended` | Information | "Washer cycle ended" | Dismisses it, and the machine leaves the glance |
+| `error` | Warning | "Dryer error" | Snoozes it, for 15 minutes unless set |
+
+A machine is named by its kind, or by its device name when there are two of a kind. A cycle-ended alert also goes when the machine's door opens, or when its rest runs out (`rest`, 2 hours if left out).
+
 ## Settings
 
-Which alerts are on, sensors to leave out, timings, limits and escalation, the turn length and the weather source are all settings, in the editor's Alerts section or as YAML. See [configuration](configuration.md#alerts).
+A glance's alerts can be turned off or given a snooze, under `alerts.<glance>`. Which alerts are on, sensors to leave out, timings, limits and escalation, the turn length and the weather source are all settings, in the editor's Alerts section or as YAML. See [configuration](configuration.md#alerts).
 
 ## Known issues
 

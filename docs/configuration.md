@@ -67,6 +67,25 @@ Overview Glance (`glances.sinnesro`):
 | `days` | How many days ahead appointments come from. 30 if left out. |
 | `easter_eggs` | `false` leaves out Overview's easter eggs: what's caught in a tornado (cows, a dinosaur and junk), the giant spider, the dragon, and the odd things that blow through on a gust. The tornado, wind, space station and shooting stars stay. On if left out, unless the overall `easter_eggs` is off. |
 
+Appliance Glance (`glances.vitvaror`):
+
+| Setting | Value |
+|---|---|
+| `rest` | Seconds a machine stays on the glance after its cycle ends, unless its door opens or its alert is dismissed first. 7200 (2 hours) if left out. |
+| `easter_eggs` | `false` leaves out the Appliance Glance's easter egg: in about one wash in 25, a red sock that turns the load pink. On if left out, unless the overall `easter_eggs` is off. |
+| `doors` | YAML only. `machine entity: contact sensor`, for a machine whose integration has no door sensor, or to use another. Any of the machine's entities will do. |
+
+```yaml
+strategy:
+  type: custom:haag
+  glances:
+    vitvaror:
+      enabled: true
+      rest: 3600
+      doors:
+        sensor.washer_run_state: binary_sensor.washer_door
+```
+
 ## Day and night
 
 ```yaml
@@ -105,6 +124,9 @@ strategy:
         limit: 1200
     weather:
       source: nina
+    vitvaror:                         # a glance's alerts, by its name
+      error:
+        snooze: 1800
 ```
 
 | Setting | Value |
@@ -122,6 +144,8 @@ strategy:
 | `alerts.core.<alert>.snooze` | Seconds a tap snoozes the alert for. Not for `smoke`, `co` and `gas`, which can't be snoozed. Left out: its `after` or `hold`, up to 3600, or 900 for alerts that show at once (jammed locks too). |
 | `alerts.weather.enabled` | `false` turns weather alerts off. On if left out. |
 | `alerts.weather.snooze` | Seconds a tap snoozes a weather alert for. 900 if left out. Extreme weather can't be snoozed. |
+| `alerts.<glance>.<alert>.enabled` | `false` turns off one of a glance's alerts. On if left out. |
+| `alerts.<glance>.<alert>.snooze` | Seconds a tap snoozes one of a glance's alerts, for those a tap can't dismiss. The glance's own default if left out. |
 | `alerts.weather.source` | The weather alert integration to use, when more than one is installed: `nina`, `environment_canada`, `dwd_weather_warnings`, `meteoalarm`, `cap_alerts`, `nws_alerts` or `weatheralerts`. Found automatically if left out. |
 
 The household alerts (`<alert>`), with their timings and limits when left out:
@@ -138,9 +162,16 @@ The household alerts (`<alert>`), with their timings and limits when left out:
 | `co_level` | Indoor carbon monoxide readings | `hold: 900` | 30 ppm |
 | `outdoor_air` | Outdoor air quality, by its scale | `hold: 900` | |
 
+The Appliance Glance's alerts (`alerts.vitvaror`):
+
+| Alert | Covers | Snooze |
+|---|---|---|
+| `ended` | A cycle ended: information. A tap dismisses it, and the machine leaves the glance. | |
+| `error` | A machine reports an error: a warning. | 900 |
+
 Times of day are in Home Assistant's time zone. Quote them: unquoted, YAML can read `21:00` as a number.
 
-In the editor, the Alerts section lists the household alerts, then weather. Turning an alert on shows the sensors Håg found for it, all ticked: untick any that aren't really that thing, and they're saved under `exclude`. Sensors found later are watched without being ticked first. Its timings, limit, warning settings and snooze follow.
+In the editor, the Alerts section lists the household alerts, then weather, then the alerts of each glance that's on. Turning an alert on shows the sensors Håg found for it, all ticked: untick any that aren't really that thing, and they're saved under `exclude`. Sensors found later are watched without being ticked first. Its timings, limit, warning settings and snooze follow.
 
 ## Time and numbers
 

@@ -1479,6 +1479,27 @@ function glanceSettings(manifest, entry = {}) {
   return out;
 }
 
+// A glance's alerts (its manifest's `alerts`) with their settings under
+// `alerts.<glance>.<alert>`, checked: { key: { enabled, snooze, dismiss } }.
+// On unless turned off; those a tap can't dismiss have a snooze. Glances
+// named for Håg's own groups get none.
+const OWN_ALERT_GROUPS = ['turn', 'core', 'weather'];
+function glanceAlerts(manifest, config, name) {
+  const out = {};
+  if (OWN_ALERT_GROUPS.includes(name)) return out;
+  const title = manifest.title || name;
+  for (const a of Array.isArray(manifest.alerts) ? manifest.alerts : []) {
+    if (typeof a?.key !== 'string' || !NAME.test(a.key)) continue;
+    const label = a.label ?? a.key, path = `alerts.${name}.${a.key}`;
+    out[a.key] = {
+      dismiss: !!a.dismiss,
+      enabled: checked(config, `${path}.enabled`, { type: 'boolean', default: true, label }, title),
+      snooze: a.dismiss ? null : checked(config, `${path}.snooze`, { type: 'seconds', default: a.snooze ?? SNOOZE, label: `${label} snooze` }, title),
+    };
+  }
+  return out;
+}
+
 const objectAt = (config, path) => { const v = valueAt(config, path); return v && typeof v === 'object' ? v : {}; };
 
 // All settings, checked.
@@ -1690,6 +1711,7 @@ class HaagHost extends HTMLElement {
   setConfig(config) {
     this._config = config;
     this._settings = readSettings(config);
+    for (const [name, entry] of this._running) entry.alertSettings = glanceAlerts(entry.reg.manifest, config, name);
     this._updateDaylight();
   }
 
@@ -1837,7 +1859,8 @@ class HaagHost extends HTMLElement {
       if (!customElements.get(element)) throw new Error(`<${element}> isn't defined`);
       if (resolve(name) !== reg || !this.isConnected) return;
       entry = { reg, el: document.createElement(element), visible: false, wants: false,
-        alerts: this._alertsFor(`glance:${name}`) };
+        alertSettings: glanceAlerts(reg.manifest, this._config, name) };
+      entry.alerts = this._alertsFor(`glance:${name}`, false, () => entry.alertSettings);
       entry.el.haag = this._context(entry);
       entry.el.setConfig?.(glanceSettings(reg.manifest, this._settings.glances[name]));
       if (this._hass) entry.el.hass = this._hass;
@@ -2141,12 +2164,17 @@ class HaagHost extends HTMLElement {
   // may make an alert dismissable, and their delete forgets the dismissal.
   // replace() sets a whole list ([{ key, ... }]) and deletes the rest;
   // drop() removes all and keeps dismissals (a glance stopping).
-  _alertsFor(source, core = false) {
+  // A source's alerts. A glance's settings (`settings()`, by alert) turn
+  // its alerts off, or make them dismissable; a key's part before any `:`
+  // names its alert (`error:dryer` is an `error`).
+  _alertsFor(source, core = false, settings = () => ({})) {
     const host = this, keys = new Set(), id = key => `${source}:${key}`;
     const set = (key, { level, text, since, hold, own, help, dismiss } = {}) => {
+      const a = settings()[String(key).split(':')[0]];
+      if (a?.enabled === false) return del(key);
       keys.add(key);
       host._raise(id(key), { level: LEVELS.includes(level) ? level : 'info', text: String(text ?? ''), since,
-        ...(core ? { hold: !!hold, own: !!own, help: typeof help === 'string' ? help : !!help } : { dismiss: !!dismiss }) });
+        ...(core ? { hold: !!hold, own: !!own, help: typeof help === 'string' ? help : !!help } : { dismiss: !!(dismiss || a?.dismiss) }) });
     };
     const del = (key, forget = !core) => {
       keys.delete(key);
@@ -2373,6 +2401,10 @@ class HaagHost extends HTMLElement {
     const source = id.slice(0, id.indexOf(':')), key = id.slice(id.indexOf(':') + 1);
     const { core, weather } = this._settings.alerts;
     if (source === 'weather') return weather.snooze;
+    if (source === 'glance') {
+      const [name, alert] = key.split(':');
+      return this._running.get(name)?.alertSettings[alert]?.snooze ?? SNOOZE;
+    }
     if (source !== 'home') return SNOOZE;
     const s = core[CORE_ALERT_OF[key === 'unlocked' || key === 'jammed' ? 'lock' : key]] ?? {};
     return s.snooze ?? (key === 'jammed' ? SNOOZE : snoozeDefault(s));
@@ -2595,7 +2627,7 @@ class HaagEditor extends HTMLElement {
     return [...registry.keys()].sort().map(n => {
       const m = registry.get(n)?.[0]?.manifest || {};
       const title = m.title || n;
-      const settings = (Array.isArray(m.settings) ? m.settings : []).filter(o => typeof o?.key === 'string' && o.key !== 'enabled');
+      const settings = (Array.isArray(m.settings) ? m.settings : []).filter(o => typeof o?.key === 'string' && o.key !== 'enabled' && o.gui !== false);
       return {
         name: n, title,
         switch: { name: `glances.${n}.enabled`, label: title },
@@ -2708,7 +2740,7 @@ class HaagEditor extends HTMLElement {
 
   // Under Household, each alert's switch; one that's on is followed by
   // its sensors (all ticked; unticked ones are left out), timings, limit
-  // and escalation. Then Weather.
+  // and escalation. Then Weather, then each glance's.
   _alerts(field) {
     const on = path => valueAt(this._config, path);
     const fields = [{ type: 'constant', name: 'household', label: 'Household' }];
@@ -2745,6 +2777,22 @@ class HaagEditor extends HTMLElement {
     fields.push({ type: 'constant', name: 'weather', label: 'Weather' }, field('alerts.weather.enabled'));
     if (on('alerts.weather.enabled') !== false) {
       fields.push(field('alerts.weather.source', 'Source'), { ...field('alerts.weather.snooze', 'Snooze'), help: 'How long a tap snoozes one' });
+    }
+    // Then each glance that's on and raises alerts: each alert's switch,
+    // and its snooze when it's on and a tap can't dismiss it.
+    const def = this._config.default ?? DEFAULT_GLANCE;
+    for (const name of [...registry.keys()].sort()) {
+      const m = registry.get(name)?.[0]?.manifest || {};
+      const alerts = Object.entries(glanceAlerts(m, {}, name));
+      if (!alerts.length || !(name === def ? on(`glances.${name}.enabled`) !== false : on(`glances.${name}.enabled`) === true)) continue;
+      fields.push({ type: 'constant', name: `glance ${name}`, label: m.title || name });
+      for (const [key, a] of alerts) {
+        const base = `alerts.${name}.${key}`, label = m.alerts.find(x => x.key === key).label ?? key;
+        fields.push({ name: `${base}.enabled`, label, selector: selectorOf({ type: 'boolean' }), default: true });
+        if (!a.dismiss && on(`${base}.enabled`) !== false) {
+          fields.push({ name: `${base}.snooze`, label: 'Snooze', help: 'How long a tap snoozes it', selector: selectorOf({ type: 'seconds' }), default: a.snooze });
+        }
+      }
     }
     return fields;
   }

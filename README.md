@@ -16,7 +16,9 @@ Håg shows *glances*. The default one, Overview Glance, is the idle screen, spli
 - **Indoors:** one row per floor with its heating or cooling status, temperature, humidity, air quality, and who's on that floor.
 - **Alert row:** a full-width band through the middle for what needs attention now: smoke, carbon monoxide and gas alarms, water leaks, doors, windows and locks left open, air quality, weather alerts, and alerts from glances. See [alerts](docs/alerts.md).
 
-It's designed square-first and also works in portrait and landscape, from a Raspberry Pi kiosk to a tablet or a 4K screen. Colors follow day and night.
+**Appliance Glance**, off until turned on, shows washers, dryers, washer-dryers and dishwashers while they run: one drum shared by up to three machines, each with its contents, progress and time left. After a cycle ends, a machine stays for a while with an alert, until its door opens or the alert is dismissed. It reads [seven appliance integrations](#appliances), core and custom.
+
+Håg is designed square-first and works in portrait and landscape, from a Raspberry Pi kiosk to a tablet or a 4K screen. Colors follow day and night.
 
 ### Weather alerts
 
@@ -31,6 +33,20 @@ Håg shows weather alerts from one of these Home Assistant integrations, whichev
 | CAP Alerts | Custom | Sample data only |
 | NWS Alerts | Custom | Sample data only |
 | Weather Alerts | Custom | On the test install; no live alert seen yet |
+
+### Appliances
+
+The Appliance Glance reads machines from these Home Assistant integrations. Each was built from the integration's own code; none is tested yet. Reports are welcome as [issues](https://github.com/Vynn/haag/issues).
+
+| Source | Integration | Machines | Tested |
+|---|---|---|---|
+| SmartThings | Core | Washers, dryers, washer-dryers, dishwashers | Not yet |
+| Whirlpool Appliances | Core | Washers, dryers | Not yet |
+| Home Connect | Core | Washers, dryers, dishwashers; washer-dryers by name | Not yet |
+| Miele | Core | Washers, dryers, washer-dryers, dishwashers | Not yet |
+| LG ThinQ | Core | Washers, dryers, washer-dryers, dishwashers | Not yet |
+| SmartThinQ LGE Sensors | Custom | Washers, dryers, dishwashers | Not yet |
+| Sub-Zero | Custom | Dishwashers | Not yet |
 
 ## Requirements
 

@@ -5,6 +5,7 @@
 Håg is its own glanceable dashboard framework, built as a Home Assistant dashboard strategy. Everything it shows is a glance.
 
 - **The default glance** shows when nothing else needs the screen. Håg's is `sinnesro`, shown as Overview Glance: the time, the weather, indoors and outdoors.
+- **Appliance Glance** (`vitvaror`) also comes with Håg: washers, dryers, washer-dryers and dishwashers while they run, and for a while after a cycle ends.
 - **Other glances** are off until turned on. Once on, they run in the background and ask for the screen when they have something to show.
 - **Taking turns:** glances with something to show take turns with the default glance, 30 seconds each. All are equal: none cuts in, and alerts bring up only the alert row.
 
@@ -125,6 +126,7 @@ const manifest = {
 | `title` | The name people see: *Subject* Glance. |
 | `version` | The glance's version. |
 | `settings` | Optional: the glance's settings, below. |
+| `alerts` | Optional: the alerts it raises, below. |
 
 #### Settings
 
@@ -140,14 +142,36 @@ settings: [
 | Field | Value |
 |---|---|
 | `key` | The setting's name in the entry. Not `enabled`, which is Håg's. |
-| `type` | `text`, `number`, `seconds`, `time` (`"22:00"`), `choice`, `boolean`, `entity` or `entities`. |
+| `type` | `text`, `number`, `seconds`, `time` (`"22:00"`), `choice`, `boolean`, `entity`, `entities` or `links` (entity → entity). |
 | `default` | The value when it's left out, or can't be used. |
 | `label`, `help` | What the editor shows. |
 | `min`, `max`, `step`, `unit` | For `number`: its range, step, and unit as shown. |
 | `choices`, `labels` | For `choice`: the values, and a name for each in the editor. |
 | `filter` | For `entity` and `entities`: which entities to offer, as Home Assistant's entity selector takes it (e.g. `{ domain: 'sensor' }`). |
+| `gui` | `false` keeps a setting out of the editor, for YAML only. `links` settings need it. |
 
-Settings for a glance's alerts (`alerts.<name>`) come with the first glance that raises alerts (0.5).
+#### Alerts
+
+`alerts` lists the alerts the glance raises, so each can be turned off or given a snooze in settings, under `alerts.<name>.<alert>`. The editor shows them in its Alerts section, under the glance's title, while the glance is on.
+
+```js
+alerts: [
+  { key: 'ended', label: 'Cycle ended', dismiss: true },
+  { key: 'error', label: 'Errors', snooze: 900 },
+],
+```
+
+| Field | Value |
+|---|---|
+| `key` | The alert's name: lowercase letters, digits, `_` and `-`. An alert raised with this key, or with a key that starts with it and `:` (`error:dryer`), is this alert. |
+| `label` | What the editor shows. |
+| `dismiss` | `true`: a tap dismisses it (see [alerts](alerts.md#the-alerts-api)), and it has no snooze setting. |
+| `snooze` | Seconds a tap snoozes it for, unless set. 900 if left out. |
+
+- Håg adds `enabled`, on if left out, and `snooze` for alerts a tap can't dismiss.
+- An alert that's off isn't raised.
+- Alerts the manifest doesn't list always show, and snooze for 15 minutes.
+- Glances named `turn`, `core` or `weather` get no alert settings: those names are Håg's own groups under `alerts`.
 
 ### The glance
 
@@ -194,7 +218,7 @@ Switching between glances is a crossfade until transitions arrive in 0.5.1.
 | `haag.colorOf(entity_id, on)` | A person's or calendar's color, as a CSS color readable at 4.5:1 on `'sky'` or `'home'` (the default), by day and by night. It follows the switch between them on its own. `null` for anything else. |
 | `haag.daylight` | Whether day colors are showing: the `theme` setting, or the sun when it's `auto`. |
 | `haag.easterEggs` | Whether easter eggs are on overall (the `easter_eggs` setting). A glance with easter eggs shows them only when this is on; its own setting can turn them off just for it. |
-| `haag.layout` | The shared geometry: the split's `angle` (the line runs through the center). Helpers for placing content along it move here with the second glance (0.5). |
+| `haag.layout` | The shared geometry: the split's `angle` (the line runs through the center), and `on(stage)`, helpers for placing content (below). |
 | `haag.icon(element, name)` | Draws a Home Assistant icon, filling the element. Fitting it to the text is up to the glance. |
 | `haag.alerts` | This glance's alerts: `set`, `delete` and `clear`. See [alerts](alerts.md#the-alerts-api). |
 | `haag.alertrow` | Whether the alert row shows, and where. |
@@ -210,6 +234,23 @@ Inherited through CSS: the typeface, the size unit `cqmin` (1% of the shorter si
 | `--band`, `--mist` | The alert row's information wash (near-white, by day and by night), and haze. |
 
 Each mixes a night and a day value (`--n-sky`, `--d-sky`, …) by `--haag-daylight`, 0 at night and 1 by day, which switches over 2.5 seconds.
+
+### Layout helpers
+
+`haag.layout.on(stage, { graphics })` measures and places content on the glance's stage, the element that fills its screen. Call it once and keep the result. Positions are in pixels from the stage's top-left unless noted. What's visible of an element is its text and its graphics: `graphics` is a selector for those, `svg, img, ha-icon` if left out.
+
+| Helper | Gives |
+|---|---|
+| `gap` | The space between content and the split, 2.5 units, in pixels. |
+| `capHeight(el)` | The height of a capital letter in `el`'s font. |
+| `baseline(el, last)` | The first line's baseline, or with `last` the last visible line's, in the page's coordinates (like `getBoundingClientRect`). |
+| `corners(el)` | The corners of `el`'s visible pieces, from its top-left. |
+| `edges(el)` | `el`'s visible `top` and `bottom`, from its top: text from its cap height to its baseline, graphics by their box. `data-descender="0.5"` on a text counts that share of its descender. |
+| `toSplit(el, y, distance)` | Where to put `el`, its top at `y`, so its nearest visible corner is `distance` from the split: negative on the upper side, positive on the lower. Kept inside the screen's margin. `{ x, left, clamped }`: `left` is its visible left edge, `clamped` that the margin stopped it short. |
+| `room(top, bottom, distance)` | How far a line spanning `top` to `bottom` may reach and stay `distance` from the split: rightward on the upper side, leftward on the lower. |
+| `pair(upper, lower, { stagger, clear })` | Two elements side by side across the split, each a gap from it, as Overview Glance's are. Measures once and returns `at(shift)`, giving `{ upper, lower }`, each `{ x, y, left, clamped }` with `y` its top. Centered on the middle and moved up by `shift`, `stagger` pixels apart in height; while the alert row shows, slid apart along the split to clear it by `clear` (the gap if left out). |
+
+These are a start, shaped by two glances, and may change as more are made.
 
 ### Alert row
 

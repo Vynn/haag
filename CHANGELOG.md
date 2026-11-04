@@ -11,6 +11,9 @@ In progress.
 - Glances take turns with the default glance, all equal, `cycle` seconds each (now 10 to 60). A glance that's done leaves at once; alerts bring up only the alert row.
 - Touch: a tap on the right half of the screen shows the next glance, on the left half the one before.
 - Touching an alert: the first tap shows its glance, the next snoozes it, with an undo. Snoozes are kept on the display, for each alert's `snooze` setting. Glances can make an alert dismissable instead (`dismiss: true`).
+- Appliance Glance (`vitvaror`), built in and off until turned on: washers, dryers, washer-dryers and dishwashers while they run. Up to three share one drum, each with its contents, a progress ring and its time left; more wait their turn. Machines starting and stopping sweep the drum's parts to their new places, one change at a time. After a cycle ends, a machine rests on the glance with an alert until its door opens, the alert is dismissed, or `rest` runs out. Reads SmartThings, Whirlpool Appliances, Home Connect, Miele, LG ThinQ, SmartThinQ LGE Sensors and Sub-Zero. Settings: `rest`, `easter_eggs` and `doors`. See [configuration](docs/configuration.md#glances).
+- Alert settings for glances: each of a glance's alerts can be turned off or given a snooze, under `alerts.<glance>.<alert>`, in YAML or the editor's Alerts section. For glance authors: the manifest's `alerts`. See [glances](docs/glances.md#alerts).
+- For glance authors: `haag.layout.on(stage)`, helpers for measuring content and placing it along the split (Overview Glance's, moved to the core); glance settings of type `links`, and `gui: false` to keep a setting to YAML.
 - An overall easter eggs setting (`easter_eggs`, on by default, in the editor's General section) that every glance follows; a glance's own setting can still turn them off just for it. For glance authors: `haag.easterEggs`.
 
 ### Changed
