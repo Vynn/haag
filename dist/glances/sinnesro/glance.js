@@ -131,8 +131,7 @@ const STYLE = `
   /* Colors come from Håg's palette. */
   .stage {
     --line: var(--text-2);
-    --gap: calc(2.5 * var(--u));          /* perpendicular distance from the split line to clusters */
-    --cluster-gap: calc(2.7 * var(--u));  /* visible gap between clusters (see _opticalEdges) */
+    --cluster-gap: calc(2.7 * var(--u));  /* visible gap between clusters (haag.layout edges); the split's gap is Håg's */
     /* Medium text step. Also sizes AM/PM and the appointment stagger,
        which are defined as "the medium line". 5.5 makes date + conditions as
        tall as a floor block. */
@@ -369,7 +368,6 @@ class SinnesroGlance extends HTMLElement {
     super();
     const root = this.attachShadow({ mode: 'open' });
     root.innerHTML = `<style>${STYLE}${weather?.WEATHER_STYLE ?? ''}</style>${TEMPLATE}`;
-    this._measure = document.createElement('canvas').getContext('2d');
     this._stage = root.querySelector('.stage');
     if (weather) this._wx = new weather.Weather(this._stage, root.querySelector('.wx-under'), root.querySelector('.wx-over'));
     this._wx?.setEggs(this._eggs());
@@ -781,83 +779,10 @@ class SinnesroGlance extends HTMLElement {
   }
 
   // ----- Layout engine (ported from design/wireframe-idle.html) -----
+  // Measuring and placing along the split are Håg's (haag.layout.on).
 
-  _capHeight(el) {
-    const cs = getComputedStyle(el);
-    this._measure.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-    return this._measure.measureText('H').actualBoundingBoxAscent;
-  }
-
-  // How far an element's own text reaches below its baseline (0 if it has no
-  // descenders).
-  _descent(el) {
-    const cs = getComputedStyle(el);
-    this._measure.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-    return Math.max(0, this._measure.measureText(el.textContent).actualBoundingBoxDescent);
-  }
-
-  // Baseline of an element's text: the first line's, via a zero-size inline
-  // probe, or the last visible line's (for text that wraps or is cut off),
-  // counted from the first in whole line heights.
-  _baselineY(el, last = false) {
-    const probe = document.createElement('span');
-    probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
-    el.insertBefore(probe, el.firstChild);
-    const first = probe.getBoundingClientRect().bottom;
-    probe.remove();
-    if (!last) return first;
-    const lh = parseFloat(getComputedStyle(el).lineHeight);
-    if (!lh) return first;
-    const lines = Math.max(1, Math.round(el.getBoundingClientRect().height / lh));
-    return first + (lines - 1) * lh;
-  }
-
-  // The visible pieces of a cluster: elements that hold text, plus graphics.
-  _inkParts(el) {
-    return [...el.querySelectorAll('*')].filter(e =>
-      e.getClientRects().length &&
-      (e.matches('.ico, .person') ||
-       [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())));
-  }
-
-  // Corners of a cluster's visible shape, relative to its top-left.
-  _shapeCorners(el) {
-    const base = el.getBoundingClientRect();
-    return this._inkParts(el).flatMap(p => {
-      const r = p.getBoundingClientRect();
-      const l = r.left - base.left, t = r.top - base.top;
-      const rr = r.right - base.left, b = r.bottom - base.top;
-      return [[l, t], [rr, t], [l, b], [rr, b]];
-    });
-  }
-
-  // Visible top/bottom of a cluster (cap height to baseline; graphics by box),
-  // relative to its top, so every gap looks the same.
-  _opticalEdges(cluster) {
-    const base = cluster.getBoundingClientRect().top;
-    let top = Infinity, bottom = -Infinity;
-    const walk = node => {
-      for (const el of node.children) {
-        if (!el.getClientRects().length) continue;
-        if (el.matches('.ico, .person')) {
-          const r = el.getBoundingClientRect();
-          top = Math.min(top, r.top);
-          bottom = Math.max(bottom, r.bottom);
-          continue;
-        }
-        if ([...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())) {
-          top = Math.min(top, this._baselineY(el) - this._capHeight(el));
-          // data-descender="f" counts that fraction of the text's actual
-          // descender as part of its visible bottom (the date's "y" hangs
-          // toward the clock).
-          const share = parseFloat(el.dataset.descender) || 0;
-          bottom = Math.max(bottom, this._baselineY(el, true) + share * this._descent(el));
-        }
-        walk(el);
-      }
-    };
-    walk(cluster);
-    return { top: top - base, bottom: bottom - base };
+  get _lay() {
+    return this._layoutHelpers ??= this._haag.layout.on(this._stage, { graphics: '.ico, .person' });
   }
 
   // Before placing the appointments: let the soonest wrap only if its title
@@ -869,7 +794,7 @@ class SinnesroGlance extends HTMLElement {
     if (!t) return;
     Object.assign(t.style, { maxWidth: 'none', whiteSpace: 'nowrap', display: 'inline-block' });
     const r = t.getBoundingClientRect(), base = cluster.getBoundingClientRect();
-    const boxBottom = bottom + (r.bottom - base.top) - this._opticalEdges(cluster).bottom;
+    const boxBottom = bottom + (r.bottom - base.top) - this._lay.edges(cluster).bottom;
     const max = room(boxBottom - r.height, boxBottom) - (left + r.left - base.left);
     t.style.display = '';
     if (r.width > max) {                       // too long: wrap at the room it has
@@ -895,20 +820,21 @@ class SinnesroGlance extends HTMLElement {
   // temperature's digits, so a row with people is no taller than one
   // without.
   _fitPortraits() {
+    const l = this._lay;
     const stage = this.shadowRoot.querySelector('.stage');
     const rows = [...this.shadowRoot.querySelectorAll('.status-line')];
     const digits = row => [...row.querySelectorAll('.t2[data-slot] > :last-child')]
       .find(el => el.getClientRects().length && el.textContent.trim());
     const ref = rows.map(digits).find(Boolean);
     if (!ref) return;                           // nothing to measure yet
-    stage.style.setProperty('--portrait', `${this._capHeight(ref)}px`);
+    stage.style.setProperty('--portrait', `${l.capHeight(ref)}px`);
     for (const row of rows) {
       const people = row.querySelector('.people');
       const text = digits(row);
       if (!people) continue;
       people.style.transform = '';
       if (!text || !people.getClientRects().length) continue;   // no temperature: stay centered
-      const capTop = this._baselineY(text) - this._capHeight(text);
+      const capTop = l.baseline(text) - l.capHeight(text);
       people.style.transform = `translateY(${capTop - people.getBoundingClientRect().top}px)`;
     }
   }
@@ -921,8 +847,8 @@ class SinnesroGlance extends HTMLElement {
     const top = this._in[0];
     if (!time || !top) return;
     time.style.fontSize = '';                   // start from the default size
-    const t = this._opticalEdges(this._out[0]);
-    const f = this._opticalEdges(top);
+    const t = this._lay.edges(this._out[0]);
+    const f = this._lay.edges(top);
     const current = t.bottom - t.top, target = f.bottom - f.top;
     if (current > 0 && target > 0) {
       time.style.fontSize = `${parseFloat(getComputedStyle(time).fontSize) * target / current}px`;
@@ -931,9 +857,10 @@ class SinnesroGlance extends HTMLElement {
 
   // Top-align AM/PM with the clock numerals by measured cap height.
   _alignAmPm() {
+    const l = this._lay;
     for (const am of this.shadowRoot.querySelectorAll('.ampm')) {
       const clock = am.parentElement;
-      const delta = (this._baselineY(clock) - this._capHeight(clock)) - (this._baselineY(am) - this._capHeight(am));
+      const delta = (l.baseline(clock) - l.capHeight(clock)) - (l.baseline(am) - l.capHeight(am));
       am.style.top = (am.offsetTop + delta) + 'px';
     }
   }
@@ -948,20 +875,18 @@ class SinnesroGlance extends HTMLElement {
   }
 
   /*
-    Justify every cluster to the split line.
-    The line passes through the center at angle α; its unit normal toward the
-    indoor side is n = (sin α, cos α). A point's signed distance is
-    s = n · (p − c). Outdoor clusters stack upward from the alert row with
-    their nearest visible corner at s = −gap; indoor clusters stack downward
-    at s = +gap. Positions are clamped to the screen.
+    Justify every cluster to the split line: outdoor clusters stack upward
+    from the alert row with their nearest visible corner one gap above the
+    line; indoor clusters stack downward one gap below it. Positions are
+    clamped to the screen.
   */
   _layout() {
     const stage = this._stage;
     if (!stage || !stage.clientWidth || !this._haag) return;
     const W = stage.clientWidth, H = stage.clientHeight;
-    const cx = W / 2, cy = H / 2;
-    const a = this._haag.layout.angle * Math.PI / 180, sa = Math.sin(a), ca = Math.cos(a);
-    const gap = this._px('--gap'), cgap = this._px('--cluster-gap');
+    const cy = H / 2;
+    const l = this._lay;
+    const gap = l.gap, cgap = this._px('--cluster-gap');
     const edge = Math.min(W, H) * 0.02;
     // With the alert row shown, clusters clear it by one gap. Without it, the
     // innermost block on each side (the time; the top floor) is centered on
@@ -975,27 +900,14 @@ class SinnesroGlance extends HTMLElement {
     this._fitTime();
     this._alignAmPm();
 
-    // Horizontal position for a cluster at height ty, with its nearest
-    // visible corner at signed distance `target` from the line. `clamped` is
-    // true when the screen's edge stops it short, i.e. it would cross the line.
-    const solveX = (el, ty, target, pick) => {
-      const corners = this._shapeCorners(el);
-      const sNoX = corners.map(([x, y]) => sa * x + ca * (ty + y - cy));
-      const want = cx + (target - pick(...sNoX)) / sa;
-      const minX = Math.min(...corners.map(c => c[0]));
-      const maxX = Math.max(...corners.map(c => c[0]));
-      const tx = Math.min(Math.max(want, edge - minX), W - edge - maxX);
-      return { tx, left: tx + minX, clamped: Math.abs(tx - want) > 0.5 };
-    };
-    const place = (el, ty, target, pick) => {
-      const { tx } = solveX(el, ty, target, pick);
-      el.style.transform = `translate(${tx}px, ${ty}px)`;
-      return tx;
+    const place = (el, ty, target) => {
+      const { x } = l.toSplit(el, ty, target);
+      el.style.transform = `translate(${x}px, ${ty}px)`;
+      return x;
     };
     // The furthest right a line spanning top..bottom may reach on the
     // outdoor side and still stay one gap from the split.
-    const room = (top, bottom) => Math.min(W - edge,
-      ...[top, bottom].map(Y => cx + (-gap - ca * (Y - cy)) / sa));
+    const room = (top, bottom) => l.room(top, bottom, -gap);
 
     // Visible bottom of the first outdoor cluster, and visible top of the
     // first indoor cluster.
@@ -1008,9 +920,8 @@ class SinnesroGlance extends HTMLElement {
       // PAIR_LEFT_MARGIN from the screen's left edge, the pair slides up only
       // as far as needed. If no height works, fall back to stacking from
       // the center.
-      const ot = this._opticalEdges(this._out[0]);
-      const it = this._in[0] && this._opticalEdges(this._in[0]);
-      const tH = ot.bottom - ot.top, fH = it.bottom - it.top;
+      const ot = l.edges(this._out[0]), it = l.edges(this._in[0]);
+      const at = l.pair(this._out[0], this._in[0]);
       const step = Math.min(W, H) * 0.005;
       // Slide the pair up the line until the clock clears the left margin.
       // The margin is a preference: if the top floor would hit the right edge
@@ -1018,11 +929,9 @@ class SinnesroGlance extends HTMLElement {
       // (side by side wins over the margin, for square displays).
       let best = null;
       for (let shift = 0; shift <= H / 2; shift += step) {
-        const tBottom = cy + tH / 2 - shift, fTop = cy - fH / 2 - shift;
-        const t = solveX(this._out[0], tBottom - ot.bottom, -gap, Math.max);
-        const f = solveX(this._in[0], fTop - it.top, gap, Math.min);
+        const { upper: t, lower: f } = at(shift);
         if (t.clamped || f.clamped) continue;
-        if (!best || t.left > best.left) best = { left: t.left, tBottom, fTop };
+        if (!best || t.left > best.left) best = { left: t.left, tBottom: t.y + ot.bottom, fTop: f.y + it.top };
         if (t.left >= PAIR_LEFT_MARGIN * Math.min(W, H)) break;
       }
       if (best) {
@@ -1043,7 +952,7 @@ class SinnesroGlance extends HTMLElement {
       // following the line; each of their lines is cut at the split instead.
       const appts = !!el.querySelector('.appointments');
       if (appts) this._wrapSoonest(el, anchor, y, room);
-      const o = this._opticalEdges(el);
+      const o = l.edges(el);
       const ty = y - o.bottom;
       let tx;
       if (appts) {
@@ -1051,16 +960,15 @@ class SinnesroGlance extends HTMLElement {
         el.style.transform = `translate(${tx}px, ${ty}px)`;
         this._capAppointments(el, tx, ty, room);
       } else {
-        tx = place(el, ty, -gap, Math.max);
+        tx = place(el, ty, -gap);
       }
       // Measured relative to the cluster, so a running transition doesn't skew it.
       const base = el.getBoundingClientRect();
-      const inkTop = Math.min(...this._inkParts(el).map(p => p.getBoundingClientRect().top - base.top));
-      outTop = Math.min(outTop, ty + inkTop);
+      outTop = Math.min(outTop, ty + Math.min(...l.corners(el).map(c => c[1])));
       const reading = el.querySelector('.status-line .line > [data-slot]:not([hidden])');
       if (reading) anchor = tx + reading.getBoundingClientRect().left - base.left;
       const time = el.querySelector('.time');
-      if (time) clock = ty + this._baselineY(time) - base.top;
+      if (time) clock = ty + l.baseline(time) - base.top;
       y = ty + o.top - cgap;
     }
 
@@ -1070,9 +978,9 @@ class SinnesroGlance extends HTMLElement {
 
     y = inStart;                               // visible top of next indoor cluster
     for (const el of this._in) {
-      const o = this._opticalEdges(el);
+      const o = l.edges(el);
       const ty = y - o.top;
-      place(el, ty, gap, Math.min);
+      place(el, ty, gap);
       y = ty + o.bottom + cgap;
     }
 

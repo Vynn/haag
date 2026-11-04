@@ -1217,6 +1217,133 @@ for (const name of BUILT_IN) {
 }
 
 /* ------------------------------------------------------------------------
+   Layout
+   Helpers for a glance's stage (haag.layout.on, docs/glances.md): what's
+   visible of text and icons, and placing it along the split, which runs
+   through the center at SPLIT_ANGLE. Positions are in px from the stage's
+   top-left, unless noted. A start, to review once more glances exist.
+   ------------------------------------------------------------------------ */
+
+const SPLIT_GAP = 2.5;      // units between content and the split
+const SCREEN_EDGE = .02;    // margin at the screen's edges, of its shorter side
+
+// `graphics`: what counts as a picture (measured by its box, not its text).
+// `band`: the alert row's { showing, top, bottom }.
+function layoutOn(stage, { graphics = 'svg, img, ha-icon' } = {}, band) {
+  const ctx = document.createElement('canvas').getContext('2d');
+  const font = el => {
+    const cs = getComputedStyle(el);
+    ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  };
+  const a = SPLIT_ANGLE * Math.PI / 180, sa = Math.sin(a), ca = Math.cos(a);
+  const screen = () => {
+    const W = stage.clientWidth, H = stage.clientHeight;
+    return { W, cx: W / 2, cy: H / 2, edge: Math.min(W, H) * SCREEN_EDGE };
+  };
+  const hasText = el => [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
+  // The visible pieces of an element: those holding text, plus graphics.
+  const ink = el => [...el.querySelectorAll('*')].filter(e =>
+    e.getClientRects().length && (e.matches(graphics) || hasText(e)));
+  const descent = el => { font(el); return Math.max(0, ctx.measureText(el.textContent).actualBoundingBoxDescent); };
+
+  const l = {
+    get gap() {
+      const probe = document.createElement('div');
+      probe.style.cssText = `position:absolute;visibility:hidden;width:calc(${SPLIT_GAP} * var(--u))`;
+      stage.appendChild(probe);
+      const w = probe.getBoundingClientRect().width;
+      probe.remove();
+      return w;
+    },
+    capHeight(el) { font(el); return ctx.measureText('H').actualBoundingBoxAscent; },
+    // The first line's baseline, via a zero-size inline probe, or the last
+    // visible line's (for text that wraps or is cut off). In the page's
+    // coordinates, like getBoundingClientRect.
+    baseline(el, last = false) {
+      const probe = document.createElement('span');
+      probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
+      el.insertBefore(probe, el.firstChild);
+      const first = probe.getBoundingClientRect().bottom;
+      probe.remove();
+      if (!last) return first;
+      const lh = parseFloat(getComputedStyle(el).lineHeight);
+      if (!lh) return first;
+      return first + (Math.max(1, Math.round(el.getBoundingClientRect().height / lh)) - 1) * lh;
+    },
+    // Corners of the visible pieces, from the element's top-left.
+    corners(el) {
+      const base = el.getBoundingClientRect();
+      return ink(el).flatMap(p => {
+        const r = p.getBoundingClientRect();
+        const x0 = r.left - base.left, y0 = r.top - base.top, x1 = r.right - base.left, y1 = r.bottom - base.top;
+        return [[x0, y0], [x1, y0], [x0, y1], [x1, y1]];
+      });
+    },
+    // Visible top and bottom, from the element's top: text from cap height
+    // to baseline, graphics by their box. data-descender="f" counts that
+    // share of a text's descender (a "y" hanging toward its neighbour).
+    edges(el) {
+      const base = el.getBoundingClientRect().top;
+      let top = Infinity, bottom = -Infinity;
+      const walk = node => {
+        for (const e of node.children) {
+          if (!e.getClientRects().length) continue;
+          if (e.matches(graphics)) {
+            const r = e.getBoundingClientRect();
+            top = Math.min(top, r.top);
+            bottom = Math.max(bottom, r.bottom);
+            continue;
+          }
+          if (hasText(e)) {
+            top = Math.min(top, l.baseline(e) - l.capHeight(e));
+            bottom = Math.max(bottom, l.baseline(e, true) + (parseFloat(e.dataset.descender) || 0) * descent(e));
+          }
+          walk(e);
+        }
+      };
+      walk(el);
+      return { top: top - base, bottom: bottom - base };
+    },
+    // The x for an element whose top is at y, with its nearest visible corner
+    // `distance` from the split (negative: the upper side), kept inside the
+    // screen's margin. `left`: its visible left edge; `clamped`: the margin
+    // stopped it short.
+    toSplit(el, y, distance) {
+      const { W, cx, cy, edge } = screen(), corners = l.corners(el);
+      const s = corners.map(([x, cy0]) => sa * x + ca * (y + cy0 - cy));
+      const want = cx + (distance - (distance < 0 ? Math.max : Math.min)(...s)) / sa;
+      const xs = corners.map(c => c[0]), minX = Math.min(...xs), maxX = Math.max(...xs);
+      const x = Math.min(Math.max(want, edge - minX), W - edge - maxX);
+      return { x, left: x + minX, clamped: Math.abs(x - want) > .5 };
+    },
+    // How far a line spanning top..bottom may reach and stay `distance` from
+    // the split: rightward on the upper side, leftward on the lower.
+    room(top, bottom, distance) {
+      const { W, cx, cy, edge } = screen();
+      const xs = [top, bottom].map(y => cx + (distance - ca * (y - cy)) / sa);
+      return distance < 0 ? Math.min(W - edge, ...xs) : Math.max(edge, ...xs);
+    },
+    // Two elements side by side across the split, each a gap from it:
+    // centered on the middle, or, with the alert row showing, slid apart
+    // along the split to clear it by `clear`. Measures once and returns
+    // at(shift): shift slides the pair up the line, stagger (px) sets them
+    // apart in height. Each side is { x, y, left, clamped }, y its top.
+    pair(upper, lower, { stagger = 0, clear } = {}) {
+      const u = l.edges(upper), d = l.edges(lower), gap = l.gap;
+      clear ??= gap;
+      return (shift = 0) => {
+        const { cy } = screen(), row = band();
+        const ub = row.showing ? row.top - clear : cy - shift - stagger / 2 + (u.bottom - u.top) / 2;
+        const dt = row.showing ? row.bottom + clear : cy - shift + stagger / 2 - (d.bottom - d.top) / 2;
+        const uy = ub - u.bottom, dy = dt - d.top;
+        return { upper: { ...l.toSplit(upper, uy, -gap), y: uy }, lower: { ...l.toSplit(lower, dy, gap), y: dy } };
+      };
+    },
+  };
+  return l;
+}
+
+/* ------------------------------------------------------------------------
    Settings
    One definition of every option (its address in the strategy block,
    type, default and label) for reading, checking and the editor. A bad
@@ -1738,11 +1865,11 @@ class HaagHost extends HTMLElement {
   _context(entry) {
     const host = this;
     const { set, delete: del, clear } = entry.alerts;
-    return {
+    const haag = {
       providers: this._providers,
       get daylight() { return host._daylight; },
       get easterEggs() { return host._settings.easterEggs; },   // a glance's own setting can still turn them off
-      layout: { angle: SPLIT_ANGLE },
+      layout: { angle: SPLIT_ANGLE, on: (stage, options) => layoutOn(stage, options, () => haag.alertrow) },
       icon: setIcon,
       colorOf: (id, on) => host._colorOf(id, on),
       get alertrow() { return host._alertBand(); },
@@ -1751,6 +1878,7 @@ class HaagHost extends HTMLElement {
       request() { entry.wants = true; host._schedule(); },
       release() { entry.wants = false; host._schedule(); },
     };
+    return haag;
   }
 
   // A person's or calendar's color, readable on the sky or indoors (`on`:
