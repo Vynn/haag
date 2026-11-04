@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transitions Study</title>
+<!--
+  Håg: transitions between glances (D130 (7), D131 (8), D137; 0.5.1). Overview
+  Glance to and from the Appliance Glance, in its whole, halves, thirds and
+  quarters. Quarters are here to anticipate later glances: the Appliance
+  Glance itself stays at three machines.
+
+  Each glance is described by the parts the core would take from it:
+  - background: wedges between rays from the center, each with a color
+    (Overview: sky and home; Appliance: each machine's ground and the drum);
+  - dividers: the rays;
+  - text: blocks, each leaving the way its place points;
+  - clock: its place and size. It doesn't leave: it slides and scales from
+    one glance's place to the next.
+  Rays turn 180° between glances with the same number of rays, 360° when it
+  changes, splitting off or merging on the way. Backgrounds crossfade inside
+  the turning wedges. The alert row stays put.
+
+  First pass for discussion. Overview is a mock, placed from its real layout
+  on a square screen; the drum is drawn simply, in its real colors.
+-->
+<style>
+  @font-face { font-family: 'Haag Open Sans'; src: url('../dist/assets/open-sans.ttf'); font-weight: 300 800; }
+  @property --daylight { syntax: '<number>'; inherits: true; initial-value: 0; }
+
+  :root {
+    /* Håg's palette (dist/haag.js, dist/glances/vitvaror/drum.js) */
+    --n-sky: #10162A;      --d-sky: #7CC8F2;
+    --n-horizon: #1D3442;  --d-horizon: #FFD6E7;
+    --n-home: #1E2433;     --d-home: #F6FAFF;
+    --n-text: #F1EADC;     --d-text: #0E1F3A;
+    --n-text-2: #A9B0C2;   --d-text-2: #34537A;
+    --n-coral: #FF7A68;    --d-coral: #D6336C;
+    --n-seaglass: #72D8C6; --d-seaglass: #0B8A5E;
+    --n-rim: #8D97A7;      --d-rim: #A7B3C3;
+    --n-rim-sh: #626B7B;   --d-rim-sh: #7D8999;
+    --n-water: #3C6E96;    --d-water: #5BB1E6;
+    --daylight: 1;
+  }
+  body {
+    --p: calc(var(--daylight) * 100%);
+    --sky: color-mix(in oklab, var(--d-sky) var(--p), var(--n-sky));
+    --horizon: color-mix(in oklab, var(--d-horizon) var(--p), var(--n-horizon));
+    --home: color-mix(in oklab, var(--d-home) var(--p), var(--n-home));
+    --text: color-mix(in oklab, var(--d-text) var(--p), var(--n-text));
+    --text-2: color-mix(in oklab, var(--d-text-2) var(--p), var(--n-text-2));
+    --text-2-out: color-mix(in oklab, var(--text) calc(var(--daylight) * 7%), var(--text-2));
+    --coral: color-mix(in oklab, var(--d-coral) var(--p), var(--n-coral));
+    --seaglass: color-mix(in oklab, var(--d-seaglass) var(--p), var(--n-seaglass));
+    --rim: color-mix(in oklab, var(--d-rim) var(--p), var(--n-rim));
+    --rim-sh: color-mix(in oklab, var(--d-rim-sh) var(--p), var(--n-rim-sh));
+    --water: color-mix(in oklab, var(--d-water) var(--p), var(--n-water));
+    --band: #FFFFFFE6;
+    /* Inside the drum: light, by day and by night. */
+    --in-drum: #E2E4E7; --in-water: #5BB1E6; --in-wire: #BCC0C6; --in-text: var(--d-text); --in-text-2: var(--d-text-2);
+    --ground-washer: color-mix(in oklab, var(--home) 86%, var(--water));
+    --ground-washer_dryer: var(--ground-washer);
+    --ground-dryer: color-mix(in oklab, var(--home) 88%, var(--coral));
+    --ground-dishwasher: color-mix(in oklab, var(--home) 88%, var(--seaglass));
+  }
+  body.animate { transition: --daylight 2.5s ease-in-out; }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: #f4f4f4; color: #222; font: 14px/1.4 system-ui, sans-serif;
+    display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; width: min(100%, 980px); }
+  fieldset { border: 1px solid #ccc; border-radius: 4px; margin: 0; padding: 6px 10px 8px; background: #fff; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  legend { font-weight: 600; padding: 0 4px; }
+  fieldset button { font: inherit; padding: 3px 9px; border: 1px solid #999; background: #fff; border-radius: 3px; cursor: pointer; }
+  fieldset button[aria-pressed="true"] { background: #222; color: #fff; border-color: #222; }
+  fieldset label { display: flex; gap: 6px; align-items: center; width: 100%; }
+  fieldset input[type=range] { flex: 1; }
+  .go { display: flex; gap: 8px; align-items: center; justify-content: center; flex-wrap: wrap; }
+  .go button { font: inherit; font-weight: 600; padding: 6px 14px; border: 1px solid #222; background: #222; color: #fff; border-radius: 3px; cursor: pointer; }
+  .go button.quiet { background: #fff; color: #222; font-weight: 400; }
+  .go button[aria-pressed="true"].quiet { background: #ddd; }
+  #status { color: #555; font-size: 12px; min-height: 1.4em; }
+  p.note, details { max-width: 720px; color: #555; margin: 0; font-size: 12px; }
+  details pre { white-space: pre-wrap; font-size: 11px; background: #fff; border: 1px solid #ddd; padding: 8px; border-radius: 4px; }
+
+  /* ---------- The screen ---------- */
+  .stage {
+    position: relative; overflow: hidden; border-radius: 6px;
+    width: min(100%, 560px); aspect-ratio: 1;
+    container-type: size; --u: .9cqmin;
+    font-family: 'Haag Open Sans', system-ui, sans-serif; color: var(--text);
+    background: var(--home);
+  }
+  .stage.portrait { width: min(100%, 420px); aspect-ratio: 3 / 4; }
+  .stage.landscape { width: min(100%, 780px); aspect-ratio: 16 / 9; }
+  .bg, .glow, .ghost, .texts { position: absolute; inset: 0; }
+  .glow { background: radial-gradient(120% 90% at 30% 85%, var(--horizon), transparent 60%);
+    mask-image: linear-gradient(135deg, #000 50%, transparent 50%); }
+  .stage > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .texts { pointer-events: none; }
+  .blk { position: absolute; white-space: nowrap; line-height: 1.05; will-change: transform, opacity; }
+
+  /* Overview's text sizes */
+  .t1 { font-size: calc(14 * var(--u)); line-height: .8; }
+  .t2 { font-size: calc(5.5 * var(--u)); }
+  .t3 { font-size: calc(2.8 * var(--u)); color: var(--text-2); }
+  .out .t3 { color: var(--text-2-out); }
+  .row { display: flex; gap: calc(1.2 * var(--u)); align-items: baseline; }
+  .stack { display: flex; flex-direction: column; gap: calc(.4 * var(--u)); }
+  .ampm { font-size: calc(5.5 * var(--u)); margin-left: calc(.7 * var(--u)); vertical-align: top; line-height: 1; }
+  .dot { display: inline-block; width: .8em; height: .8em; border-radius: 50%; background: var(--text-2); vertical-align: -.05em; }
+  .dot.sun { background: #F6C445; }
+  .dot.heat { background: var(--coral); }
+  .face { display: inline-block; width: calc(3.9 * var(--u)); height: calc(3.9 * var(--u)); border-radius: 50%;
+    border: calc(.35 * var(--u)) solid var(--text-2); vertical-align: middle; }
+
+  /* The drum */
+  .drum { fill: var(--in-drum); }
+  .veil { fill: var(--in-drum); opacity: .3; }
+  .water { fill: var(--in-water); opacity: .85; }
+  .wire { stroke: var(--in-wire); fill: none; }
+  .dish { fill: #fff; stroke: #d5d8dc; }
+  .rim { fill: none; stroke: var(--rim); }
+  .rim-sh { fill: none; stroke: var(--rim-sh); }
+  .track { fill: none; stroke: color-mix(in oklab, var(--text-2) 25%, transparent); stroke-linecap: round; }
+  .arc { fill: none; stroke: var(--text-2); stroke-linecap: round; }
+  .divider { stroke-linecap: round; }
+  .lab { text-align: center; color: var(--in-text); }
+  .lab .n { font-size: var(--s); }
+  .lab .l { font-size: calc(var(--s) * .58); color: var(--in-text-2); }
+  .clock { color: var(--in-text); }
+
+  /* Håg's alert row: information, light by day and by night */
+  .band { position: absolute; left: 0; right: 0; top: 50%; translate: 0 -50%; height: calc(9.4 * var(--u) / .9);
+    display: flex; align-items: center; justify-content: center; z-index: 5;
+    background: var(--band); color: var(--d-text); font-size: calc(5.5 * var(--u));
+    opacity: 0; visibility: hidden; transition: opacity .3s, visibility .3s; }
+  .band.on { opacity: 1; visibility: visible; }
+</style>
+</head>
+<body>
+
+<div class="controls" id="controls"></div>
+<div class="go">
+  <button id="switch">Switch glance</button>
+  <button id="loop" class="quiet" aria-pressed="false">Loop</button>
+  <span id="status"></span>
+</div>
+
+<div class="stage" id="stage">
+  <div class="bg" id="bgA"></div>
+  <div class="bg" id="bgB"></div>
+  <div class="glow" id="glow"></div>
+  <svg id="drum" aria-hidden="true"></svg>
+  <div class="texts" id="texts"></div>
+  <div class="band" id="band">Washer cycle ended</div>
+</div>
+
+<p class="note">Machines 1 to 4 set the Appliance Glance's layout; changing them while it shows draws it afresh (the drum's own sweep is built). Overview's text sits where the real layout puts it on a square screen, with and without the alert row; in portrait and landscape it keeps the same places around the center.</p>
+<details><summary>Parts each glance gives the core (draft, from the glance on screen)</summary><pre id="parts"></pre></details>
+
+<script type="module">
+const $ = s => document.querySelector(s);
+const stage = $('#stage'), bgA = $('#bgA'), bgB = $('#bgB'), glow = $('#glow'), svg = $('#drum'), texts = $('#texts'), band = $('#band');
+const NS = 'http://www.w3.org/2000/svg';
+const rad = d => d * Math.PI / 180, lerp = (a, b, t) => a + (b - a) * t, clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const ease = u => u < .5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2;   // the drum's
+const norm = a => ((a % 360) + 360) % 360;
+const wrap = a => norm(a + 180) - 180;   // to -180..180
+const el = (tag, attrs = {}, parent) => {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  parent?.appendChild(e);
+  return e;
+};
+
+// ---------- Settings ----------
+
+// Starts at the picks (D137).
+const opt = { shape: 'square', day: true, row: false, n: 2, none: 'shrink', text: 'burst', order: 'overlap',
+  clockMove: 'rays', clockSize: 'names50', duration: 1300, slow: false, reduced: false };
+let showing = 'overview';
+
+const GROUPS = [
+  ['shape', 'Screen', [['square', 'Square'], ['portrait', 'Portrait'], ['landscape', 'Landscape']]],
+  ['day', 'Light', [[true, 'Day'], [false, 'Night']]],
+  ['row', 'Alert row', [[false, 'Off'], [true, 'On']]],
+  ['n', 'Machines', [[1, '1'], [2, '2'], [3, '3'], [4, '4']]],
+  ['none', 'Rays to or from none', [['shrink', 'Shrink into the center'], ['fade', 'Fade']]],
+  ['text', 'Text out and in', [['diagonal', 'Along the diagonals'], ['edge', 'Off the edge'], ['burst', 'Burst outward']]],
+  ['order', 'Order', [['once', 'All at once'], ['steps', 'In steps'], ['overlap', 'Overlapping']]],
+  ['clockMove', 'Clock moves', [['whole', 'Over the whole transition'], ['rays', 'With the rays']]],
+  ['clockSize', 'Appliance clock size', [['names', 'Names (1–2), medium (3–4)'], ['names20', 'Names + 20%'], ['names50', 'Names + 50%'], ['fixed', '8/14 of Overview\'s']]],
+];
+for (const [key, title, choices] of GROUPS) {
+  const fs = $('#controls').appendChild(document.createElement('fieldset'));
+  fs.innerHTML = `<legend>${title}</legend>`;
+  for (const [value, label] of choices) {
+    const b = fs.appendChild(document.createElement('button'));
+    b.textContent = label;
+    b.setAttribute('aria-pressed', opt[key] === value);
+    b.onclick = () => {
+      opt[key] = value;
+      fs.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b));
+      if (key === 'day') { document.body.classList.add('animate'); document.body.style.setProperty('--daylight', value ? 1 : 0); }
+      if (key === 'shape') stage.className = `stage ${value === 'square' ? '' : value}`;
+      if (['shape', 'row', 'n', 'clockSize'].includes(key)) { finish(); render(model(showing)); }
+    };
+  }
+}
+{
+  const fs = $('#controls').appendChild(document.createElement('fieldset'));
+  fs.innerHTML = `<legend>Timing</legend>
+    <label>Duration <input type="range" id="dur" min="600" max="3000" step="100" value="${opt.duration}"> <span id="durv"></span></label>`;
+  const motion = [['slow', 'Slow motion (×4)'], ['reduced', 'Reduced motion']];
+  for (const [key, label] of motion) {
+    const b = fs.appendChild(document.createElement('button'));
+    b.textContent = label;
+    b.setAttribute('aria-pressed', 'false');
+    b.onclick = () => { opt[key] = !opt[key]; b.setAttribute('aria-pressed', opt[key]); };
+  }
+  const dur = $('#dur'), out = $('#durv');
+  const show = () => { opt.duration = +dur.value; out.textContent = `${(opt.duration / 1000).toFixed(1)} s`; };
+  dur.oninput = show; show();
+}
+
+// ---------- Geometry ----------
+
+function geo() {
+  const W = stage.clientWidth, H = stage.clientHeight, m = Math.min(W, H);
+  return { W, H, m, cx: W / 2, cy: H / 2, R: m * .405, u: m * .009, bh: m * .094 };
+}
+
+// Angles are degrees clockwise from 3 o'clock, as the drum's.
+const KINDS = { washer: 'Washer', washer_dryer: 'Washer-dryer', dryer: 'Dryer', dishwasher: 'Dishwasher' };
+const MACHINES = {
+  washer: { lines: ['Rinsing · 45 min left', 'Ends at 4:30 PM'], p: .6 },
+  washer_dryer: { lines: ['Washing · 110 min left', 'Ends at 6:15 PM'], p: .3 },
+  dryer: { lines: ['Drying · 30 min left', 'Ends at 4:10 PM'], p: .45 },
+  dishwasher: { lines: ['Washing · 75 min left', 'Ends at 5:00 PM'], p: .25 },
+};
+function applianceWedges(n, row) {
+  if (n === 1) return [{ from: -45, to: 315, kind: 'washer' }];
+  if (n === 2) return [{ from: 135, to: 315, kind: 'washer' }, { from: 315, to: 495, kind: 'dryer' }];
+  if (n === 3) {
+    const t = row ? 15 : 0;   // the Y turn
+    return [{ from: 75 + t, to: 195 + t, kind: 'washer' }, { from: 315 + t, to: 435 + t, kind: 'dryer' }, { from: 195 + t, to: 315 + t, kind: 'dishwasher' }];
+  }
+  const t = row ? 45 : 0;   // × into +, the row hiding the level rays
+  return [{ from: 135 + t, to: 225 + t, kind: 'washer' }, { from: 225 + t, to: 315 + t, kind: 'washer_dryer' },
+    { from: 315 + t, to: 405 + t, kind: 'dryer' }, { from: 45 + t, to: 135 + t, kind: 'dishwasher' }];
+}
+
+// Overview's clusters, measured on a square screen: [left, top, right, bottom] as fractions.
+const OVERVIEW = {
+  noRow: { time: [.066, .404, .432, .518], date: [.02, .339, .598, .391], status: [.127, .276, .64, .328], appts: [.313, .12, .702, .263],
+    f0: [.624, .408, .977, .52], f1: [.495, .536, .834, .649], f2: [.367, .665, .72, .777] },
+  row: { time: [.154, .316, .519, .431], date: [.086, .251, .665, .303], status: [.214, .189, .728, .241], appts: [.401, .033, .789, .176],
+    f0: [.466, .566, .819, .678], f1: [.337, .695, .676, .807], f2: [.209, .823, .562, .935] },
+};
+const floor = (name, temp, hum) => `<div class="stack"><div class="t3">${name}</div><div class="row"><span class="t2"><span class="dot heat"></span> ${temp}</span><span class="t3">${hum}</span><span class="face"></span></div></div>`;
+const CLOCK = '<span class="t1">10<span class="colon">:</span>42</span><span class="ampm">AM</span>';
+const OVERVIEW_TEXT = {
+  time: ['clock', 'out', CLOCK],
+  date: ['text', 'out', '<div class="t2">Wednesday, November 4</div>'],
+  status: ['text', 'out', '<div class="row"><span class="face"></span><span class="t2"><span class="dot sun"></span> 12°</span><span class="t3">78%</span><span class="t3">AQI 31</span></div>'],
+  appts: ['text', 'out', '<div class="stack"><div class="t3"><span class="face"></span> Tomorrow · Groceries</div><div class="t3"><span class="face"></span> Fri 9:00 AM · Dentist</div><div class="t2"><span class="face"></span> 3:00 PM · Practice</div></div>'],
+  f0: ['text', 'in', floor('Upper floor', '21.0°', '44%')],
+  f1: ['text', 'in', floor('Main floor', '21.5°', '46%')],
+  f2: ['text', 'in', floor('Lower floor', '19.5°', '52%')],
+};
+
+// A glance as the core would take it.
+function model(name) {
+  if (name === 'overview') return { name, wedges: [{ from: 135, to: 315, color: 'var(--sky)' }, { from: 315, to: 495, color: 'var(--home)' }] };
+  const wedges = applianceWedges(opt.n, opt.row).map(w => ({ ...w, color: `var(--ground-${w.kind})` }));
+  return { name, n: opt.n, wedges };
+}
+const rays = md => md.wedges.length > 1 ? md.wedges.length : 0;
+
+// ---------- Drawing ----------
+
+const seeded = seed => () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const CLOTHES = ['#ECEAE4', '#D3D6D9', '#9AA1A9', '#B5AC9C', '#9CA596', '#C7BBAD', '#7B828B', '#A7B1B9'];
+let clipId = 0;
+function wedgePath(cx, cy, r, from, to) {
+  if (to - from >= 359.9) return `M${cx - r} ${cy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0Z`;
+  if (to - from <= 0) return '';
+  const p = a => `${cx + r * Math.cos(rad(a))} ${cy + r * Math.sin(rad(a))}`;
+  return `M${cx} ${cy}L${p(from)}A${r} ${r} 0 ${to - from > 180 ? 1 : 0} 1 ${p(to)}Z`;
+}
+function arcPath(cx, cy, r, from, to) {
+  if (to - from <= .5) return '';
+  if (to - from >= 359.9) return `M${cx - r} ${cy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`;
+  const p = a => `${cx + r * Math.cos(rad(a))} ${cy + r * Math.sin(rad(a))}`;
+  return `M${p(from)}A${r} ${r} 0 ${to - from > 180 ? 1 : 0} 1 ${p(to)}`;
+}
+function contents(g, kind, { cx, cy, R }, seed) {
+  const rnd = seeded(seed);
+  el('circle', { class: 'drum', cx, cy, r: R }, g);
+  if (kind === 'dishwasher') {
+    for (let k = -3; k <= 3; k++) {
+      el('line', { class: 'wire', x1: cx + k * R * .28, y1: cy - R, x2: cx + k * R * .28, y2: cy + R, 'stroke-width': R * .01 }, g);
+      el('line', { class: 'wire', x1: cx - R, y1: cy + k * R * .28, x2: cx + R, y2: cy + k * R * .28, 'stroke-width': R * .01 }, g);
+    }
+    for (let i = 0; i < 9; i++) {
+      const a = rnd() * Math.PI * 2, d = R * (.2 + rnd() * .62);
+      el('ellipse', { class: 'dish', cx: cx + Math.cos(a) * d, cy: cy + Math.sin(a) * d, rx: R * (.13 + rnd() * .06), ry: R * (.11 + rnd() * .05), 'stroke-width': R * .012 }, g);
+    }
+  } else {
+    const wet = kind !== 'dryer', n = wet ? 7 : 10;
+    for (let i = 0; i < n; i++) {
+      const a = rnd() * Math.PI * 2, d = R * (.3 + rnd() * .55);
+      el('ellipse', { cx: cx + Math.cos(a) * d, cy: cy + Math.sin(a) * d * .85 + R * (wet ? .18 : .08), rx: R * (.17 + rnd() * .08), ry: R * (.09 + rnd() * .05),
+        fill: CLOTHES[i % CLOTHES.length], transform: `rotate(${rnd() * 180} ${cx} ${cy})` }, g);
+    }
+    if (wet) el('rect', { class: 'water', x: cx - R, y: cy + R * .28, width: 2 * R, height: R }, g);
+  }
+  el('circle', { class: 'veil', cx, cy, r: R }, g);
+}
+
+// The drum for a set of wedges (kinds and machines); returns an update(wedges, opacity).
+function buildDrum(kinds, dividers) {
+  svg.replaceChildren();
+  const g = geo(), { cx, cy, R } = g;
+  svg.setAttribute('viewBox', `0 0 ${g.W} ${g.H}`);
+  const root = el('g', {}, svg), defs = el('defs', {}, root), inside = el('g', {}, root), rings = el('g', {}, root);
+  const parts = kinds.map((kind, i) => {
+    const id = `clip-${++clipId}`, clip = el('path', {}, el('clipPath', { id }, defs));
+    const gi = el('g', { 'clip-path': `url(#${id})` }, inside);
+    contents(gi, kind, g, 7 + i * 31 + Object.keys(KINDS).indexOf(kind) * 101);
+    return { kind, clip, track: el('path', { class: 'track', 'stroke-width': R * .055 }, rings), arc: el('path', { class: 'arc', 'stroke-width': R * .055 }, rings) };
+  });
+  el('circle', { class: 'rim', cx, cy, r: R, 'stroke-width': R * .07 }, root);
+  el('path', { class: 'rim-sh', d: arcPath(cx, cy, R * 1.02, -20, 110), 'stroke-width': R * .035 }, root);
+  const lines = dividers ? parts.map(p => el('line', { class: 'divider', stroke: `var(--ground-${p.kind})`, 'stroke-width': R * .035 }, root)) : [];
+  return (wedges, opacity) => {
+    root.setAttribute('opacity', opacity);
+    const gap = parts.length > 1 ? 4 : 0, ring = R * 1.13;
+    wedges.forEach((w, i) => {
+      const p = parts[i], { from, to } = w, open = to - from - 2 * gap > .5;
+      p.clip.setAttribute('d', wedgePath(cx, cy, R, from, to));
+      p.track.setAttribute('d', open ? arcPath(cx, cy, ring, from + gap, to - gap) : '');
+      p.arc.setAttribute('d', open ? arcPath(cx, cy, ring, from + gap, from + gap + (to - from - 2 * gap) * MACHINES[p.kind].p) : '');
+      const line = lines[i];
+      if (line) Object.entries({ x1: cx, y1: cy, x2: cx + R * 1.2 * Math.cos(rad(to)), y2: cy + R * 1.2 * Math.sin(rad(to)) }).forEach(([k, v]) => line.setAttribute(k, v));
+    });
+  };
+}
+
+// Background: wedges as a conic gradient from the center.
+function conic(wedges) {
+  const start = wedges[0].from;
+  const stops = wedges.map(w => ({ color: w.color, rel: norm(w.from - start), width: Math.max(0, w.to - w.from) })).sort((p, q) => p.rel - q.rel);
+  return `conic-gradient(from ${start + 90}deg at 50% 50%, ${stops.map(s =>
+    `${s.color} ${s.rel}deg ${s.rel + s.width}deg`).join(', ')})`;
+}
+const paint = (layer, wedges) => { layer.style.background = wedges.length > 1 ? conic(wedges) : wedges[0].color; };
+
+// ---------- Text ----------
+
+function block(html, cls) {
+  const e = texts.appendChild(document.createElement('div'));
+  e.className = `blk ${cls}`;
+  e.innerHTML = html;
+  return e;
+}
+function buildText(md) {
+  const g = geo(), out = [];
+  const at = (e, x, y) => { e.style.left = `${x - e.offsetWidth / 2}px`; e.style.top = `${y - e.offsetHeight / 2}px`; return { e, x, y }; };
+  if (md.name === 'overview') {
+    const boxes = OVERVIEW[opt.row ? 'row' : 'noRow'];
+    for (const [key, [role, side, html]] of Object.entries(OVERVIEW_TEXT)) {
+      const [l, t, r, b] = boxes[key], e = block(html, side);
+      const left = g.cx + (l - .5) * g.m, top = g.cy + (t - .5) * g.m;
+      e.style.left = `${left}px`; e.style.top = `${top}px`;
+      out.push({ e, role, x: left + (r - l) * g.m / 2, y: top + (b - t) * g.m / 2 });
+    }
+    return out;
+  }
+  // Appliance: each machine's name and lines, in its part.
+  const { R, cx, cy } = g, n = md.n, s = R * [0, .2, .15, .12, .105][n], gap = g.u * 2.5;
+  const lab = (inner, x, y) => { const e = block(`<div class="lab">${inner}</div>`, ''); e.style.setProperty('--s', `${s}px`); return at(e, x, y); };
+  const lines = k => MACHINES[k].lines.map(t => `<div class="l">${t}</div>`).join('');
+  if (n === 1) {
+    // The name above the middle and the lines below, the row's height and a gap apart.
+    const k = md.wedges[0].kind, name = lab(`<div class="n">${KINDS[k]}</div>`, cx, cy), rest = lab(lines(k), cx, cy);
+    name.y = cy - g.bh / 2 - gap - name.e.offsetHeight / 2;
+    rest.y = cy + g.bh / 2 + gap + rest.e.offsetHeight / 2;
+    out.push(name, rest);
+  } else {
+    for (const w of md.wedges) {
+      const mid = rad((w.from + w.to) / 2), d = R * [0, 0, .5, .55, .56][n];
+      out.push(lab(`<div class="n">${KINDS[w.kind]}</div>${lines(w.kind)}`, cx + Math.cos(mid) * d, cy + Math.sin(mid) * d));
+    }
+  }
+  // The clock: Overview's formatting, its digits at the names' size (1–2
+  // machines) or Overview's medium (3–4), the names' plus 20% or 50%, or 8/14
+  // of Overview's; at the center, or just above the row.
+  const c = block(CLOCK, 'clock');
+  const digits = { names: n <= 2 ? s : g.u * 5.5, names20: s * 1.2, names50: s * 1.5, fixed: g.u * 8 }[opt.clockSize];
+  c.style.setProperty('--u', `${digits / 14}px`);
+  // The colon on the drum's axis: the clock's center sits off it by the colon's offset.
+  const colon = c.querySelector('.colon').getBoundingClientRect(), box = c.getBoundingClientRect();
+  const clockX = cx + box.width / 2 - (colon.left + colon.width / 2 - box.left);
+  const cw = c.offsetWidth / 2, ch = c.offsetHeight / 2, clockY = opt.row ? cy - g.bh / 2 - gap - ch : cy;
+  // Overview's slide, straight up and down: text above the middle up, below it
+  // down, each side as one, to clear the clock and the row by a gap. Text level
+  // with the middle (quarters, no row) slides straight out instead, both sides alike.
+  const side = r => Math.abs(r.y - cy) < 1 ? 0 : Math.sign(r.y - cy);   // -1 above, 0 level, 1 below
+  let up = 0, down = 0, outward = 0;
+  for (const r of out) {
+    const w = r.e.offsetWidth / 2, h = r.e.offsetHeight / 2, over = Math.abs(r.x - clockX) < w + cw + gap, k = side(r);
+    if (k < 0) up = Math.max(up, r.y + h - Math.min(over ? clockY - ch - gap : Infinity, opt.row ? cy - g.bh / 2 - gap : Infinity));
+    else if (k > 0) down = Math.max(down, Math.max(over && !opt.row ? clockY + ch + gap : -Infinity, opt.row ? cy + g.bh / 2 + gap : -Infinity) - (r.y - h));
+    else outward = Math.max(outward, r.x > cx ? clockX + cw + gap - (r.x - w) : r.x + w - (clockX - cw - gap));
+  }
+  for (const r of out) {
+    const k = side(r);
+    if (k) r.y += k < 0 ? -up : down;
+    else r.x += Math.sign(r.x - cx) * outward;
+    r.e.style.left = `${r.x - r.e.offsetWidth / 2}px`;
+    r.e.style.top = `${r.y - r.e.offsetHeight / 2}px`;
+    r.role = 'text';
+  }
+  out.push({ ...at(c, clockX, clockY), role: 'clock' });
+  return out;
+}
+
+// How a block leaves (p 0 → 1) or comes in (1 → 0).
+function move(b, p, g) {
+  const dx = b.x - g.cx, dy = b.y - g.cy;
+  let vx, vy, scale = 1, fade = p;
+  if (opt.text === 'diagonal') {
+    const a = (dx - dy) / Math.SQRT2, c = (dx + dy) / Math.SQRT2;   // along the split, across it
+    [vx, vy] = Math.abs(a) > Math.abs(c) ? [Math.sign(a), -Math.sign(a)] : [Math.sign(c), Math.sign(c)];
+    const k = g.m * .32 / Math.SQRT2;
+    vx *= k; vy *= k; scale = 1 - .4 * p;
+  } else if (opt.text === 'edge') {
+    const w = b.e.offsetWidth, h = b.e.offsetHeight;
+    const ways = [[-1, 0, b.x + w / 2], [1, 0, g.W - b.x + w / 2], [0, -1, b.y + h / 2], [0, 1, g.H - b.y + h / 2]];
+    const [ux, uy, d] = ways.sort((p1, p2) => p1[2] - p2[2])[0];
+    vx = ux * d; vy = uy * d; fade = p ** 3;
+  } else {
+    const len = Math.hypot(dx, dy) || 1;
+    vx = dx / len * g.m * .4; vy = dy / len * g.m * .4; scale = 1 + .3 * p;
+  }
+  b.e.style.transform = `translate(${vx * p}px, ${vy * p}px) scale(${scale})`;
+  b.e.style.opacity = 1 - fade;
+}
+
+// ---------- A glance at rest ----------
+
+let current = null, live = null;
+function render(md) {
+  texts.replaceChildren();
+  svg.replaceChildren();
+  bgB.style.cssText = 'opacity: 0';
+  bgA.style.cssText = '';
+  paint(bgA, md.wedges);
+  glow.style.opacity = md.name === 'overview' ? 1 : 0;
+  band.classList.toggle('on', opt.row);
+  if (md.name !== 'overview') buildDrum(md.wedges.map(w => w.kind), md.wedges.length > 1)(md.wedges, 1);
+  current = { md, blocks: buildText(md) };
+  readout(md);
+}
+
+function readout(md) {
+  const g = geo(), f = v => +(v / g.m).toFixed(3);
+  const parts = {
+    glance: md.name === 'overview' ? 'Overview' : `Appliance (${md.n})`,
+    background: md.wedges.map(w => ({ from: norm(w.from), to: norm(w.from) + (w.to - w.from), color: w.color })),
+    dividers: rays(md) ? md.wedges.map(w => norm(w.from)).sort((a, b) => a - b) : [],
+    text: current.blocks.filter(b => b.role === 'text').map(b => ({ at: [f(b.x - g.cx), f(b.y - g.cy)], size: [f(b.e.offsetWidth), f(b.e.offsetHeight)] })),
+    clock: current.blocks.filter(b => b.role === 'clock').map(b => ({ at: [f(b.x - g.cx), f(b.y - g.cy)], size: [f(b.e.offsetWidth), f(b.e.offsetHeight)] }))[0],
+  };
+  $('#parts').textContent = `Angles in degrees clockwise from 3 o'clock; places and sizes from the center, in shorter sides.\n${JSON.stringify(parts, null, 1)}`;
+}
+
+// ---------- Between glances ----------
+
+// Rays turning from A to B: both padded to the same number (a ray splits
+// off, or two merge), then paired for the least extra travel beyond the turn.
+function pairUp(A, B, turn) {
+  const sorted = ws => ws.map(w => ({ ...w, from: norm(w.from), to: norm(w.from) + (w.to - w.from) })).sort((p, q) => p.from - q.from);
+  const a0 = sorted(A), b0 = sorted(B), N = Math.max(a0.length, b0.length);
+  const pads = (ws) => {   // every way to split rays to reach N: a zero-width wedge at the split ray
+    let out = [ws];
+    for (let k = ws.length; k < N; k++) out = out.flatMap(list => list.map((w, i) => {
+      const copy = [...list];
+      copy.splice(i, 0, { ...w, to: w.from });
+      return copy;
+    }));
+    return out;
+  };
+  let best = null;
+  for (const a of pads(a0)) for (const b of pads(b0)) for (let k = 0; k < N; k++) {
+    const cost = a.reduce((s, w, i) => s + Math.abs(wrap(b[(i + k) % N].from - w.from - turn)), 0);
+    if (!best || cost < best.cost) best = { cost, a, b: a.map((_, i) => b[(i + k) % N]) };
+  }
+  return best;
+}
+
+let anim = 0, finishNow = null;
+function finish() { cancelAnimationFrame(anim); finishNow?.(); finishNow = null; }
+
+function windows() {
+  return { once: [[0, 1], [0, 1], [0, 1]], steps: [[0, .3], [.3, .7], [.7, 1]], overlap: [[0, .45], [.2, .8], [.55, 1]] }[opt.order];
+}
+
+function go(toName) {
+  finish();
+  const A = current.md, B = model(toName), g = geo();
+  const duration = opt.duration * (opt.slow ? 4 : 1);
+  showing = toName;
+  if (opt.reduced) {
+    const ghost = document.createElement('div');
+    ghost.className = 'ghost';
+    ghost.append(bgA.cloneNode(true), bgB.cloneNode(true), glow.cloneNode(true), svg.cloneNode(true), texts.cloneNode(true));
+    stage.insertBefore(ghost, band);
+    render(B);
+    ghost.animate({ opacity: [1, 0] }, { duration, easing: 'ease-in-out' }).onfinish = () => ghost.remove();
+    status(A, B, 'crossfade only');
+    return;
+  }
+  const ra = rays(A), rb = rays(B), turn = ra === rb ? 180 : 360;
+  const appliance = A.name === 'overview' ? B : A, entering = B === appliance;
+  const oldBlocks = current.blocks, newBlocks = buildText(B);
+  // One clock on both: A's slides and scales to B's place and color; B's shows at the end.
+  const [clockA, clockB] = [oldBlocks, newBlocks].map(bs => bs.find(b => b.role === 'clock'));
+  const textA = oldBlocks.filter(b => b !== clockA), textB = newBlocks.filter(b => b !== clockB);
+  const mid = b => [b.e.offsetLeft + b.e.offsetWidth / 2, b.e.offsetTop + b.e.offsetHeight / 2];
+  const [[ax, ay], [bx, by]] = [mid(clockA), mid(clockB)];
+  const clock = { dx: bx - ax, dy: by - ay, k: clockB.e.offsetWidth / clockA.e.offsetWidth,
+    from: getComputedStyle(clockA.e).color, to: getComputedStyle(clockB.e).color };
+  clockB.e.style.opacity = 0;
+  textB.forEach(b => move(b, 1, g));
+  // One side without rays: the other's turn, over or under the single ground.
+  const layered = !ra || !rb;
+  let pair = null, drum;
+  if (layered) {
+    drum = buildDrum([appliance.wedges[0].kind], false);
+  } else {
+    pair = pairUp(A.wedges, B.wedges, turn);
+    drum = buildDrum((entering ? pair.b : pair.a).map(w => w.kind), appliance.wedges.length > 1);
+  }
+  const [wOut, wRay, wIn] = windows(), part = ([s, e], t) => ease(clamp((t - s) / (e - s)));
+  const diag = Math.hypot(g.W, g.H) / 2;
+  const frame = t => {
+    const out = part(wOut, t), ray = part(wRay, t), inn = part(wIn, t);
+    let wedges;
+    if (layered) {
+      // The incoming side over the outgoing one: the single ground over the
+      // turning rays as they go, the turning rays over it as they come.
+      const split = ra ? A : B, shift = ra ? 360 * ray : -360 * (1 - ray);
+      const turning = split.wedges.map(w => ({ ...w, from: w.from + shift, to: w.to + shift }));
+      paint(bgA, ra ? turning : A.wedges);
+      paint(bgB, ra ? B.wedges : turning);
+      bgA.style.opacity = 1;
+      if (opt.none === 'shrink') {
+        const r = diag * ray;
+        bgB.style.opacity = 1;
+        bgB.style.maskImage = `radial-gradient(circle at 50% 50%, #000 ${r}px, transparent ${r + 1}px)`;
+      } else { bgB.style.maskImage = ''; bgB.style.opacity = ray; }
+      wedges = [{ from: -45, to: 315 }];
+    } else {
+      const at = i => pair.a[i].from + (turn + wrap(pair.b[i].from - pair.a[i].from - turn)) * ray;
+      wedges = pair.a.map((w, i) => ({ from: at(i), to: at((i + 1) % pair.a.length) + (i === pair.a.length - 1 ? 360 : 0),
+        color: `color-mix(in oklab, ${pair.b[i].color} ${ray * 100}%, ${w.color})` }));
+      paint(bgA, wedges);
+    }
+    glow.style.opacity = A.name === 'overview' ? 1 - ray : ray;
+    drum(wedges, entering ? ray : 1 - ray);
+    textA.forEach(b => move(b, out, g));
+    textB.forEach(b => move(b, 1 - inn, g));
+    const c = part(opt.clockMove === 'rays' ? wRay : [0, 1], t);
+    clockA.e.style.transform = `translate(${clock.dx * c}px, ${clock.dy * c}px) scale(${lerp(1, clock.k, c)})`;
+    clockA.e.style.color = `color-mix(in oklab, ${clock.to} ${c * 100}%, ${clock.from})`;
+  };
+  const t0 = performance.now();
+  const done = () => { oldBlocks.forEach(b => b.e.remove()); bgA.style.cssText = ''; bgB.style.cssText = 'opacity: 0'; render(B); };
+  finishNow = done;
+  const tick = now => {
+    const t = Math.min(1, (now - t0) / duration);
+    frame(t);
+    if (t < 1) anim = requestAnimationFrame(tick);
+    else { finishNow = null; done(); }
+  };
+  status(A, B, `rays ${ra} → ${rb}, turning ${turn}°`);
+  anim = requestAnimationFrame(tick);
+}
+
+function status(A, B, how) {
+  const name = md => md.name === 'overview' ? 'Overview' : `Appliance (${['', 'whole', 'halves', 'thirds', 'quarters'][md.n]})`;
+  $('#status').textContent = `${name(A)} → ${name(B)}: ${how}`;
+}
+
+// ---------- Run ----------
+
+$('#switch').onclick = () => go(showing === 'overview' ? 'appliance' : 'overview');
+let loop = 0;
+$('#loop').onclick = e => {
+  const on = e.target.getAttribute('aria-pressed') !== 'true';
+  e.target.setAttribute('aria-pressed', on);
+  clearInterval(loop);
+  if (on) { go(showing === 'overview' ? 'appliance' : 'overview'); loop = setInterval(() => go(showing === 'overview' ? 'appliance' : 'overview'), opt.duration * (opt.slow ? 4 : 1) + 1800); }
+};
+new ResizeObserver(() => { if (!finishNow) render(model(showing)); }).observe(stage);
+await document.fonts.ready;
+render(model(showing));
+</script>
+</body>
+</html>
