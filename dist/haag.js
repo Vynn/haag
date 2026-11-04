@@ -1901,7 +1901,12 @@ class HaagHost extends HTMLElement {
       get visible() { return entry.visible; },
       // Asking again keeps a glance's place; after a release, it goes to the back.
       request() { if (!entry.wants) entry.asked = ++host._asks; entry.wants = true; host._schedule(); },
-      release() { entry.wants = false; host._schedule(); },
+      // A glance that was asking leaves at once, from a visit too.
+      release() {
+        if (entry.wants && host._running.get(host._visit) === entry) host._visit = null;
+        entry.wants = false;
+        host._schedule();
+      },
     };
     return haag;
   }

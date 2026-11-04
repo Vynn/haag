@@ -32,11 +32,11 @@ Håg shows weather alerts from one of these Home Assistant integrations, whichev
 | MeteoAlarm | Core | Sample data only |
 | CAP Alerts | Custom | Sample data only |
 | NWS Alerts | Custom | Sample data only |
-| Weather Alerts | Custom | On the test install; no live alert seen yet |
+| Weather Alerts | Custom | Partially verified |
 
 ### Appliances
 
-The Appliance Glance reads machines from these Home Assistant integrations. Each was built from the integration's own code; none is tested yet. Reports are welcome as [issues](https://github.com/Vynn/haag/issues).
+The Appliance Glance reads machines from these Home Assistant integrations. Each was built from the integration's own code; most aren't tested yet. Reports are welcome as [issues](https://github.com/Vynn/haag/issues).
 
 | Source | Integration | Machines | Tested |
 |---|---|---|---|
@@ -45,7 +45,7 @@ The Appliance Glance reads machines from these Home Assistant integrations. Each
 | Home Connect | Core | Washers, dryers, dishwashers; washer-dryers by name | Not yet |
 | Miele | Core | Washers, dryers, washer-dryers, dishwashers | Not yet |
 | LG ThinQ | Core | Washers, dryers, washer-dryers, dishwashers | Not yet |
-| SmartThinQ LGE Sensors | Custom | Washers, dryers, dishwashers | Not yet |
+| SmartThinQ LGE Sensors | Custom | Washers, dryers, dishwashers | Verified |
 | Sub-Zero | Custom | Dishwashers | Not yet |
 
 ## Requirements
