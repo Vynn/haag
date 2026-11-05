@@ -71,9 +71,9 @@ function thermometerIcon(value, unit) {
 const initials = name => (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
 
 // With no alert, the clock keeps at least this much room on its left
-// (fraction of the screen's shorter side), so wide times (10:00–12:59) don't
-// press against the edge.
-const PAIR_LEFT_MARGIN = 0.105;
+// (fraction of the screen's shorter side), so wide times (10:00–12:59, or any
+// two-digit hour on 24 hours) don't press against the edge.
+const PAIR_LEFT_MARGIN = 0.028;
 
 const APPT_COUNT = 4;                 // appointments shown (setting `appointments`)
 const APPT_REFRESH = 5 * 60 * 1000;   // refetch every 5 minutes
