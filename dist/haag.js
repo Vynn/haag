@@ -2224,11 +2224,11 @@ class HaagHost extends HTMLElement {
         el.style.translate = el.style.scale = el.style.opacity = el.style.transformOrigin = '';
       }
       for (const el of [...(a.scene ?? []), ...(b.scene ?? [])]) el.style.opacity = '';
-      a.done?.();
-      b.done?.();
       from.el.removeAttribute('between');
       to.el.removeAttribute('between');
       to.el.classList.remove('coming');
+      a.done?.();
+      b.done?.();
       from.visible = false;
       from.el.classList.remove('on');
       from.el.dispatchEvent(new Event('haag-visible'));

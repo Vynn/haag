@@ -316,8 +316,9 @@ parts() {
 | `scene` | Elements in the background to fade, such as weather. |
 | `text` | Blocks of text. An array moves as one block. |
 | `turn(spans, opacity)` | Optional. Called on every frame to draw a scene through the turning wedges: `spans` matches `wedges`, each with its `from` and `to` now, and `opacity` is how far the scene has faded in or out. |
-| `done()` | Optional. The transition is over: draw at rest again. |
+| `done()` | Optional. The transition is over: draw at rest again, and lay out if you held off. |
 
 - **The background:** Håg paints the wedges under the glances and sets the `between` attribute on both, so a glance stops painting its own: `:host([between]) .stage { background: none; }`.
 - **Styles:** Håg sets `opacity` on the scene, and `translate`, `scale`, `transform-origin` and `opacity` on the text, and clears them after. Leave those to Håg on these elements.
+- **Measuring:** while the `between` attribute is set, the text is moving and scaled, so `getBoundingClientRect` and the [layout helpers](#layout-helpers) give the wrong sizes. Hold off laying out, then lay out in `done()`, which Håg calls with the attribute gone and the styles cleared.
 - **On screen:** both glances are during a transition, so `haag.visible` stays true for the leaving one until it ends.

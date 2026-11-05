@@ -399,6 +399,9 @@ class SinnesroGlance extends HTMLElement {
       wedges: [{ from: 180 - a, to: 360 - a, color: 'var(--sky)' }, { from: 360 - a, to: 540 - a, color: 'var(--home)' }],
       scene: [...root.querySelectorAll('.sky, .wx')],
       text: [...this._out, ...this._in].filter(el => !el.querySelector('.time')).map(el => [...el.children]),
+      done: () => {
+        if (this._layoutOwed) this._relayout();
+      },
     };
   }
 
@@ -897,6 +900,10 @@ class SinnesroGlance extends HTMLElement {
   _layout() {
     const stage = this._stage;
     if (!stage || !stage.clientWidth || !this._haag) return;
+    // Between glances the text is moving and scaled, so it can't be measured:
+    // lay out when that's over (parts' done).
+    this._layoutOwed = this.hasAttribute('between');
+    if (this._layoutOwed) return;
     const W = stage.clientWidth, H = stage.clientHeight;
     const cy = H / 2;
     const l = this._lay;
