@@ -47,7 +47,7 @@ The idle screen's illustrated look, and how glances work.
 - [x] Settings for alerts: which are on, their sensors, thresholds and timings
 - [x] Warnings for entities missing an area or other fields Håg uses
 
-## 0.5 · Appliance glance
+## 0.5 · Appliance glance · released
 
 The first glance after Overview Glance: washers, dryers, washer-dryers and dishwashers.
 
@@ -64,7 +64,7 @@ The first glance after Overview Glance: washers, dryers, washer-dryers and dishw
 - [x] Alert settings for each glance
 - [x] An overall easter eggs setting
 - [x] Layout helpers for glance authors
-- [ ] Installs through the Home Assistant Marketplace, with the first build after the Marketplace's stable release (0.5.1)
+- [x] Installs through the Home Assistant Marketplace, with the first build after the Marketplace's stable release (0.5.1)
 
 ## 0.6 · 3D printer glance
 

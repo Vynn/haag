@@ -2,9 +2,9 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
-## 0.5.1 · unreleased
+## 0.5.1 · 2026-11-07
 
-In progress.
+Transitions between glances, and Håg's own clock. Installs through the Home Assistant Marketplace. A pre-release. See [glances](docs/glances.md#transitions).
 
 ### Added
 
@@ -16,6 +16,10 @@ In progress.
 
 - Overview Glance: with a wide time, such as 21:59 or 12:38, the time and the top floor stay centered on the middle, the clock closer to the left edge, instead of sliding up the split.
 - Appliance Glance: to make room for the clock, two machines' text sits out along each part's middle instead of side by side at the center, and text slides straight up and down to clear the clock and the alert row. Text shrinks to fit, so it can be smaller than before.
+
+### Known issues
+
+- After Home Assistant restarts, a machine that still reports its last cycle as finished can show "Cycle ended" for up to `rest`, on a display with no record of that cycle.
 
 ## 0.5.0 · 2026-11-04
 
