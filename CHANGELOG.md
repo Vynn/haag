@@ -2,6 +2,10 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
+## 0.6.0 · unreleased
+
+In progress: the 3D Printer Glance.
+
 ## 0.5.1 · 2026-11-07
 
 Transitions between glances, and Håg's own clock. Installs through the Home Assistant Marketplace. A pre-release. See [glances](docs/glances.md#transitions).
