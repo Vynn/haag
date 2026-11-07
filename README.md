@@ -46,7 +46,7 @@ The Appliance Glance reads machines from these Home Assistant integrations. Each
 | Miele | Core | Washers, dryers, washer-dryers, dishwashers | Not yet |
 | LG ThinQ | Core | Washers, dryers, washer-dryers, dishwashers | Not yet |
 | SmartThinQ LGE Sensors | Custom | Washers, dryers, dishwashers | Verified |
-| Sub-Zero | Custom | Dishwashers | Not yet |
+| Sub-Zero | Custom | Dishwashers | Verified |
 
 ## Requirements
 
