@@ -284,7 +284,7 @@ haag.clock.place({ x, y, size, ampm, color, align });
 - **The text:** `haag.clock.time` and `haag.clock.period` give the time and AM/PM (empty on 24 hours), for a layout that measures its own copy. Overview Glance does.
 - **Drawing over it:** a `<slot name="clock"></slot>` in the glance's shadow root puts the clock at that level, so what comes later crosses over it, as Overview Glance's fog does. Between glances it's above both.
 
-A glance that doesn't place it shows no clock.
+A glance that doesn't place it gets the clock front and center: its colon on the screen's vertical axis, the numerals in the middle, or just above the alert row while it shows, at 14 units in `--text`. Every glance shows the clock.
 
 ### Transitions
 

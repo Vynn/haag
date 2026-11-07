@@ -9,7 +9,7 @@ In progress.
 ### Added
 
 - Transitions between glances, in 1.3 seconds: the split turns into the machines' parts, splitting and merging on the way, while the text bursts out and in and the clock slides and scales to its new place. With reduced motion, a crossfade. For glance authors: `parts()`. See [glances](docs/glances.md#transitions).
-- The clock is Håg's, and Appliance Glance now shows it: half again the size of the machines' names, its colon on the drum's axis, at the center or just above the alert row. For glance authors: `haag.clock`. See [glances](docs/glances.md#the-clock).
+- The clock is Håg's, and Appliance Glance now shows it: half again the size of the machines' names, its colon on the drum's axis, at the center or just above the alert row. A glance that doesn't place it shows it front and center. For glance authors: `haag.clock`. See [glances](docs/glances.md#the-clock).
 - Install steps for the Home Assistant Marketplace (2026.11 and later) beside HACS (2026.10), with one link that opens either, and how to get pre-releases. See the [README](README.md#install).
 
 ### Changed

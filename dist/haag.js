@@ -2286,10 +2286,27 @@ class HaagHost extends HTMLElement {
     };
   }
 
+  // A glance that hasn't placed the clock: front and center, Overview's large
+  // size, just above the alert row while it shows.
+  _defaultClock() {
+    const stage = this._stage, W = stage.clientWidth, H = stage.clientHeight;
+    const units = n => {
+      const probe = document.createElement('div');
+      probe.style.cssText = `position:absolute;visibility:hidden;width:calc(${n} * var(--u))`;
+      stage.append(probe);
+      const w = probe.getBoundingClientRect().width;
+      probe.remove();
+      return w;
+    };
+    const size = units(14), { height } = this._clockBox(size), band = this._alertBand();
+    const y = band.showing ? band.top - units(SPLIT_GAP) - height : H / 2 - height / 2;
+    return { x: W / 2, y, size, align: 'colon' };
+  }
+
   // Where a glance has put the clock, in full.
   _clockAt(entry) {
-    const c = entry?.clock;
-    if (!c) return null;
+    if (!entry) return null;
+    const c = entry.clock ?? this._defaultClock();
     const box = this._clockBox(c.size, c.ampm);
     return { x: c.align === 'colon' ? c.x - box.colon : c.x, y: c.y, size: c.size, ampm: box.ampm, top: box.top, color: c.color ?? 'var(--text)' };
   }
@@ -2642,9 +2659,11 @@ class HaagHost extends HTMLElement {
     if (hidden) this._tellGlances();
   }
 
-  // Glances keep their content clear of the band.
+  // Glances keep their content clear of the band, and so does the clock
+  // where a glance hasn't placed it.
   _tellGlances() {
     for (const { el } of this._running.values()) el.dispatchEvent(new Event('haag-alertrow'));
+    this._applyClock();
   }
 
   _makeSlide() {
