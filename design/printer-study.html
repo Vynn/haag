@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Printer Study</title>
+<!--
+  Håg: 3D Printer Glance study (D141, D142; 0.6). Laid out like Overview:
+  the printer's picture in the weather area (upper left of the split), the
+  lower right half a panel of the home color, less than opaque so the picture
+  shows through. Text sits where Overview's does: the clock in its place, the
+  print's name and state above it, the details in the floors' places.
+
+  One printer at a time. Printers in the cycle share the glance's turn evenly;
+  a fast clock wipe around the center brings in the next. Order: failed,
+  finished, then closest to finishing. Idle printers are hidden; at most
+  three take turns, with a line for the rest. All idle: no glance.
+
+  First pass for discussion: pictures are drawn placeholders, and which text
+  goes where is a placeholder too. Try your own picture with the file picker:
+  it stays in this page.
+-->
+<style>
+  @font-face { font-family: 'Haag Open Sans'; src: url('../dist/assets/open-sans.ttf'); font-weight: 300 800; }
+  @property --daylight { syntax: '<number>'; inherits: true; initial-value: 0; }
+
+  :root {
+    /* Håg's palette (dist/haag.js) */
+    --n-sky: #10162A;      --d-sky: #7CC8F2;
+    --n-horizon: #1D3442;  --d-horizon: #FFD6E7;
+    --n-home: #1E2433;     --d-home: #F6FAFF;
+    --n-text: #F1EADC;     --d-text: #0E1F3A;
+    --n-text-2: #A9B0C2;   --d-text-2: #34537A;
+    --n-coral: #FF7A68;    --d-coral: #D6336C;
+    --n-seaglass: #72D8C6; --d-seaglass: #0B8A5E;
+    --daylight: 1;
+  }
+  body {
+    --p: calc(var(--daylight) * 100%);
+    --sky: color-mix(in oklab, var(--d-sky) var(--p), var(--n-sky));
+    --horizon: color-mix(in oklab, var(--d-horizon) var(--p), var(--n-horizon));
+    --home: color-mix(in oklab, var(--d-home) var(--p), var(--n-home));
+    --text: color-mix(in oklab, var(--d-text) var(--p), var(--n-text));
+    --text-2: color-mix(in oklab, var(--d-text-2) var(--p), var(--n-text-2));
+    --text-2-out: color-mix(in oklab, var(--text) calc(var(--daylight) * 7%), var(--text-2));
+    --coral: color-mix(in oklab, var(--d-coral) var(--p), var(--n-coral));
+    --seaglass: color-mix(in oklab, var(--d-seaglass) var(--p), var(--n-seaglass));
+    --band: #FFFFFFE6;
+  }
+  body.animate { transition: --daylight 2.5s ease-in-out; }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: #f4f4f4; color: #222; font: 14px/1.4 system-ui, sans-serif;
+    display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; width: min(100%, 980px); }
+  fieldset { border: 1px solid #ccc; border-radius: 4px; margin: 0; padding: 6px 10px 8px; background: #fff; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
+  fieldset.off > :not(legend) { opacity: .45; }
+  legend { font-weight: 600; padding: 0 4px; }
+  legend label { display: inline-flex; gap: 6px; align-items: center; }
+  fieldset button { font: inherit; padding: 3px 9px; border: 1px solid #999; background: #fff; border-radius: 3px; cursor: pointer; }
+  fieldset button[aria-pressed="true"] { background: #222; color: #fff; border-color: #222; }
+  fieldset label.wide { display: flex; gap: 6px; align-items: center; width: 100%; }
+  fieldset input[type=range] { flex: 1; min-width: 0; }
+  fieldset input[type=text], fieldset select { font: inherit; flex: 1; min-width: 0; }
+  fieldset input[type=file] { font-size: 12px; width: 100%; }
+  fieldset output { min-width: 3.5em; text-align: right; color: #555; font-variant-numeric: tabular-nums; }
+  .go { display: flex; gap: 8px; align-items: center; justify-content: center; flex-wrap: wrap; }
+  .go button { font: inherit; font-weight: 600; padding: 6px 14px; border: 1px solid #222; background: #222; color: #fff; border-radius: 3px; cursor: pointer; }
+  .go button.quiet { background: #fff; color: #222; font-weight: 400; }
+  .go button[aria-pressed="true"].quiet { background: #ddd; }
+  #status { color: #555; font-size: 12px; min-height: 1.4em; text-align: center; max-width: 720px; }
+  p.note { max-width: 720px; color: #555; margin: 0; font-size: 12px; }
+
+  /* ---------- The screen ---------- */
+  .stage {
+    position: relative; overflow: hidden; border-radius: 6px;
+    width: min(100%, 560px); aspect-ratio: 1;
+    container-type: size; --u: .9cqmin;
+    font-family: 'Haag Open Sans', system-ui, sans-serif; color: var(--text);
+    background: var(--home);
+  }
+  .stage.round { border-radius: 50%; }
+  .stage.landscape { width: min(100%, 780px); aspect-ratio: 16 / 9; }
+  .layer, .layer > * { position: absolute; inset: 0; }
+  .layer { z-index: 1; overflow: hidden; }
+  .layer.coming { z-index: 2; }
+
+  /* Overview's sky, behind a picture that doesn't cover it (a render, the fallback). */
+  .sky { background: radial-gradient(120% 90% at 30% 85%, var(--horizon), transparent 60%), var(--sky); }
+  .layer > .pic { inset: auto; }
+  .pic img { width: 100%; height: 100%; display: block; }
+  .pic img.camera { object-fit: cover; }
+  .pic img.cover { object-fit: contain; }
+  .pic svg.fallback { position: absolute; color: var(--text-2-out); opacity: .55; overflow: visible; }
+  .veil { background: var(--sky); opacity: var(--dim); }
+  .panel { background: var(--home); opacity: var(--panel); }
+  .split { width: 100%; height: 100%; }
+  .split .track { stroke: color-mix(in oklab, var(--text-2) 30%, transparent); stroke-linecap: round; }
+  .split .fill { stroke: var(--seaglass); stroke-linecap: round; }
+  .split .fill.warn { stroke: var(--coral); }
+  .split .fill.quiet { stroke: var(--text-2); }
+  .texts { pointer-events: none; }
+  .blk { position: absolute; white-space: nowrap; line-height: 1.05; }
+
+  /* Overview's text sizes */
+  .t1 { font-size: calc(14 * var(--u)); line-height: .8; }
+  .t2 { font-size: calc(5.5 * var(--u)); }
+  .t3 { font-size: calc(2.8 * var(--u)); color: var(--text-2); }
+  .out .t3 { color: var(--text-2-out); }
+  .row { display: flex; gap: calc(1.2 * var(--u)); align-items: baseline; }
+  .stack { display: flex; flex-direction: column; gap: calc(.4 * var(--u)); }
+  .ampm { font-size: calc(5.5 * var(--u)); margin-left: calc(.7 * var(--u)); vertical-align: top; line-height: 1; }
+  .dot { display: inline-block; width: .8em; height: .8em; border-radius: 50%; background: var(--text-2); vertical-align: -.05em; }
+  .dot.go { background: var(--seaglass); }
+  .dot.heat, .dot.warn { background: var(--coral); }
+  .warn-text { color: var(--coral); }
+
+  .clock { z-index: 3; }
+  .empty-note { position: absolute; inset: 0; z-index: 4; display: none; align-items: center; justify-content: center;
+    padding: 12%; text-align: center; background: #888; color: #fff; font: 15px/1.4 system-ui, sans-serif; }
+  .stage.empty .empty-note { display: flex; }
+  .stage.empty .clock { visibility: hidden; }
+
+  /* Håg's alert row: information, light by day and by night */
+  .band { position: absolute; left: 0; right: 0; top: 50%; translate: 0 -50%; height: calc(9.4 * var(--u) / .9);
+    display: flex; align-items: center; justify-content: center; z-index: 5;
+    background: var(--band); color: var(--d-text); font-size: calc(5.5 * var(--u));
+    opacity: 0; visibility: hidden; transition: opacity .3s, visibility .3s; }
+  .band.on { opacity: 1; visibility: visible; }
+</style>
+</head>
+<body>
+
+<div class="controls" id="controls"></div>
+<div class="controls" id="printers"></div>
+<div class="go">
+  <button id="next">Next printer</button>
+  <button id="auto" class="quiet" aria-pressed="false">Take turns</button>
+  <button id="slow" class="quiet" aria-pressed="false">Slow motion (×4)</button>
+</div>
+<div id="status"></div>
+
+<div class="stage" id="stage">
+  <div class="layer" id="L0"></div>
+  <div class="layer" id="L1"></div>
+  <div class="blk clock" id="clock"></div>
+  <div class="band" id="band">Washer cycle ended</div>
+  <div class="empty-note">All printers idle: the glance doesn't ask for the screen.</div>
+</div>
+
+<p class="note">Text sits in Overview's places on a square screen, around the same center on the others: the clock where Overview has it, the print's name, state and the count of the rest above it, time, layer and temperatures where the floors are. Pictures are drawn stand-ins: a camera frame (wide, opaque) and a cover render (square, transparent, so the sky shows around it). <em>Take turns</em> runs the real timing: the turn split evenly between the printers in the cycle.</p>
+
+<script type="module">
+const $ = s => document.querySelector(s);
+const stage = $('#stage'), clockEl = $('#clock'), band = $('#band');
+const layers = [$('#L0'), $('#L1')];
+let front = 0;
+const ease = u => u < .5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2;
+const esc = s => s.replace(/[&<>"]/g, c => `&${{ '&': 'amp', '<': 'lt', '>': 'gt', '"': 'quot' }[c]};`);
+const fmt = d => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+const span = min => min >= 60 ? `${Math.floor(min / 60)} h ${min % 60 ? `${min % 60} min` : ''}`.trim() : `${min} min`;
+
+// ---------- Settings ----------
+
+const opt = { shape: 'square', day: true, row: false, center: 'screen', panel: 80, dim: 35, line: false,
+  wipeFrom: 0, wipe: 600, cycle: 30, morePrinting: 0, moreIdle: 1, slow: false, auto: false };
+
+const STATES = ['Heating', 'Printing', 'Paused', 'Finished', 'Failed', 'Idle'];
+const SOURCES = [['camera', 'Camera'], ['cover', 'Cover render'], ['none', 'None (fallback)']];
+const printers = [
+  { on: true, name: 'Gridfinity bins', state: 'Printing', progress: 62, left: 85, source: 'camera', layers: 290, nozzle: 220, bed: 65 },
+  { on: true, name: 'Lamp shade', state: 'Finished', progress: 100, left: 0, source: 'cover', layers: 410, nozzle: 220, bed: 65 },
+  { on: false, name: 'Cable clips', state: 'Heating', progress: 0, left: 140, source: 'none', layers: 120, nozzle: 250, bed: 80 },
+];
+printers.forEach((p, i) => { p.id = i; p.file = null; });
+
+function group(parent, title, key, choices, after = show) {
+  const fs = parent.appendChild(document.createElement('fieldset'));
+  fs.innerHTML = `<legend>${title}</legend>`;
+  for (const [value, label] of choices) {
+    const b = fs.appendChild(document.createElement('button'));
+    b.textContent = label;
+    b.setAttribute('aria-pressed', opt[key] === value);
+    b.onclick = () => {
+      opt[key] = value;
+      fs.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b));
+      after(key, value);
+    };
+  }
+  return fs;
+}
+function slider(fs, key, label, min, max, step, unit, after = show) {
+  const l = fs.appendChild(document.createElement('label'));
+  l.className = 'wide';
+  l.innerHTML = `${label} <input type="range" min="${min}" max="${max}" step="${step}" value="${opt[key]}"> <output></output>`;
+  const input = l.querySelector('input'), out = l.querySelector('output');
+  const set = () => { opt[key] = +input.value; out.textContent = unit(opt[key]); };
+  input.oninput = () => { set(); after(key); };
+  set();
+}
+
+const C = $('#controls');
+group(C, 'Screen', 'shape', [['square', 'Square'], ['round', 'Round'], ['landscape', 'Landscape']], (k, v) => {
+  stage.className = `stage ${v === 'square' ? '' : v}`;
+  show();
+});
+group(C, 'Light', 'day', [[true, 'Day'], [false, 'Night']], (k, v) => {
+  document.body.classList.add('animate');
+  document.body.style.setProperty('--daylight', v ? 1 : 0);
+});
+group(C, 'Alert row', 'row', [[false, 'Off'], [true, 'On']]);
+group(C, 'Picture centered on', 'center', [['screen', 'The screen'], ['weather', 'The weather area']]);
+{
+  const fs = C.appendChild(document.createElement('fieldset'));
+  fs.innerHTML = '<legend>Picture and panel</legend>';
+  slider(fs, 'dim', 'Dim the picture', 0, 80, 5, v => `${v}%`, paintVars);
+  slider(fs, 'panel', 'Lower half opaque', 0, 100, 5, v => `${v}%`, paintVars);
+}
+group(C, 'Progress along the split', 'line', [[false, 'Off'], [true, 'On']]);
+group(C, 'Wipe starts at', 'wipeFrom', [[0, '12 o’clock'], [45, 'The split (1:30)']], () => {});
+{
+  const fs = C.appendChild(document.createElement('fieldset'));
+  fs.innerHTML = '<legend>Timing</legend>';
+  slider(fs, 'wipe', 'Wipe', 200, 1500, 50, v => `${(v / 1000).toFixed(2)} s`, () => {});
+  slider(fs, 'cycle', 'Turn', 10, 60, 5, v => `${v} s`, () => { schedule(); readout(); });
+}
+group(C, 'Other printers printing', 'morePrinting', [[0, '0'], [1, '1'], [2, '2'], [3, '3']]);
+group(C, 'Other printers idle', 'moreIdle', [[0, '0'], [1, '1'], [2, '2'], [3, '3']]);
+
+for (const p of printers) {
+  const fs = $('#printers').appendChild(document.createElement('fieldset'));
+  fs.classList.toggle('off', !p.on);
+  fs.innerHTML = `<legend><label><input type="checkbox" class="on" ${p.on ? 'checked' : ''}> Printer ${p.id + 1}</label></legend>
+    <label class="wide">Print <input type="text" class="name" value="${esc(p.name)}"></label>
+    <label class="wide">State <select class="state">${STATES.map(s => `<option ${s === p.state ? 'selected' : ''}>${s}</option>`).join('')}</select></label>
+    <label class="wide">Progress <input type="range" class="progress" min="0" max="100" value="${p.progress}"> <output class="po"></output></label>
+    <label class="wide">Time left <input type="range" class="left" min="0" max="600" step="5" value="${p.left}"> <output class="lo"></output></label>
+    <label class="wide">Picture <select class="source">${SOURCES.map(([v, l]) => `<option value="${v}" ${v === p.source ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    <input type="file" class="file" accept="image/*" title="Your own picture, for the camera or the cover render">`;
+  const q = s => fs.querySelector(s);
+  const outs = () => { q('.po').textContent = `${p.progress}%`; q('.lo').textContent = span(p.left); };
+  outs();
+  q('.on').onchange = e => { p.on = e.target.checked; fs.classList.toggle('off', !p.on); show(); };
+  q('.name').oninput = e => { p.name = e.target.value; show(); };
+  q('.state').onchange = e => { p.state = e.target.value; show(); };
+  q('.progress').oninput = e => { p.progress = +e.target.value; outs(); show(); };
+  q('.left').oninput = e => { p.left = +e.target.value; outs(); show(); };
+  q('.source').onchange = e => { p.source = e.target.value; show(); };
+  q('.file').onchange = e => {
+    if (p.file) URL.revokeObjectURL(p.file);
+    p.file = e.target.files[0] ? URL.createObjectURL(e.target.files[0]) : null;
+    show();
+  };
+}
+
+$('#next').onclick = () => { const n = cycle().length; if (n > 1) { at = (at + 1) % n; wipeTo(at); schedule(); } };
+$('#auto').onclick = e => { opt.auto = !opt.auto; e.target.setAttribute('aria-pressed', opt.auto); schedule(); readout(); };
+$('#slow').onclick = e => { opt.slow = !opt.slow; e.target.setAttribute('aria-pressed', opt.slow); };
+
+// ---------- The cycle ----------
+
+// Failed first, then finished, then closest to finishing. Idle printers don't show.
+const RANK = { Failed: 0, Finished: 1 };
+const cycle = () => printers.filter(p => p.on && p.state !== 'Idle')
+  .sort((a, b) => (RANK[a.state] ?? 2) - (RANK[b.state] ?? 2) || a.left - b.left).slice(0, 3);
+function rest() {
+  const busy = printers.filter(p => p.on && p.state !== 'Idle').length - cycle().length + opt.morePrinting;
+  const idle = printers.filter(p => p.on && p.state === 'Idle').length + opt.moreIdle;
+  return [busy && `${busy} more printing`, idle && `${idle} idle`].filter(Boolean).join(' · ');
+}
+
+let at = 0, timer = null;
+function schedule() {
+  clearTimeout(timer);
+  const n = cycle().length;
+  if (!opt.auto || n < 2) return;
+  timer = setTimeout(() => { at = (at + 1) % n; wipeTo(at); schedule(); }, opt.cycle * 1000 / n);
+}
+
+// ---------- Geometry ----------
+
+function geo() {
+  const W = stage.clientWidth, H = stage.clientHeight, m = Math.min(W, H);
+  return { W, H, m, cx: W / 2, cy: H / 2, u: m * .009, L: W + H };
+}
+// The split runs through the center at 45°, lower left to upper right.
+const upper = g => `polygon(${g.cx - g.L}px ${g.cy + g.L}px, ${g.cx + g.L}px ${g.cy - g.L}px, ${g.cx - g.L}px ${g.cy - g.L}px)`;
+const lower = g => `polygon(${g.cx - g.L}px ${g.cy + g.L}px, ${g.cx + g.L}px ${g.cy - g.L}px, ${g.cx + g.L}px ${g.cy + g.L}px)`;
+
+// Overview's places on a square screen, as fractions of its side: the clock's
+// top, the floors' top, and how far each corner nearest the split sits from
+// it (measured along x + y).
+const PLACES = { noRow: { clock: .404, lower: .408 }, row: { clock: .316, lower: .566 } };
+const GAP = { clock: .05, text: .032, upStack: .012, downStack: .016 };
+
+// ---------- Pictures (placeholders) ----------
+
+const FILAMENT = ['#D9822B', '#4F7CAC', '#7FA36B'];
+const shade = (hex, k) => '#' + [1, 3, 5].map(i => Math.min(255, Math.round(parseInt(hex.slice(i, i + 2), 16) * k)).toString(16).padStart(2, '0')).join('');
+const uri = svg => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+
+// A chamber camera's frame: walls, the plate, the print rising with progress, the toolhead.
+function cameraFrame(p) {
+  const fil = FILAMENT[p.id], h = 6 + p.progress * 1.5, top = 520 - h;
+  const box = (x, w) => `<rect x="${x}" y="${top}" width="${w}" height="${h}" fill="${fil}"/>
+    <path d="M${x} ${top} l26 -20 h${w} l-26 20Z" fill="${shade(fil, 1.25)}"/>
+    <path d="M${x + w} ${top} l26 -20 v${h} l-26 20Z" fill="${shade(fil, .7)}"/>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">
+    <defs>
+      <linearGradient id="w" x2="0" y2="1"><stop offset="0" stop-color="#3b3e44"/><stop offset="1" stop-color="#17191c"/></linearGradient>
+      <linearGradient id="b" x2="0" y2="1"><stop offset="0" stop-color="#34352f"/><stop offset="1" stop-color="#1c1d1a"/></linearGradient>
+      <radialGradient id="l" cx=".5" cy="0" r=".9"><stop offset="0" stop-color="#fff1d0" stop-opacity=".32"/><stop offset="1" stop-color="#fff1d0" stop-opacity="0"/></radialGradient>
+    </defs>
+    <rect width="1280" height="720" fill="url(#w)"/>
+    <path d="M0 0 L200 110 L200 500 L0 720Z" fill="#111214"/><path d="M1280 0 L1080 110 L1080 500 L1280 720Z" fill="#111214"/>
+    <path d="M120 600 L1160 600 L1030 440 L250 440Z" fill="url(#b)" stroke="#55544c" stroke-width="3"/>
+    ${box(400, 130)}${box(575, 130)}${box(750, 130)}
+    <rect x="300" y="${top - 205}" width="680" height="16" fill="#8b9097"/>
+    <rect x="${560}" y="${top - 230}" width="170" height="150" rx="10" fill="#2a2c30" stroke="#444" stroke-width="3"/>
+    <path d="M630 ${top - 80} h30 l-10 26 h-10Z" fill="#b9a46a"/>
+    <rect width="1280" height="720" fill="url(#l)"/>
+  </svg>`;
+}
+// A cover render: the plate's objects at an angle, on a transparent ground.
+function coverRender(p) {
+  const fil = FILAMENT[p.id];
+  const P = (ox, oy) => (x, y, z) => `${ox + (x - y) * .866},${oy + (x + y) * .5 - z}`;
+  const isoBox = (ox, oy, w, d, h) => {
+    const at = P(ox, oy);
+    return `<polygon points="${[at(0, 0, h), at(w, 0, h), at(w, d, h), at(0, d, h)].join(' ')}" fill="${shade(fil, 1.2)}"/>
+      <polygon points="${[at(0, d, 0), at(w, d, 0), at(w, d, h), at(0, d, h)].join(' ')}" fill="${shade(fil, .85)}"/>
+      <polygon points="${[at(w, 0, 0), at(w, d, 0), at(w, d, h), at(w, 0, h)].join(' ')}" fill="${shade(fil, .62)}"/>`;
+  };
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+    <ellipse cx="256" cy="330" rx="190" ry="70" fill="#000" opacity=".12"/>
+    ${isoBox(250, 150, 110, 110, 150)}${isoBox(150, 250, 90, 90, 70)}${isoBox(340, 240, 80, 80, 100)}
+  </svg>`;
+}
+// No picture: a nozzle over a print's layers, drawn in the theme's color.
+const FALLBACK = `<svg class="fallback" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M38 10 h24 v18 h-24Z"/><path d="M44 28 h12 l-4 10 h-4Z"/>
+  <path d="M22 62 h56"/><path d="M26 72 h48"/><path d="M22 82 h56"/><path d="M14 92 h72"/>
+</svg>`;
+
+// ---------- A printer on screen ----------
+
+const STATE = {
+  Heating: { word: 'Heating', dot: 'heat', line: 'quiet' },
+  Printing: { word: 'Printing', dot: 'go', line: '' },
+  Paused: { word: 'Paused', dot: '', line: 'quiet' },
+  Finished: { word: 'Finished', dot: 'go', line: '' },
+  Failed: { word: 'Failed', dot: 'warn', line: 'warn' },
+};
+const stack = (label, value, sub) => `<div class="stack"><div class="t3">${label}</div><div class="row"><span class="t2">${value}</span>${sub ? `<span class="t3">${sub}</span>` : ''}</div></div>`;
+
+function texts(p) {
+  const s = STATE[p.state], now = new Date();
+  const ended = new Date(now - 35 * 60000), ends = new Date(+now + p.left * 60000);
+  const layer = Math.round(p.layers * p.progress / 100);
+  const extra = { Heating: `${p.progress}%`, Printing: `${p.progress}%`, Paused: `${p.progress}%`, Finished: '', Failed: 'Filament ran out' }[p.state];
+  const up = [
+    `<div class="t2">${esc(p.name)}</div>`,
+    `<div class="row"><span class="t2 ${p.state === 'Failed' ? 'warn-text' : ''}"><span class="dot ${s.dot}"></span> ${s.word}</span>${extra ? `<span class="t3">${extra}</span>` : ''}</div>`,
+  ];
+  const others = rest();
+  if (others) up.push(`<div class="t3">${others}</div>`);
+  const when = p.state === 'Finished' ? stack('Finished', fmt(ended), '35 min ago')
+    : p.state === 'Failed' ? stack('Stopped', `at ${p.progress}%`, fmt(ended))
+    : stack('Time left', span(p.left), `ends ${fmt(ends)}`);
+  const cooling = p.state === 'Finished' || p.state === 'Failed';
+  const temps = p.state === 'Heating' ? stack('Nozzle · Bed', `${Math.round(p.nozzle * .8)}° · ${Math.round(p.bed * .9)}°`, `to ${p.nozzle}° · ${p.bed}°`)
+    : cooling ? stack('Nozzle · Bed', '46° · 38°', 'cooling')
+    : stack('Nozzle · Bed', `${p.nozzle}° · ${p.bed}°`);
+  const down = [when, stack('Layer', layer ? `${layer}` : '–', `of ${p.layers}`), temps];
+  return { up, down };
+}
+
+function build(layer, p) {
+  const g = geo();
+  layer.innerHTML = '<div class="sky"></div><div class="pic"></div><div class="veil"></div><div class="panel"></div><svg class="split"></svg><div class="texts"></div>';
+  const pic = layer.querySelector('.pic');
+  // Centered on the screen, or on the weather area: grown by a third of the
+  // short side so it still covers the screen, its middle up and left.
+  const grow = opt.center === 'weather' ? g.m / 3 : 0;
+  Object.assign(pic.style, { left: `${-grow}px`, top: `${-grow}px`, width: `${g.W + grow}px`, height: `${g.H + grow}px` });
+  if (p.source === 'none') {
+    pic.innerHTML = FALLBACK;
+    // In the weather area's far side, clear of the clock with the alert row on.
+    const f = pic.firstElementChild, size = g.m * .16;
+    Object.assign(f.style, { width: `${size}px`, height: `${size}px`, left: `${g.cx - g.m * .27 + grow - size / 2}px`, top: `${g.cy - g.m * .3 + grow - size / 2}px` });
+  } else {
+    const img = pic.appendChild(new Image());
+    img.className = p.source;
+    img.src = p.file || uri(p.source === 'camera' ? cameraFrame(p) : coverRender(p));
+  }
+  layer.querySelector('.veil').style.clipPath = upper(g);
+  layer.querySelector('.panel').style.clipPath = lower(g);
+
+  // Progress along the split, from its lower left end.
+  if (opt.line) {
+    const k = g.cx + g.cy, a = k >= g.H ? [k - g.H, g.H] : [0, k], b = k >= g.W ? [g.W, k - g.W] : [k, 0];
+    const f = p.progress / 100, c = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f], w = g.u * .9;
+    const split = layer.querySelector('.split');
+    split.setAttribute('viewBox', `0 0 ${g.W} ${g.H}`);
+    split.innerHTML = `<line class="track" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke-width="${w}"/>
+      ${f > 0 ? `<line class="fill ${STATE[p.state].line}" x1="${a[0]}" y1="${a[1]}" x2="${c[0]}" y2="${c[1]}" stroke-width="${w}"/>` : ''}`;
+  }
+
+  // Text in Overview's places: above the clock, stacked outward; below the
+  // split from the floors' top, stacked down. Each one's nearest corner a
+  // gap from the split.
+  const box = layer.querySelector('.texts'), { up, down } = texts(p), clock = clockBox();
+  const blk = (html, side) => { const e = box.appendChild(document.createElement('div')); e.className = `blk ${side}`; e.innerHTML = html; return e; };
+  const put = (e, x, y) => { e.style.left = `${x}px`; e.style.top = `${y}px`; };
+  let top = clock.top;
+  for (const html of up) {
+    const e = blk(html, 'out'), h = e.offsetHeight, y = top - GAP.upStack * g.m - h;
+    put(e, g.cx - GAP.text * g.m - (y + h - g.cy) - e.offsetWidth, y);
+    top = y;
+  }
+  let y = g.cy + (PLACES[opt.row ? 'row' : 'noRow'].lower - .5) * g.m;
+  for (const html of down) {
+    const e = blk(html, 'in');
+    put(e, g.cx + GAP.text * g.m - (y - g.cy), y);
+    y += e.offsetHeight + GAP.downStack * g.m;
+  }
+}
+
+// The clock, Håg's own: Overview's size, in Overview's place.
+function placeClock() {
+  const now = new Date(), h = now.getHours() % 12 || 12, m = String(now.getMinutes()).padStart(2, '0');
+  clockEl.innerHTML = `<span class="t1">${h}<span class="colon">:</span>${m}</span><span class="ampm">${now.getHours() < 12 ? 'AM' : 'PM'}</span>`;
+  const g = geo(), b = clockEl.offsetHeight, top = g.cy + (PLACES[opt.row ? 'row' : 'noRow'].clock - .5) * g.m;
+  clockEl.style.top = `${top}px`;
+  clockEl.style.left = `${g.cx - GAP.clock * g.m - (top + b - g.cy) - clockEl.offsetWidth}px`;
+}
+const clockBox = () => ({ top: clockEl.offsetTop });
+
+function paintVars() {
+  stage.style.setProperty('--dim', opt.dim / 100);
+  stage.style.setProperty('--panel', opt.panel / 100);
+}
+
+// ---------- Showing, and the wipe ----------
+
+let wiping = null;
+function endWipe() {
+  if (!wiping) return;
+  cancelAnimationFrame(wiping.frame);
+  wiping.done();
+}
+
+function show() {
+  endWipe();
+  const list = cycle();
+  at = Math.min(at, Math.max(0, list.length - 1));
+  stage.classList.toggle('empty', !list.length);
+  band.classList.toggle('on', opt.row);
+  paintVars();
+  placeClock();
+  layers[1 - front].replaceChildren();
+  layers[1 - front].classList.remove('coming');
+  if (list.length) build(layers[front], list[at]);
+  else layers[front].replaceChildren();
+  schedule();
+  readout();
+}
+
+// A clock wipe around the center: the next printer sweeps in over the one showing.
+function wipeTo(i) {
+  endWipe();
+  const list = cycle(), g = geo(), next = layers[1 - front], prev = layers[front];
+  build(next, list[i]);
+  next.classList.add('coming');
+  const D = opt.wipe * (opt.slow ? 4 : 1), t0 = performance.now(), from = opt.wipeFrom;
+  const mask = a => `conic-gradient(from ${from}deg at ${g.cx}px ${g.cy}px, #000 ${a}deg, transparent ${a + .6}deg)`;
+  next.style.maskImage = next.style.webkitMaskImage = mask(0);
+  wiping = {
+    done() {
+      next.style.maskImage = next.style.webkitMaskImage = '';
+      next.classList.remove('coming');
+      prev.replaceChildren();
+      front = 1 - front;
+      wiping = null;
+      readout();
+    },
+  };
+  const step = now => {
+    const u = Math.min(1, (now - t0) / D);
+    next.style.maskImage = next.style.webkitMaskImage = mask(ease(u) * 360);
+    if (u < 1) wiping.frame = requestAnimationFrame(step);
+    else wiping.done();
+  };
+  wiping.frame = requestAnimationFrame(step);
+}
+
+function readout() {
+  const list = cycle();
+  if (!list.length) { $('#status').textContent = 'No printer to show.'; return; }
+  const each = Math.round(opt.cycle / list.length);
+  const order = list.map((p, i) => `${i === at ? '▸ ' : ''}${p.name || 'Untitled'} (${p.state.toLowerCase()}${p.state === 'Finished' || p.state === 'Failed' ? '' : `, ${span(p.left)} left`})`).join(', ');
+  $('#status').textContent = `${list.length === 1 ? 'One printer: the whole turn' : `${list.length} printers, ${each} s each`}${opt.auto ? ', taking turns' : ''}. Order: ${order}.`;
+}
+
+new ResizeObserver(() => show()).observe(stage);
+setInterval(placeClock, 20000);
+document.fonts.ready.then(show);
+</script>
+</body>
+</html>

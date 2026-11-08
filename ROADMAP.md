@@ -68,12 +68,22 @@ The first glance after Overview Glance: washers, dryers, washer-dryers and dishw
 
 ## 0.6 · 3D printer glance
 
+- [ ] Bambu Lab printers
 - [ ] Shows while a print is running, and for a while after it finishes or fails
 - [ ] Progress, time remaining and estimated finish time
 - [ ] State at a glance: heating, printing, paused, finished, error
 - [ ] Print name, and a model preview or camera image where available
+- [ ] Camera as snapshots, or live at up to one frame a second
 - [ ] Nozzle and bed temperatures
-- [ ] More than one printer
+- [ ] More than one printer: up to three take turns, most urgent first, with a count of the rest
+
+## 0.6.1 · 3D printer alerts
+
+- [ ] Alerts for a finished print and a failed print, with settings
+
+## 0.6.2 · More 3D printers
+
+- [ ] OctoPrint, PrusaLink, Moonraker (Klipper), Dremel and Repetier
 
 ## 0.7 · Irrigation glance
 
