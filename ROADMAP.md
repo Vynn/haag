@@ -74,16 +74,16 @@ The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 
 ## 0.6.1 · 3D printer glance
 
-- [ ] Bambu Lab printers
-- [ ] Shows while a print is running, and for a while after it finishes or fails
-- [ ] Progress, time remaining and estimated finish time
-- [ ] State at a glance: preparing, heating, printing, paused, finished, failed
-- [ ] Print name, and a model preview or camera image where available
-- [ ] Camera as snapshots, or live at up to one frame a second
-- [ ] Nozzle, bed and chamber temperatures, and fans
-- [ ] Two-nozzle printers, with tool changers planned
-- [ ] Progress in the loaded filament's color
-- [ ] More than one printer: up to three take turns, most urgent first, with a count of the rest
+- [x] Bambu Lab printers
+- [x] Shows while a print is running, and for a while after it finishes or fails
+- [x] Progress, time remaining and estimated finish time
+- [x] State at a glance: preparing, heating, printing, paused, finished, failed
+- [x] Print name, and a model preview or camera image where available
+- [x] Camera as snapshots, or live at up to one frame a second
+- [x] Nozzle, bed and chamber temperatures, and fans
+- [x] Two-nozzle printers, with tool changers planned
+- [x] Progress in the loaded filament's color
+- [x] More than one printer: up to three take turns, most urgent first, with a count of the rest
 
 ## 0.6.2 · 3D printer alerts
 
