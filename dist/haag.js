@@ -1143,6 +1143,7 @@ const GLANCE_FORMAT = 'haag-glance/v1';
 const BUILT_IN = ['sinnesro', 'vitvaror'];
 const DEFAULT_GLANCE = 'sinnesro';
 const CYCLE = 30;           // seconds per turn when glances take turns (10–60)
+const INSTANCES_MAX = 3;    // instances of one glance, sharing its turn
 const STARTUP_LIMIT = 60;   // seconds before an empty screen turns critical
 const SPLIT_ANGLE = 45;     // the diagonal, from horizontal
 const NAME = /^[a-z][a-z0-9_-]*$/;
@@ -1202,6 +1203,14 @@ function resolve(name) {
   }
   if (builtIn) return builtIn;
   return regs.length === 1 ? regs[0] : null;
+}
+
+// A glance alert's id, `glance:<name>[/<instance>]:<key>`, in its parts;
+// null for other alerts.
+function alertGlance(id) {
+  if (!id.startsWith('glance:')) return null;
+  const who = id.slice(7).split(':')[0], [name, inst = null] = who.split('/');
+  return { name, inst, key: id.slice(8 + who.length) };
 }
 
 // Bootstraps that loaded before the core wait in a plain array.
@@ -1555,6 +1564,9 @@ function readSettings(config) {
 const BETWEEN = 1300;   // ms from one glance to the next
 // Shares of that time, overlapping: text out, the rays and the clock, text in.
 const OUT = [0, .45], RAYS = [.2, .8], IN = [.55, 1];
+// Between instances of a glance: a clock wipe around the center, starting
+// on the split (degrees clockwise from 12 o'clock).
+const WIPE = 1000, WIPE_FROM = 90 - SPLIT_ANGLE;
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const ease = u => u < .5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2;
@@ -1689,7 +1701,7 @@ const HOST_STYLE = `
   /* Between glances: the rays under them, the coming glance over the leaving one. */
   .rays, .rays > * { position: absolute; inset: 0; }
   .stage:not(.between) .rays { display: none; }
-  .stage.between .glances > * { transition: none; }
+  .stage.between .glances > *, .stage.wiping .glances > * { transition: none; }
   .glances > .coming { z-index: 1; }
 
   /* The clock: one element, placed and styled by the glance on screen. A box
@@ -1814,7 +1826,10 @@ class HaagHost extends HTMLElement {
       this._discover();
       this._tickClock();
     }
-    for (const { el } of this._running.values()) el.hass = hass;
+    for (const entry of this._running.values()) {
+      entry.el.hass = hass;
+      for (const inst of entry.list ?? []) inst.el.hass = hass;
+    }
     this._household();
     this._weatherAlerts();
   }
@@ -1868,6 +1883,7 @@ class HaagHost extends HTMLElement {
     clearTimeout(this._noticeTimer);
     clearTimeout(this._clockTimer);
     clearTimeout(this._turnTimer);
+    clearTimeout(this._slotTimer);
     clearTimeout(this._limitTimer);
     clearTimeout(this._countTimer);
     clearTimeout(this._alertTimer);
@@ -1876,7 +1892,7 @@ class HaagHost extends HTMLElement {
     clearTimeout(this._snoozeTimer);
     if (this._undoing) this._confirmed();
     this._resize?.disconnect();
-    this._turnTimer = null;
+    this._turnTimer = this._slotTimer = null;
     this._countTimer = null;
     this._alertTimer = null;
   }
@@ -1956,16 +1972,29 @@ class HaagHost extends HTMLElement {
       await reg.load();
       if (!customElements.get(element)) throw new Error(`<${element}> isn't defined`);
       if (resolve(name) !== reg || !this.isConnected) return;
-      entry = { reg, el: document.createElement(element), visible: false, wants: false,
-        alertSettings: glanceAlerts(reg.manifest, this._config, name) };
+      entry = { name, reg, el: document.createElement(element), visible: false, wants: false,
+        alertSettings: glanceAlerts(reg.manifest, this._config, name),
+        config: glanceSettings(reg.manifest, this._settings.glances[name]) };
+      // A glance with instances: its element coordinates, never shown; each
+      // instance is an element of its own (docs/glances.md).
+      const { instances } = reg.manifest;
+      if (instances) {
+        if (!customElements.get(instances.element)) throw new Error(`instances: <${instances.element}> isn't defined`);
+        const max = Math.floor(instances.max) || INSTANCES_MAX;
+        entry.multi = { element: instances.element, max: Math.min(INSTANCES_MAX, Math.max(1, max)) };
+        entry.list = [];      // instances, in showing order
+        entry.history = [];   // ids shown this turn, one per slot
+      }
       entry.alerts = this._alertsFor(`glance:${name}`, false, () => entry.alertSettings);
       entry.el.haag = this._context(entry);
-      entry.el.setConfig?.(glanceSettings(reg.manifest, this._settings.glances[name]));
+      entry.el.setConfig?.(entry.config);
       if (this._hass) entry.el.hass = this._hass;
       this._layer.append(entry.el);
       this._running.set(name, entry);
     } catch (err) {
-      entry?.alerts.drop();   // anything it raised before failing
+      entry?.alerts?.drop();   // anything it raised before failing
+      if (entry) entry.stopped = true;
+      for (const inst of entry?.list ?? []) { inst.alerts.drop(); inst.el.remove(); }
       this._failed.add(name);
       const title = reg.manifest?.title || `Glance "${name}"`;
       notice('warning', err.newer ? `${title} needs a newer Håg` : `${title} didn't load`, { file: reg.url, error: err });
@@ -1978,16 +2007,187 @@ class HaagHost extends HTMLElement {
   _stop(name) {
     const entry = this._running.get(name);
     this._endBetween();
-    if (this._clock.parentNode === entry?.el) this._seatClock(null);
-    entry?.alerts.drop();
-    entry?.el.remove();
+    if (entry) entry.stopped = true;
+    for (const face of [entry, ...(entry?.list ?? [])]) {
+      if (this._clock.parentNode === face?.el) this._seatClock(null);
+      face?.alerts.drop();
+      face?.el.remove();
+    }
     this._running.delete(name);
   }
 
-  // What a glance gets from Håg (docs/glances.md).
-  _context(entry) {
-    const host = this;
-    const { set, delete: del, clear } = entry.alerts;
+  // ----- Instances -----
+
+  // What shows of a glance: itself, or with instances the one on screen.
+  _face(entry) {
+    if (!entry?.multi) return entry ?? null;
+    return entry.list.find(i => i.id === entry.on) ?? null;
+  }
+
+  _onScreen() { return this._face(this._running.get(this._showing)); }
+
+  // Everything that can be on screen: glances, and instances in place of theirs.
+  *_faces() {
+    for (const entry of this._running.values()) {
+      if (entry.multi) yield* entry.list;
+      else yield entry;
+    }
+  }
+
+  _setVisible(face, on) {
+    face.visible = on;
+    face.el.classList.toggle('on', on);
+    face.el.dispatchEvent(new Event('haag-visible'));
+  }
+
+  // The coordinator's list, in showing order: new ids get an element, gone
+  // ones lose theirs, the rest their new data. Up to the glance's max.
+  _setInstances(entry, list) {
+    if (entry.stopped) return;   // it may call before it's running, not after
+    const want = [], seen = new Set();
+    for (const item of Array.isArray(list) ? list : []) {
+      const id = typeof item === 'string' ? item : item?.id;
+      if (typeof id !== 'string' || !id || /[:/]/.test(id) || seen.has(id)) {
+        notice('warning', `${entry.reg.manifest.title || entry.name}: instance ids must be unique, without ":" or "/"`, id);
+        continue;
+      }
+      seen.add(id);
+      want.push({ id, data: typeof item === 'string' ? undefined : item.data });
+      if (want.length === entry.multi.max) break;
+    }
+    const old = new Map(entry.list.map(i => [i.id, i]));
+    entry.list = want.map(({ id, data }) => {
+      const inst = old.get(id);
+      old.delete(id);
+      if (!inst) return this._makeInstance(entry, id, data);
+      if (JSON.stringify(data) !== JSON.stringify(inst.data)) {
+        inst.data = data;
+        inst.el.dispatchEvent(new Event('haag-instance'));
+      }
+      return inst;
+    }).filter(Boolean);
+    for (const inst of old.values()) {
+      if (inst.visible) this._endBetween();
+      if (this._clock.parentNode === inst.el) this._seatClock(null);
+      inst.alerts.drop();
+      inst.el.remove();
+    }
+    // The one on screen went: the next takes over its slot, at once.
+    if (this._running.get(this._showing) === entry && !this._face(entry) && entry.list.length) {
+      const next = entry.list.find(i => !entry.history.includes(i.id)) ?? entry.list[0];
+      entry.on = next.id;
+      entry.history[Math.max(0, entry.history.length - 1)] = next.id;
+      this._present(null, next, true);
+      this._armSlot(entry);
+    }
+    this._schedule();
+  }
+
+  _makeInstance(entry, id, data) {
+    let inst;
+    try {
+      inst = { id, data, el: document.createElement(entry.multi.element), visible: false };
+      inst.alerts = this._alertsFor(`glance:${entry.name}/${id}`, false, () => entry.alertSettings);
+      inst.el.haag = this._context(entry, inst);
+      inst.el.setConfig?.(entry.config);
+      if (this._hass) inst.el.hass = this._hass;
+      this._layer.append(inst.el);
+      return inst;
+    } catch (err) {
+      inst?.alerts?.drop();
+      notice('warning', `${entry.reg.manifest.title || entry.name}: an instance didn't start`, err);
+      return null;
+    }
+  }
+
+  // A turn for a glance with instances: cut into a slot per instance (as
+  // many as there are now), the first slot to the first of them, or to the
+  // one an alert asked for.
+  _beginTurn(entry) {
+    const first = entry.list.find(i => i.id === entry.prefer) ?? entry.list[0];
+    entry.prefer = null;
+    entry.turnAt = Date.now();
+    entry.slots = Math.max(1, entry.list.length);
+    entry.on = first?.id ?? null;
+    entry.history = first ? [first.id] : [];
+  }
+
+  // The timer to the next slot; the last slot ends with the turn.
+  _armSlot(entry) {
+    clearTimeout(this._slotTimer);
+    this._slotTimer = null;
+    if (!entry?.multi || this._running.get(this._showing) !== entry) return;
+    const k = entry.history.length - 1, len = this._settings.cycle * 1000 / entry.slots;
+    if (k < 0 || k + 1 >= entry.slots) return;
+    this._slotTimer = setTimeout(() => {
+      this._slotTimer = null;
+      if (!this._stepSlot(entry, 1)) this._schedule(1);   // none left to show: the turn ends early
+    }, Math.max(0, entry.turnAt + (k + 1) * len - Date.now()));
+  }
+
+  // To the next slot (1) or the one before (-1), without restarting the
+  // turn: what's left of it is what those slots had. False if there's none.
+  _stepSlot(entry, step) {
+    const k = entry.history.length - 1, len = this._settings.cycle * 1000 / entry.slots;
+    let inst;
+    if (step > 0) {
+      if (k + 1 >= entry.slots) return false;
+      inst = entry.list.find(i => !entry.history.includes(i.id));
+      if (!inst) return false;
+      entry.history.push(inst.id);
+    } else {
+      if (k < 1) return false;
+      inst = entry.list.find(i => i.id === entry.history[k - 1]);
+      if (!inst) return false;
+      entry.history.pop();
+    }
+    entry.turnAt = this._shownAt = Date.now() - (entry.history.length - 1) * len;
+    this._endBetween();
+    const from = this._face(entry);
+    entry.on = inst.id;
+    if (from !== inst) this._present(from, inst, true);
+    if (this._turnTimer) this._armTurn(entry.turnAt + this._settings.cycle * 1000 - Date.now());
+    this._armSlot(entry);
+    return true;
+  }
+
+  // The clock wipe: `to` sweeps in over `from` around the center, its text
+  // with it. The clock stays above both, then moves to its new place.
+  _wipe(from, to, { start = WIPE_FROM, duration = WIPE } = {}) {
+    const el = to.el, stage = this._stage;
+    const set = mask => { el.style.webkitMaskImage = el.style.maskImage = mask; };
+    const mask = a => `conic-gradient(from ${start}deg at 50% 50%, #000 ${a}deg, transparent ${a + .6}deg)`;
+    el.classList.add('coming');
+    set(mask(0));
+    this._seatClock(null);
+    let raf = 0;
+    this._between = () => {
+      this._between = null;
+      cancelAnimationFrame(raf);
+      set('');
+      el.classList.remove('coming');
+      if (from?.el.isConnected) this._setVisible(from, false);
+      this._applyClock();
+      // Crossfading comes back a frame later, once the leaving one is gone.
+      requestAnimationFrame(() => { if (!this._between) stage.classList.remove('wiping'); });
+    };
+    const begin = t0 => {
+      const tick = now => {
+        const t = Math.min(1, (now - t0) / duration);
+        set(mask(ease(t) * 360));
+        if (t < 1) raf = requestAnimationFrame(tick);
+        else this._endBetween();
+      };
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(() => { raf = requestAnimationFrame(begin); });
+  }
+
+  // What a glance gets from Håg (docs/glances.md); an instance (`inst`)
+  // gets its own clock, alerts and visibility, and doesn't ask for the screen.
+  _context(entry, inst = null) {
+    const host = this, face = inst ?? entry;
+    const { set, delete: del, clear } = face.alerts;
     const haag = {
       providers: this._providers,
       get daylight() { return host._daylight; },
@@ -2002,14 +2202,20 @@ class HaagHost extends HTMLElement {
         measure: (size, ampm) => host._clockBox(size, ampm),
         place(where) {
           const key = JSON.stringify(where);
-          if (key === entry.clockKey) return;
-          entry.clockKey = key;
-          entry.clock = where;
-          if (host._running.get(host._showing) === entry) host._applyClock();
+          if (key === face.clockKey) return;
+          face.clockKey = key;
+          face.clock = where;
+          if (host._onScreen() === face) host._applyClock();
         },
       },
       alerts: { set, delete: del, clear },   // its own, at any severity; the core picks the icon
-      get visible() { return entry.visible; },
+      get visible() { return face.visible; },
+    };
+    if (inst) {
+      Object.defineProperty(haag, 'instance', { get: () => ({ id: inst.id, data: inst.data }), enumerable: true });
+      return haag;
+    }
+    Object.assign(haag, {
       // Asking again keeps a glance's place; after a release, it goes to the back.
       request() { if (!entry.wants) entry.asked = ++host._asks; entry.wants = true; host._schedule(); },
       // A glance that was asking leaves at once, from a visit too.
@@ -2018,7 +2224,8 @@ class HaagHost extends HTMLElement {
         entry.wants = false;
         host._schedule();
       },
-    };
+    });
+    if (entry.multi) haag.instances = { set: list => host._setInstances(entry, list), max: entry.multi.max };
     return haag;
   }
 
@@ -2032,11 +2239,13 @@ class HaagHost extends HTMLElement {
     return this._tints.get(key);
   }
 
-  // Glances in turn: the default first, then those asking, in the order they asked.
+  // Glances in turn: the default first, then those asking, in the order they
+  // asked. A glance with instances needs one to show.
   _rotation() {
     const { def, order } = this._settings;
     const asked = n => this._running.get(n).asked;
-    const asking = order.filter(n => this._running.get(n)?.wants).sort((a, b) => asked(a) - asked(b));
+    const wants = n => { const e = this._running.get(n); return e?.wants && (!e.multi || e.list.length > 0); };
+    const asking = order.filter(wants).sort((a, b) => asked(a) - asked(b));
     return [...(this._running.has(def) ? [def] : []), ...asking];
   }
 
@@ -2063,18 +2272,24 @@ class HaagHost extends HTMLElement {
       this._show(next);
     }
     // A glance that starts asking while another shows alone joins once that
-    // one has had a turn.
-    const more = turns.length > 1 || (next !== null && !turns.includes(next));
+    // one has had a turn. Alone with instances, a glance's turns go on, so
+    // its slots do.
+    const shown = this._running.get(next);
+    const more = turns.length > 1 || (next !== null && !turns.includes(next)) || shown?.list?.length > 1;
     if (!more) {
       clearTimeout(this._turnTimer);
       this._turnTimer = null;
     } else if (turned || !this._turnTimer) {
       const turn = this._settings.cycle * 1000;
-      clearTimeout(this._turnTimer);
-      this._turnTimer = setTimeout(() => { this._turnTimer = null; this._schedule(1); },
-        turned ? turn : Math.max(0, this._shownAt + turn - Date.now()));
+      this._armTurn(turned ? turn : this._shownAt + turn - Date.now());
     }
+    if (!turned) this._armSlot(shown);
     this._updateAlert();
+  }
+
+  _armTurn(ms) {
+    clearTimeout(this._turnTimer);
+    this._turnTimer = setTimeout(() => { this._turnTimer = null; this._schedule(1); }, Math.max(0, ms));
   }
 
   // The glance after `from` (step 1) or before it (-1) in the turns, by its
@@ -2091,31 +2306,47 @@ class HaagHost extends HTMLElement {
 
   _show(name) {
     this._endBetween();
-    const from = this._running.get(this._showing), to = this._running.get(name);
-    const parts = this._partsBetween(from, to);
+    const was = this._running.get(this._showing), entry = this._running.get(name);
+    const from = this._face(was);
+    if (entry?.multi) this._beginTurn(entry);
     this._showing = name;
-    this._shownAt = Date.now();
+    this._shownAt = entry?.turnAt ?? Date.now();
     if (this._order?.includes(name)) this._place = name;
     this._held = null;   // a tapped alert stays on the row for one turn
-    if (parts) this._stage.classList.add('between');
-    for (const [n, entry] of this._running) {
-      const on = n === name;
-      // Leaving through a transition, it stays on screen until that ends.
-      if (entry.visible === on || (parts && entry === from)) continue;
-      entry.visible = on;
-      entry.el.classList.toggle('on', on);
-      entry.el.dispatchEvent(new Event('haag-visible'));
-    }
-    if (parts) this._runBetween(from, to, ...parts);
-    else this._crossfadeClock(from, to);
+    this._present(from, this._face(entry), !!was && was === entry);
     this._timeTurns();
+    this._armSlot(entry);
   }
 
-  // Both glances' parts, or null to crossfade: on first showing, with reduced
-  // motion, or when a glance gives none.
+  // `from` gives way to `to`: between glances by their parts, between
+  // instances of one glance by the wipe, otherwise crossfading.
+  _present(from, to, siblings) {
+    const parts = siblings ? null : this._partsBetween(from, to);
+    const wipe = siblings && !!from && !!to && from !== to && this._animates();
+    if (parts) this._stage.classList.add('between');
+    if (wipe) this._stage.classList.add('wiping');
+    for (const face of this._faces()) {
+      const on = face === to;
+      // Leaving through a transition, it stays on screen until that ends.
+      if (face.visible === on || ((parts || wipe) && face === from)) continue;
+      this._setVisible(face, on);
+    }
+    if (parts) this._runBetween(from, to, ...parts);
+    else if (wipe) this._wipe(from, to);
+    else this._crossfadeClock(from, to);
+  }
+
+  // Whether moving between glances animates: not on first showing, hidden,
+  // or with reduced motion.
+  _animates() {
+    return !document.hidden && this._stage.classList.contains('animate')
+      && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  // Both glances' parts, or null to crossfade: when it doesn't animate, or
+  // when a glance gives none.
   _partsBetween(from, to) {
-    if (!from || !to || from === to || document.hidden || !this._stage.classList.contains('animate')
-      || matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
+    if (!from || !to || from === to || !this._animates()) return null;
     try {
       const parts = [from.el.parts?.(), to.el.parts?.()];
       return parts.every(p => p?.wedges?.length) ? parts : null;
@@ -2325,10 +2556,10 @@ class HaagHost extends HTMLElement {
   // over Håg's usual move, a new size scaling with it, as glances' content does.
   _applyClock(animate = true) {
     if (this._between) return;
-    const entry = this._running.get(this._showing), at = this._clockAt(entry), clock = this._clock, [, am] = clock.children;
+    const face = this._onScreen(), at = this._clockAt(face), clock = this._clock, [, am] = clock.children;
     const was = this._clockShown, flip = animate && at && was && was.size !== at.size;
     this._clockShown = at;
-    this._seatClock(entry);
+    this._seatClock(face);
     clock.classList.toggle('hidden', !at);
     if (!at) return;
     if (!animate || flip) clock.style.transition = 'none';
@@ -2365,7 +2596,11 @@ class HaagHost extends HTMLElement {
     const band = this._alertBand();
     const y = e.clientY - box.top, gap = Math.min(box.width, box.height) * TAP_GAP;
     if (band.showing && y > band.top - gap && y < band.bottom + gap) return;
-    if (this._showing) this._schedule(e.clientX - box.left < box.width / 2 ? -1 : 1);
+    if (!this._showing) return;
+    // Through a glance's instances first, slot by slot, then to its neighbour.
+    const step = e.clientX - box.left < box.width / 2 ? -1 : 1, entry = this._running.get(this._showing);
+    if (entry?.multi && this._showing !== this._visit && this._stepSlot(entry, step)) return;
+    this._schedule(step);
   }
 
   // ----- Day and night -----
@@ -2662,7 +2897,9 @@ class HaagHost extends HTMLElement {
   // Glances keep their content clear of the band, and so does the clock
   // where a glance hasn't placed it.
   _tellGlances() {
-    for (const { el } of this._running.values()) el.dispatchEvent(new Event('haag-alertrow'));
+    for (const entry of this._running.values()) {
+      for (const { el } of [entry, ...(entry.list ?? [])]) el.dispatchEvent(new Event('haag-alertrow'));
+    }
     this._applyClock();
   }
 
@@ -2748,8 +2985,11 @@ class HaagHost extends HTMLElement {
     }
     const alert = this._alerts.get(this._current);
     if (link || !alert || alert.own) return;
-    const name = alert.id.startsWith('glance:') ? alert.id.split(':')[1] : this._settings.def;
-    if (!this._running.has(name) || this._showing === name) return this._snooze(alert);
+    const g = alertGlance(alert.id), name = g?.name ?? this._settings.def, entry = this._running.get(name);
+    // An instance's alert shows that instance.
+    const inst = g?.inst && entry?.multi ? entry.list.find(i => i.id === g.inst) : null;
+    if (!entry || (this._showing === name && (!inst || this._face(entry) === inst))) return this._snooze(alert);
+    if (inst) entry.prefer = inst.id;
     this._schedule(name);
     this._held = alert.id;
     this._timeTurns();
@@ -2776,8 +3016,8 @@ class HaagHost extends HTMLElement {
     const { core, weather } = this._settings.alerts;
     if (source === 'weather') return weather.snooze;
     if (source === 'glance') {
-      const [name, alert] = key.split(':');
-      return this._running.get(name)?.alertSettings[alert]?.snooze ?? SNOOZE;
+      const g = alertGlance(id);
+      return this._running.get(g.name)?.alertSettings[g.key.split(':')[0]]?.snooze ?? SNOOZE;
     }
     if (source !== 'home') return SNOOZE;
     const s = core[CORE_ALERT_OF[key === 'unlocked' || key === 'jammed' ? 'lock' : key]] ?? {};
@@ -2791,9 +3031,10 @@ class HaagHost extends HTMLElement {
     clearTimeout(this._confirmTimer);
     this._undoing = null;
     this._clear('haag:confirm');
-    if (!id.startsWith('glance:') || !(id in this._snoozes.dismissed)) return;
-    const [, name, ...key] = id.split(':');
-    this._running.get(name)?.el.dispatchEvent(new CustomEvent('haag-dismissed', { detail: { key: key.join(':') } }));
+    const g = alertGlance(id);
+    if (!g || !(id in this._snoozes.dismissed)) return;
+    const entry = this._running.get(g.name), face = g.inst ? entry?.list?.find(i => i.id === g.inst) : entry;
+    face?.el.dispatchEvent(new CustomEvent('haag-dismissed', { detail: { key: g.key } }));
   }
 
   _undo() {

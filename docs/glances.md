@@ -127,6 +127,7 @@ const manifest = {
 | `version` | The glance's version. |
 | `settings` | Optional: the glance's settings, below. |
 | `alerts` | Optional: the alerts it raises, below. |
+| `instances` | Optional: `{ element, max }` for a glance that shows several things one at a time, each its own instance. See [instances](#instances). |
 
 #### Settings
 
@@ -207,9 +208,25 @@ Håg runs the turns:
 - **Leaving:** a glance that releases leaves at once, and the next one gets a full turn.
 - **Timing is Håg's:** a glance only says whether it has something to show.
 - **Alerts don't change the turns.** A glance can show an alert's state in its own content, but it keeps its place.
-- **Touch:** a tap on the right half of the screen goes to the next glance, and on the left half to the one before; that glance gets a full turn. Taps just above and below the alert row do nothing, and taps on it are the alert's (see [alerts](alerts.md#touching-an-alert)).
+- **Touch:** a tap on the right half of the screen goes to the next glance, and on the left half to the one before; that glance gets a full turn. A glance with [instances](#instances) is stepped through first. Taps just above and below the alert row do nothing, and taps on it are the alert's (see [alerts](alerts.md#touching-an-alert)).
 
 Moving between glances is a [transition](#transitions).
+
+### Instances
+
+A glance can show several things one at a time, such as a printer each: up to three instances, sharing the glance's turn. The manifest names the element each instance is, and how many at most (3 if left out, and never more):
+
+```js
+instances: { element: 'my-printer', max: 3 },
+```
+
+- **The glance's own element coordinates.** It's never shown. It finds what to show, puts it in order, and asks for the screen as any glance does.
+- **`haag.instances.set(list)`** says what to show, in order: `[{ id, data }, …]`. Ids are text, unique, without `:` or `/`. Håg makes an instance element for each new id, passes new `data` to the ones it has, and removes those left out. Past `max`, the rest are left out.
+- **Each instance** gets `haag` as a glance does, with `haag.instance`: its `id` and `data`. A `haag-instance` event says when the data changes. Its clock, alerts and `haag.visible` are its own; it gets `hass` and the glance's settings, and doesn't ask for the screen.
+- **Turns:** the glance's turn is cut into a slot for each instance, in order: with three, 10 seconds each of 30. A new order applies from the next slot; one that's removed while on screen gives way to the next at once. A glance with no instances doesn't show.
+- **Touch:** a tap steps to the next slot (right) or the one before (left) without restarting the turn: going to the second of three leaves what the last two slots had. From the last slot, or back from the first, it goes to the neighbouring glance.
+- **Alerts:** an instance's alert, tapped, shows that instance.
+- **Between instances,** Håg [wipes](#transitions).
 
 ### What Håg provides
 
@@ -322,3 +339,5 @@ parts() {
 - **Styles:** Håg sets `opacity` on the scene, and `translate`, `scale`, `transform-origin` and `opacity` on the text, and clears them after. Leave those to Håg on these elements.
 - **Measuring:** while the `between` attribute is set, the text is moving and scaled, so `getBoundingClientRect` and the [layout helpers](#layout-helpers) give the wrong sizes. Hold off laying out, then lay out in `done()`, which Håg calls with the attribute gone and the styles cleared.
 - **On screen:** both glances are during a transition, so `haag.visible` stays true for the leaving one until it ends.
+
+Between [instances](#instances) of one glance, Håg wipes instead, in a second: the next instance sweeps in over the one showing, around the center, starting on the split, its text with it. The clock stays above both, then moves to its new place. Nothing is restyled, so there's no `between` attribute and no `parts()`; with reduced motion, it's a crossfade.

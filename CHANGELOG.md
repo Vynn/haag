@@ -6,6 +6,11 @@ All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a mi
 
 In progress: glance instances, for the 3D Printer Glance in 0.6.1.
 
+### Added
+
+- Glance instances: a glance can show up to three things one at a time, a printer each, say, sharing its turn evenly. Taps step through them without restarting the turn, and an instance's alert, tapped, shows that instance. See [glances](docs/glances.md#instances).
+- A clock wipe between instances: the next sweeps in around the center, from the split, in a second.
+
 ## 0.5.1 · 2026-11-07
 
 Transitions between glances, and Håg's own clock. Installs through the Home Assistant Marketplace. A pre-release. See [glances](docs/glances.md#transitions).
