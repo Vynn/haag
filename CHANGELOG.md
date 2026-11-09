@@ -4,7 +4,7 @@ All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a mi
 
 ## 0.6.0 · unreleased
 
-In progress: the 3D Printer Glance.
+In progress: glance instances, for the 3D Printer Glance in 0.6.1.
 
 ## 0.5.1 · 2026-11-07
 

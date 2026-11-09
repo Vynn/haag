@@ -179,9 +179,9 @@ const span = min => min >= 60 ? `${Math.floor(min / 60)} h ${min % 60 ? `${min %
 
 // ---------- Settings ----------
 
-// Starts at the picks (D143).
+// Starts at the picks (D143–D146).
 const opt = { shape: 'square', day: true, row: false, center: 'weather', panel: 80, dim: 35, line: true,
-  wipeFrom: 45, wipe: 600, cycle: 30, morePrinting: 0, moreIdle: 1, slow: false, auto: false,
+  wipeFrom: 45, wipe: 1000, cycle: 30, morePrinting: 0, moreIdle: 1, slow: false, auto: false,
   job: 'stacked', bottom: 88 };
 
 const STATES = ['Preparing', 'Heating', 'Printing', 'Paused', 'Finished', 'Failed', 'Idle'];
@@ -438,7 +438,7 @@ function texts(p) {
 
   // The job, near the split: the print's name with its layer, then the time
   // left with when it ends; the layer and the end under each (stacked) or
-  // beside each (paired), the study's two readings of D145 (1).
+  // beside each (paired); D146 picks under each.
   const of = layer ? `Layer ${layer} of ${p.layers}` : `${p.layers} layers`;
   const left = done ? `${p.state === 'Failed' ? 'Stopped' : 'Ended'} ${fmt(ended)}` : `${span(p.left)} left`;
   const pair = (big, small) => {

@@ -66,22 +66,30 @@ The first glance after Overview Glance: washers, dryers, washer-dryers and dishw
 - [x] Layout helpers for glance authors
 - [x] Installs through the Home Assistant Marketplace, with the first build after the Marketplace's stable release (0.5.1)
 
-## 0.6 · 3D printer glance
+## 0.6 · Glance instances
+
+- [ ] A glance can show up to three instances (a printer each, say), sharing its turn
+- [ ] A clock wipe between instances, made to be reused
+- [ ] Taps step through instances without restarting the turn
+
+## 0.6.1 · 3D printer glance
 
 - [ ] Bambu Lab printers
 - [ ] Shows while a print is running, and for a while after it finishes or fails
 - [ ] Progress, time remaining and estimated finish time
-- [ ] State at a glance: heating, printing, paused, finished, error
+- [ ] State at a glance: preparing, heating, printing, paused, finished, failed
 - [ ] Print name, and a model preview or camera image where available
 - [ ] Camera as snapshots, or live at up to one frame a second
-- [ ] Nozzle and bed temperatures
+- [ ] Nozzle, bed and chamber temperatures, and fans
+- [ ] Two-nozzle printers, with tool changers planned
+- [ ] Progress in the loaded filament's color
 - [ ] More than one printer: up to three take turns, most urgent first, with a count of the rest
 
-## 0.6.1 · 3D printer alerts
+## 0.6.2 · 3D printer alerts
 
 - [ ] Alerts for a finished print and a failed print, with settings
 
-## 0.6.2 · More 3D printers
+## 0.6.3 · More 3D printers
 
 - [ ] OctoPrint, PrusaLink, Moonraker (Klipper), Dremel and Repetier
 
