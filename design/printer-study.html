@@ -182,7 +182,7 @@ const span = min => min >= 60 ? `${Math.floor(min / 60)} h ${min % 60 ? `${min %
 // Starts at the picks (D143).
 const opt = { shape: 'square', day: true, row: false, center: 'weather', panel: 80, dim: 35, line: true,
   wipeFrom: 45, wipe: 600, cycle: 30, morePrinting: 0, moreIdle: 1, slow: false, auto: false,
-  job: 'lines', bottom: 88 };
+  job: 'stacked', bottom: 88 };
 
 const STATES = ['Preparing', 'Heating', 'Printing', 'Paused', 'Finished', 'Failed', 'Idle'];
 const SOURCES = [['camera', 'Camera'], ['cover', 'Cover render'], ['none', 'None (fallback)']];
@@ -245,7 +245,7 @@ group(C, 'Picture centered on', 'center', [['screen', 'The screen'], ['weather',
   slider(fs, 'panel', 'Lower half opaque', 0, 100, 5, v => `${v}%`, paintVars);
 }
 group(C, 'Progress along the split', 'line', [[false, 'Off'], [true, 'On']]);
-group(C, 'Layer and time', 'job', [['lines', 'Three lines'], ['floor', 'Like a floor'], ['cells', 'Side by side']]);
+group(C, 'Layer and ends', 'job', [['stacked', 'Under the name and the time'], ['paired', 'Beside them']]);
 {
   const fs = C.appendChild(document.createElement('fieldset'));
   fs.innerHTML = '<legend>Readouts</legend>';
@@ -423,9 +423,6 @@ function texts(p) {
 
   // Lower side, rows from the split down.
   const layer = Math.round(p.layers * p.progress / 100);
-  const time = [cell('Layer', layer || '–', `/ ${p.layers}`)];
-  if (done) time.push(cell(p.state === 'Failed' ? 'Stopped' : 'Ended', fmt(ended)));
-  else time.push(cell('Time left', span(p.left)), cell('Ends', fmt(ends)));
 
   // Temperatures: placeholders that follow the state. While heating, the target.
   const temp = (target, k) => done ? Math.round(30 + target * .07) : warming ? Math.round(target * k) : target;
@@ -439,16 +436,17 @@ function texts(p) {
 
   const fans = FANS.filter(([k]) => p.fans[k] !== 'none').map(([k, l]) => fan(l, p.fans[k] === 'on'));
 
-  // The job, near the split: the print's name, then layer and time in one of
-  // the study's combinations.
+  // The job, near the split: the print's name with its layer, then the time
+  // left with when it ends; the layer and the end under each (stacked) or
+  // beside each (paired), the study's two readings of D145 (1).
   const of = layer ? `Layer ${layer} of ${p.layers}` : `${p.layers} layers`;
-  const end = done ? `${p.state === 'Failed' ? 'Stopped' : 'Ended'} ${fmt(ended)}` : '';
-  const name = `<div class="t2">${esc(p.name)}</div>`;
-  const job = {
-    lines: [name, `<div class="lines"><div class="t3">${of}</div><div class="t2">${end || `${span(p.left)} left`}</div>${done ? '' : `<div class="t3">Ends ${fmt(ends)}</div>`}</div>`],
-    floor: [name, `<div class="cell"><div class="t3">${of}</div><div class="row"><span class="t2">${end || span(p.left)}</span>${done ? '' : `<span class="t3">ends ${fmt(ends)}</span>`}</div></div>`],
-    cells: [`<div class="cell">${name}<div class="t3">${of}</div></div>`, time.slice(1)],
-  }[opt.job];
+  const left = done ? `${p.state === 'Failed' ? 'Stopped' : 'Ended'} ${fmt(ended)}` : `${span(p.left)} left`;
+  const pair = (big, small) => {
+    if (!small) return `<div class="t2">${big}</div>`;
+    const t = opt.job === 'stacked' ? 'div' : 'span';
+    return `<div class="${opt.job === 'stacked' ? 'lines' : 'row'}"><${t} class="t2">${big}</${t}><${t} class="t3">${small}</${t}></div>`;
+  };
+  const job = [pair(esc(p.name), of), pair(left, done ? '' : `Ends ${fmt(ends)}`)];
   // The printer's readouts, at the bottom: temperatures, then fans.
   const readouts = [heat];
   if (fans.length) readouts.push(fans);
@@ -530,12 +528,19 @@ function build(layer, p) {
     e.remove();
     return above(item.slice(0, cut), above(item.slice(cut), bottom) - gap);
   };
-  let bottom = g.cy + (opt.bottom / 100 - .5) * g.m;
-  for (const item of [...readouts].reverse()) bottom = above(item, bottom) - gap;
-  // How far the job runs into the readouts, closer than a gap (study only).
-  meet = jobEnd - bottom;
+  // The readouts end at their line; where the job would come closer than a
+  // gap (the alert row pushes it down), they slide along the split, down and
+  // left, as Overview's floors do, as far as it takes.
+  const from = box.children.length, end = g.cy + (opt.bottom / 100 - .5) * g.m;
+  const placeAll = b => { for (const item of [...readouts].reverse()) b = above(item, b) - gap; return b + gap; };
+  const slide = Math.max(0, jobEnd + gap - placeAll(end));
+  if (slide) {
+    while (box.children.length > from) box.lastChild.remove();
+    placeAll(end + slide);
+  }
+  fit = { slide, off: Math.max(0, end + slide - g.H) };
 }
-let meet = 0;
+let fit = { slide: 0, off: 0 };   // the last build's slide and overflow, for the readout
 
 // The clock, Håg's own: Overview's size, in Overview's place.
 function placeClock() {
@@ -609,7 +614,8 @@ function readout() {
   if (!list.length) { $('#status').textContent = 'No printer to show.'; return; }
   const each = Math.round(opt.cycle / list.length);
   const order = list.map((p, i) => `${i === at ? '▸ ' : ''}${p.printer || 'Unnamed'} (${p.state.toLowerCase()}${p.state === 'Finished' || p.state === 'Failed' ? '' : `, ${span(p.left)} left`})`).join(', ');
-  const g = geo(), tight = meet > 0 ? ` The job runs ${Math.round(meet / g.m * 100)}% of the side into the readouts.` : '';
+  const g = geo(), pc = v => `${Math.round(v / g.m * 100)}%`;
+  const tight = fit.slide ? ` Readouts slid ${pc(fit.slide)} of the side down the split${fit.off ? `, ${pc(fit.off)} past the bottom` : ''}.` : '';
   $('#status').textContent = `${list.length === 1 ? 'One printer: the whole turn' : `${list.length} printers, ${each} s each`}${opt.auto ? ', taking turns' : ''}. Order: ${order}.${tight}`;
 }
 
