@@ -5,20 +5,25 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Printer Study</title>
 <!--
-  Håg: 3D Printer Glance study (D141, D142; 0.6). Laid out like Overview:
+  Håg: 3D Printer Glance study (D141–D143; 0.6). Laid out like Overview:
   the printer's picture in the weather area (upper left of the split), the
   lower right half a panel of the home color, less than opaque so the picture
-  shows through. Text sits where Overview's does: the clock in its place, the
-  print's name and state above it, the details in the floors' places.
+  shows through.
+
+  Upper side, outward from the clock: the clock in Overview's place, the
+  printer's name, its state in one word, the fleet summary. Lower side, rows
+  from the split down, each item a small label over its value: print name;
+  layer, time left, ends; nozzles, bed, chamber; fans (icons, spinning while
+  on). Items a printer lacks are left out. Progress runs along the split in
+  the loaded filament's color.
 
   One printer at a time. Printers in the cycle share the glance's turn evenly;
   a fast clock wipe around the center brings in the next. Order: failed,
   finished, then closest to finishing. Idle printers are hidden; at most
   three take turns, with a line for the rest. All idle: no glance.
 
-  First pass for discussion: pictures are drawn placeholders, and which text
-  goes where is a placeholder too. Try your own picture with the file picker:
-  it stays in this page.
+  Second pass. Pictures are drawn placeholders; try your own with the file
+  picker (it stays in this page).
 -->
 <style>
   @font-face { font-family: 'Haag Open Sans'; src: url('../dist/assets/open-sans.ttf'); font-weight: 300 800; }
@@ -62,6 +67,8 @@
   fieldset label.wide { display: flex; gap: 6px; align-items: center; width: 100%; }
   fieldset input[type=range] { flex: 1; min-width: 0; }
   fieldset input[type=text], fieldset select { font: inherit; flex: 1; min-width: 0; }
+  fieldset .few select { flex: 0 1 auto; }
+  fieldset input[type=color] { width: 2.4em; height: 1.6em; padding: 0; border: 1px solid #999; }
   fieldset input[type=file] { font-size: 12px; width: 100%; }
   fieldset output { min-width: 3.5em; text-align: right; color: #555; font-variant-numeric: tabular-nums; }
   .go { display: flex; gap: 8px; align-items: center; justify-content: center; flex-wrap: wrap; }
@@ -96,9 +103,8 @@
   .panel { background: var(--home); opacity: var(--panel); }
   .split { width: 100%; height: 100%; }
   .split .track { stroke: color-mix(in oklab, var(--text-2) 30%, transparent); stroke-linecap: round; }
-  .split .fill { stroke: var(--seaglass); stroke-linecap: round; }
-  .split .fill.warn { stroke: var(--coral); }
-  .split .fill.quiet { stroke: var(--text-2); }
+  .split .edge { stroke: color-mix(in oklab, var(--text) 45%, transparent); stroke-linecap: round; }
+  .split .fill { stroke-linecap: round; }
   .texts { pointer-events: none; }
   .blk { position: absolute; white-space: nowrap; line-height: 1.05; }
 
@@ -108,12 +114,22 @@
   .t3 { font-size: calc(2.8 * var(--u)); color: var(--text-2); }
   .out .t3 { color: var(--text-2-out); }
   .row { display: flex; gap: calc(1.2 * var(--u)); align-items: baseline; }
-  .stack { display: flex; flex-direction: column; gap: calc(.4 * var(--u)); }
   .ampm { font-size: calc(5.5 * var(--u)); margin-left: calc(.7 * var(--u)); vertical-align: top; line-height: 1; }
   .dot { display: inline-block; width: .8em; height: .8em; border-radius: 50%; background: var(--text-2); vertical-align: -.05em; }
   .dot.go { background: var(--seaglass); }
   .dot.heat, .dot.warn { background: var(--coral); }
   .warn-text { color: var(--coral); }
+
+  /* The lower side's rows: items side by side, a label over each value. */
+  .cells { display: flex; gap: calc(3.2 * var(--u)); align-items: flex-start; }
+  .cell { display: flex; flex-direction: column; gap: calc(.4 * var(--u)); }
+  .cell.dim .t2 { color: var(--text-2); }
+  .fan { display: block; width: calc(5 * var(--u)); height: calc(5 * var(--u)); margin-top: calc(.5 * var(--u)); color: var(--text-2); }
+  .fan svg { width: 100%; height: 100%; display: block; fill: currentColor; }
+  .fan.on { color: var(--text); }
+  .fan.on svg { animation: spin 1.1s linear infinite; }
+  @keyframes spin { to { rotate: 360deg; } }
+  @media (prefers-reduced-motion: reduce) { .fan.on svg { animation: none; } }
 
   .clock { z-index: 3; }
   .empty-note { position: absolute; inset: 0; z-index: 4; display: none; align-items: center; justify-content: center;
@@ -148,13 +164,13 @@
   <div class="empty-note">All printers idle: the glance doesn't ask for the screen.</div>
 </div>
 
-<p class="note">Text sits in Overview's places on a square screen, around the same center on the others: the clock where Overview has it, the print's name, state and the count of the rest above it, time, layer and temperatures where the floors are. Pictures are drawn stand-ins: a camera frame (wide, opaque) and a cover render (square, transparent, so the sky shows around it). <em>Take turns</em> runs the real timing: the turn split evenly between the printers in the cycle.</p>
+<p class="note">Text sits in Overview's places on a square screen, around the same center on the others. A row of the lower side too wide for the screen carries on in a second row. Pictures are drawn stand-ins in the filament's color: a camera frame (wide, opaque) and a cover render (square, transparent, so the sky shows around it). <em>Take turns</em> runs the real timing: the turn split evenly between the printers in the cycle.</p>
 
 <script type="module">
 const $ = s => document.querySelector(s);
 const stage = $('#stage'), clockEl = $('#clock'), band = $('#band');
 const layers = [$('#L0'), $('#L1')];
-let front = 0;
+let front = 0, uid = 0;
 const ease = u => u < .5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2;
 const esc = s => s.replace(/[&<>"]/g, c => `&${{ '&': 'amp', '<': 'lt', '>': 'gt', '"': 'quot' }[c]};`);
 const fmt = d => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
@@ -162,15 +178,25 @@ const span = min => min >= 60 ? `${Math.floor(min / 60)} h ${min % 60 ? `${min %
 
 // ---------- Settings ----------
 
-const opt = { shape: 'square', day: true, row: false, center: 'screen', panel: 80, dim: 35, line: false,
-  wipeFrom: 0, wipe: 600, cycle: 30, morePrinting: 0, moreIdle: 1, slow: false, auto: false };
+// Starts at the picks (D143).
+const opt = { shape: 'square', day: true, row: false, center: 'weather', panel: 80, dim: 35, line: true,
+  wipeFrom: 45, wipe: 600, cycle: 30, morePrinting: 0, moreIdle: 1, slow: false, auto: false };
 
-const STATES = ['Heating', 'Printing', 'Paused', 'Finished', 'Failed', 'Idle'];
+const STATES = ['Preparing', 'Heating', 'Printing', 'Paused', 'Finished', 'Failed', 'Idle'];
 const SOURCES = [['camera', 'Camera'], ['cover', 'Cover render'], ['none', 'None (fallback)']];
+const NOZZLES = [['one', 'One nozzle'], ['two', 'Two nozzles'], ['four', 'Tool changer (4)']];
+const TOOLS = { one: ['Nozzle'], two: ['Left', 'Right'], four: ['T1', 'T2', 'T3', 'T4'] };
+const FANS = [['part', 'Part'], ['aux', 'Aux'], ['chamber', 'Chamber']];
 const printers = [
-  { on: true, name: 'Gridfinity bins', state: 'Printing', progress: 62, left: 85, source: 'camera', layers: 290, nozzle: 220, bed: 65 },
-  { on: true, name: 'Lamp shade', state: 'Finished', progress: 100, left: 0, source: 'cover', layers: 410, nozzle: 220, bed: 65 },
-  { on: false, name: 'Cable clips', state: 'Heating', progress: 0, left: 140, source: 'none', layers: 120, nozzle: 250, bed: 80 },
+  { on: true, printer: 'Bench', name: 'Gridfinity bins', state: 'Printing', progress: 62, left: 85, source: 'camera',
+    layers: 290, nozzle: 220, bed: 65, nozzles: 'one', active: 0, chamber: true, fans: { part: 'on', aux: 'on', chamber: 'off' },
+    color: '#D9822B', multi: false, color2: '#3E7CC9' },
+  { on: true, printer: 'Corner', name: 'Lamp shade', state: 'Finished', progress: 100, left: 0, source: 'cover',
+    layers: 410, nozzle: 220, bed: 65, nozzles: 'two', active: 1, chamber: true, fans: { part: 'off', aux: 'off', chamber: 'off' },
+    color: '#E0557F', multi: true, color2: '#4D7FE0' },
+  { on: true, printer: 'Shelf', name: 'Cable clips', state: 'Printing', progress: 54, left: 140, source: 'none',
+    layers: 120, nozzle: 250, bed: 80, nozzles: 'four', active: 1, chamber: false, fans: { part: 'on', aux: 'none', chamber: 'none' },
+    color: '#7FA36B', multi: false, color2: '#C8C2B4' },
 ];
 printers.forEach((p, i) => { p.id = i; p.file = null; });
 
@@ -227,24 +253,45 @@ group(C, 'Wipe starts at', 'wipeFrom', [[0, '12 o’clock'], [45, 'The split (1:
 group(C, 'Other printers printing', 'morePrinting', [[0, '0'], [1, '1'], [2, '2'], [3, '3']]);
 group(C, 'Other printers idle', 'moreIdle', [[0, '0'], [1, '1'], [2, '2'], [3, '3']]);
 
+const options = (list, pick) => list.map(([v, l]) => `<option value="${v}" ${v === pick ? 'selected' : ''}>${l}</option>`).join('');
 for (const p of printers) {
   const fs = $('#printers').appendChild(document.createElement('fieldset'));
   fs.classList.toggle('off', !p.on);
   fs.innerHTML = `<legend><label><input type="checkbox" class="on" ${p.on ? 'checked' : ''}> Printer ${p.id + 1}</label></legend>
+    <label class="wide">Printer <input type="text" class="printer" value="${esc(p.printer)}"></label>
     <label class="wide">Print <input type="text" class="name" value="${esc(p.name)}"></label>
-    <label class="wide">State <select class="state">${STATES.map(s => `<option ${s === p.state ? 'selected' : ''}>${s}</option>`).join('')}</select></label>
+    <label class="wide">State <select class="state">${options(STATES.map(s => [s, s]), p.state)}</select></label>
     <label class="wide">Progress <input type="range" class="progress" min="0" max="100" value="${p.progress}"> <output class="po"></output></label>
     <label class="wide">Time left <input type="range" class="left" min="0" max="600" step="5" value="${p.left}"> <output class="lo"></output></label>
-    <label class="wide">Picture <select class="source">${SOURCES.map(([v, l]) => `<option value="${v}" ${v === p.source ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    <label class="wide few"><select class="nozzles">${options(NOZZLES, p.nozzles)}</select> Active <select class="active"></select></label>
+    <label class="wide"><input type="checkbox" class="chamber" ${p.chamber ? 'checked' : ''}> Chamber sensor</label>
+    <label class="wide few">Fans ${FANS.map(([k, l]) => `${l} <select data-fan="${k}">${options([['none', '–'], ['off', 'Off'], ['on', 'On']], p.fans[k])}</select>`).join(' ')}</label>
+    <label class="wide">Filament <input type="color" class="color" value="${p.color}">
+      <input type="checkbox" class="multi" ${p.multi ? 'checked' : ''}> Multicolor <input type="color" class="color2" value="${p.color2}"></label>
+    <label class="wide">Picture <select class="source">${options(SOURCES, p.source)}</select></label>
     <input type="file" class="file" accept="image/*" title="Your own picture, for the camera or the cover render">`;
   const q = s => fs.querySelector(s);
   const outs = () => { q('.po').textContent = `${p.progress}%`; q('.lo').textContent = span(p.left); };
-  outs();
+  const actives = () => {
+    const tools = TOOLS[p.nozzles];
+    p.active = Math.min(p.active, tools.length - 1);
+    q('.active').innerHTML = options(tools.map((t, i) => [i, t]), p.active);
+    q('.active').disabled = tools.length === 1;
+  };
+  outs(); actives();
   q('.on').onchange = e => { p.on = e.target.checked; fs.classList.toggle('off', !p.on); show(); };
+  q('.printer').oninput = e => { p.printer = e.target.value; show(); };
   q('.name').oninput = e => { p.name = e.target.value; show(); };
   q('.state').onchange = e => { p.state = e.target.value; show(); };
   q('.progress').oninput = e => { p.progress = +e.target.value; outs(); show(); };
   q('.left').oninput = e => { p.left = +e.target.value; outs(); show(); };
+  q('.nozzles').onchange = e => { p.nozzles = e.target.value; actives(); show(); };
+  q('.active').onchange = e => { p.active = +e.target.value; show(); };
+  q('.chamber').onchange = e => { p.chamber = e.target.checked; show(); };
+  fs.querySelectorAll('[data-fan]').forEach(s => { s.onchange = () => { p.fans[s.dataset.fan] = s.value; show(); }; });
+  q('.color').oninput = e => { p.color = e.target.value; show(); };
+  q('.multi').onchange = e => { p.multi = e.target.checked; show(); };
+  q('.color2').oninput = e => { p.color2 = e.target.value; show(); };
   q('.source').onchange = e => { p.source = e.target.value; show(); };
   q('.file').onchange = e => {
     if (p.file) URL.revokeObjectURL(p.file);
@@ -289,19 +336,18 @@ const lower = g => `polygon(${g.cx - g.L}px ${g.cy + g.L}px, ${g.cx + g.L}px ${g
 
 // Overview's places on a square screen, as fractions of its side: the clock's
 // top, the floors' top, and how far each corner nearest the split sits from
-// it (measured along x + y).
+// it (measured along x + y). The right margin is for rows too wide.
 const PLACES = { noRow: { clock: .404, lower: .408 }, row: { clock: .316, lower: .566 } };
-const GAP = { clock: .05, text: .032, upStack: .012, downStack: .016 };
+const GAP = { clock: .05, text: .032, upStack: .012, downStack: .016, margin: .03 };
 
 // ---------- Pictures (placeholders) ----------
 
-const FILAMENT = ['#D9822B', '#4F7CAC', '#7FA36B'];
 const shade = (hex, k) => '#' + [1, 3, 5].map(i => Math.min(255, Math.round(parseInt(hex.slice(i, i + 2), 16) * k)).toString(16).padStart(2, '0')).join('');
 const uri = svg => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 
 // A chamber camera's frame: walls, the plate, the print rising with progress, the toolhead.
 function cameraFrame(p) {
-  const fil = FILAMENT[p.id], h = 6 + p.progress * 1.5, top = 520 - h;
+  const fil = p.color, h = 6 + p.progress * 1.5, top = 520 - h;
   const box = (x, w) => `<rect x="${x}" y="${top}" width="${w}" height="${h}" fill="${fil}"/>
     <path d="M${x} ${top} l26 -20 h${w} l-26 20Z" fill="${shade(fil, 1.25)}"/>
     <path d="M${x + w} ${top} l26 -20 v${h} l-26 20Z" fill="${shade(fil, .7)}"/>`;
@@ -323,7 +369,7 @@ function cameraFrame(p) {
 }
 // A cover render: the plate's objects at an angle, on a transparent ground.
 function coverRender(p) {
-  const fil = FILAMENT[p.id];
+  const fil = p.color;
   const P = (ox, oy) => (x, y, z) => `${ox + (x - y) * .866},${oy + (x + y) * .5 - z}`;
   const isoBox = (ox, oy, w, d, h) => {
     const at = P(ox, oy);
@@ -341,37 +387,51 @@ const FALLBACK = `<svg class="fallback" viewBox="0 0 100 100" fill="none" stroke
   <path d="M38 10 h24 v18 h-24Z"/><path d="M44 28 h12 l-4 10 h-4Z"/>
   <path d="M22 62 h56"/><path d="M26 72 h48"/><path d="M22 82 h56"/><path d="M14 92 h72"/>
 </svg>`;
+// A fan: three blades round a hub (stand-in for Home Assistant's fan icon).
+const FAN = `<svg viewBox="-12 -12 24 24">${[0, 120, 240].map(a =>
+  `<path transform="rotate(${a})" d="M0 -1.6 C-1.2 -5 -4.6 -8.6 -1.8 -10.8 C1.8 -12.2 4.6 -7.2 1.6 -1.2Z"/>`).join('')}<circle r="2.3"/></svg>`;
 
 // ---------- A printer on screen ----------
 
 const STATE = {
-  Heating: { word: 'Heating', dot: 'heat', line: 'quiet' },
-  Printing: { word: 'Printing', dot: 'go', line: '' },
-  Paused: { word: 'Paused', dot: '', line: 'quiet' },
-  Finished: { word: 'Finished', dot: 'go', line: '' },
-  Failed: { word: 'Failed', dot: 'warn', line: 'warn' },
+  Preparing: { dot: 'heat' }, Heating: { dot: 'heat' }, Printing: { dot: 'go' },
+  Paused: { dot: '' }, Finished: { dot: 'go' }, Failed: { dot: 'warn' },
 };
-const stack = (label, value, sub) => `<div class="stack"><div class="t3">${label}</div><div class="row"><span class="t2">${value}</span>${sub ? `<span class="t3">${sub}</span>` : ''}</div></div>`;
+const cell = (label, value, sub = '', cls = '') =>
+  `<div class="cell ${cls}"><div class="t3">${label}</div><div class="row"><span class="t2">${value}</span>${sub ? `<span class="t3">${sub}</span>` : ''}</div></div>`;
+const fan = (label, on) => `<div class="cell"><div class="t3">${label}</div><span class="fan ${on ? 'on' : ''}">${FAN}</span></div>`;
 
 function texts(p) {
-  const s = STATE[p.state], now = new Date();
-  const ended = new Date(now - 35 * 60000), ends = new Date(+now + p.left * 60000);
-  const layer = Math.round(p.layers * p.progress / 100);
-  const extra = { Heating: `${p.progress}%`, Printing: `${p.progress}%`, Paused: `${p.progress}%`, Finished: '', Failed: 'Filament ran out' }[p.state];
+  const now = new Date(), ended = new Date(now - 35 * 60000), ends = new Date(+now + p.left * 60000);
+  const done = p.state === 'Finished' || p.state === 'Failed', warming = p.state === 'Heating' || p.state === 'Preparing';
+
+  // Upper side, outward from the clock.
   const up = [
-    `<div class="t2">${esc(p.name)}</div>`,
-    `<div class="row"><span class="t2 ${p.state === 'Failed' ? 'warn-text' : ''}"><span class="dot ${s.dot}"></span> ${s.word}</span>${extra ? `<span class="t3">${extra}</span>` : ''}</div>`,
+    `<div class="t2">${esc(p.printer)}</div>`,
+    `<div class="t2 ${p.state === 'Failed' ? 'warn-text' : ''}"><span class="dot ${STATE[p.state].dot}"></span> ${p.state}</div>`,
   ];
   const others = rest();
   if (others) up.push(`<div class="t3">${others}</div>`);
-  const when = p.state === 'Finished' ? stack('Finished', fmt(ended), '35 min ago')
-    : p.state === 'Failed' ? stack('Stopped', `at ${p.progress}%`, fmt(ended))
-    : stack('Time left', span(p.left), `ends ${fmt(ends)}`);
-  const cooling = p.state === 'Finished' || p.state === 'Failed';
-  const temps = p.state === 'Heating' ? stack('Nozzle · Bed', `${Math.round(p.nozzle * .8)}° · ${Math.round(p.bed * .9)}°`, `to ${p.nozzle}° · ${p.bed}°`)
-    : cooling ? stack('Nozzle · Bed', '46° · 38°', 'cooling')
-    : stack('Nozzle · Bed', `${p.nozzle}° · ${p.bed}°`);
-  const down = [when, stack('Layer', layer ? `${layer}` : '–', `of ${p.layers}`), temps];
+
+  // Lower side, rows from the split down.
+  const layer = Math.round(p.layers * p.progress / 100);
+  const time = [cell('Layer', layer || '–', `/ ${p.layers}`)];
+  if (done) time.push(cell(p.state === 'Failed' ? 'Stopped' : 'Ended', fmt(ended)));
+  else time.push(cell('Time left', span(p.left)), cell('Ends', fmt(ends)));
+
+  // Temperatures: placeholders that follow the state. While heating, the target.
+  const temp = (target, k) => done ? Math.round(30 + target * .07) : warming ? Math.round(target * k) : target;
+  const aim = target => warming ? `/ ${target}°` : '';
+  const tools = TOOLS[p.nozzles];
+  const heat = tools.map((label, i) => tools.length === 1 || i === p.active
+    ? cell(label, `${temp(p.nozzle, .8)}°`, aim(p.nozzle))
+    : cell(label, `${done ? 31 : 140}°`, '', 'dim'));
+  heat.push(cell('Bed', `${temp(p.bed, .9)}°`, aim(p.bed)));
+  if (p.chamber) heat.push(cell('Chamber', `${done ? 33 : warming ? 29 : 38}°`));
+
+  const fans = FANS.filter(([k]) => p.fans[k] !== 'none').map(([k, l]) => fan(l, p.fans[k] === 'on'));
+  const down = [`<div class="t2">${esc(p.name)}</div>`, time, heat];
+  if (fans.length) down.push(fans);
   return { up, down };
 }
 
@@ -396,32 +456,46 @@ function build(layer, p) {
   layer.querySelector('.veil').style.clipPath = upper(g);
   layer.querySelector('.panel').style.clipPath = lower(g);
 
-  // Progress along the split, from its lower left end.
+  // Progress along the split, from its lower left end, in the filament's
+  // color (a multicolor one as a gradient over the done part), outlined so
+  // white or black filament shows on either theme.
   if (opt.line) {
     const k = g.cx + g.cy, a = k >= g.H ? [k - g.H, g.H] : [0, k], b = k >= g.W ? [g.W, k - g.W] : [k, 0];
     const f = p.progress / 100, c = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f], w = g.u * .9;
+    const id = `fil${++uid}`, line = (cls, width, stroke = '') =>
+      `<line class="${cls}" x1="${a[0]}" y1="${a[1]}" x2="${c[0]}" y2="${c[1]}" stroke-width="${width}" ${stroke}/>`;
     const split = layer.querySelector('.split');
     split.setAttribute('viewBox', `0 0 ${g.W} ${g.H}`);
-    split.innerHTML = `<line class="track" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke-width="${w}"/>
-      ${f > 0 ? `<line class="fill ${STATE[p.state].line}" x1="${a[0]}" y1="${a[1]}" x2="${c[0]}" y2="${c[1]}" stroke-width="${w}"/>` : ''}`;
+    split.innerHTML = `<defs><linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${a[0]}" y1="${a[1]}" x2="${c[0]}" y2="${c[1]}">
+        <stop offset="0" stop-color="${p.color}"/><stop offset="1" stop-color="${p.color2}"/></linearGradient></defs>
+      <line class="track" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke-width="${w}"/>
+      ${f > 0 ? line('edge', w + 2) + line('fill', w, `stroke="${p.multi ? `url(#${id})` : p.color}"`) : ''}`;
   }
 
   // Text in Overview's places: above the clock, stacked outward; below the
   // split from the floors' top, stacked down. Each one's nearest corner a
   // gap from the split.
-  const box = layer.querySelector('.texts'), { up, down } = texts(p), clock = clockBox();
+  const box = layer.querySelector('.texts'), { up, down } = texts(p);
   const blk = (html, side) => { const e = box.appendChild(document.createElement('div')); e.className = `blk ${side}`; e.innerHTML = html; return e; };
   const put = (e, x, y) => { e.style.left = `${x}px`; e.style.top = `${y}px`; };
-  let top = clock.top;
+  let top = clockEl.offsetTop;
   for (const html of up) {
     const e = blk(html, 'out'), h = e.offsetHeight, y = top - GAP.upStack * g.m - h;
     put(e, g.cx - GAP.text * g.m - (y + h - g.cy) - e.offsetWidth, y);
     top = y;
   }
   let y = g.cy + (PLACES[opt.row ? 'row' : 'noRow'].lower - .5) * g.m;
-  for (const html of down) {
-    const e = blk(html, 'in');
-    put(e, g.cx + GAP.text * g.m - (y - g.cy), y);
+  const rows = [...down];
+  while (rows.length) {
+    const item = rows.shift(), x = g.cx + GAP.text * g.m - (y - g.cy);
+    const e = blk(Array.isArray(item) ? `<div class="cells">${item.join('')}</div>` : item, 'in');
+    put(e, x, y);
+    // Too wide: the items that don't fit carry on in the next row.
+    if (Array.isArray(item) && item.length > 1) {
+      const room = g.W - GAP.margin * g.m - x;
+      const cut = [...e.firstElementChild.children].findIndex(c => c.offsetLeft + c.offsetWidth > room);
+      if (cut > 0) { e.remove(); rows.unshift(item.slice(0, cut), item.slice(cut)); continue; }
+    }
     y += e.offsetHeight + GAP.downStack * g.m;
   }
 }
@@ -434,7 +508,6 @@ function placeClock() {
   clockEl.style.top = `${top}px`;
   clockEl.style.left = `${g.cx - GAP.clock * g.m - (top + b - g.cy) - clockEl.offsetWidth}px`;
 }
-const clockBox = () => ({ top: clockEl.offsetTop });
 
 function paintVars() {
   stage.style.setProperty('--dim', opt.dim / 100);
@@ -498,7 +571,7 @@ function readout() {
   const list = cycle();
   if (!list.length) { $('#status').textContent = 'No printer to show.'; return; }
   const each = Math.round(opt.cycle / list.length);
-  const order = list.map((p, i) => `${i === at ? '▸ ' : ''}${p.name || 'Untitled'} (${p.state.toLowerCase()}${p.state === 'Finished' || p.state === 'Failed' ? '' : `, ${span(p.left)} left`})`).join(', ');
+  const order = list.map((p, i) => `${i === at ? '▸ ' : ''}${p.printer || 'Unnamed'} (${p.state.toLowerCase()}${p.state === 'Finished' || p.state === 'Failed' ? '' : `, ${span(p.left)} left`})`).join(', ');
   $('#status').textContent = `${list.length === 1 ? 'One printer: the whole turn' : `${list.length} printers, ${each} s each`}${opt.auto ? ', taking turns' : ''}. Order: ${order}.`;
 }
 
