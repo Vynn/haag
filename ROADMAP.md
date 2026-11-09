@@ -68,9 +68,9 @@ The first glance after Overview Glance: washers, dryers, washer-dryers and dishw
 
 ## 0.6 · Glance instances
 
-- [ ] A glance can show up to three instances (a printer each, say), sharing its turn
-- [ ] A clock wipe between instances, made to be reused
-- [ ] Taps step through instances without restarting the turn
+- [x] A glance can show up to three instances (a printer each, say), sharing its turn
+- [x] A clock wipe between instances, made to be reused
+- [x] Taps step through instances without restarting the turn
 
 ## 0.6.1 · 3D printer glance
 
