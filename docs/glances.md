@@ -4,8 +4,9 @@
 
 Håg is its own glanceable dashboard framework, built as a Home Assistant dashboard strategy. Everything it shows is a glance.
 
-- **The default glance** shows when nothing else needs the screen. Håg's is `sinnesro`, shown as Overview Glance: the time, the weather, indoors and outdoors.
-- **Appliance Glance** (`vitvaror`) also comes with Håg: washers, dryers, washer-dryers and dishwashers while they run, and for a while after a cycle ends.
+- **The default glance** shows when nothing else needs the screen. Håg's is `sinnesro`, shown as Overview: the time, the weather, indoors and outdoors.
+- **Appliances** (`vitvaror`) also comes with Håg: washers, dryers, washer-dryers and dishwashers while they run, and for a while after a cycle ends.
+- **Workshop** (`verkstad`) also comes with Håg: 3D printers while they print, and for a while after a print ends, one at a time as [instances](#instances).
 - **Other glances** are off until turned on. Once on, they run in the background and ask for the screen when they have something to show.
 - **Taking turns:** glances with something to show take turns with the default glance, 30 seconds each. All are equal: none cuts in, and alerts bring up only the alert row.
 
@@ -54,7 +55,7 @@ Shared settings are in [configuration](configuration.md).
 - A clash with a built-in glance: the built-in runs, the other is ignored.
 - Two other glances with one name: neither runs.
 - Either way, a notice names the glances and their files.
-- Display names follow one pattern: *Subject* Glance, such as Laundry Glance.
+- Display names are just the name, such as Laundry. *Glance* is the kind of thing, lowercase: the Laundry glance.
 
 ## Starting up
 
@@ -96,7 +97,7 @@ const manifest = {
   format: 'haag-glance/v1',
   name: 'my_glance',
   element: 'my-glance',
-  title: 'My Glance',
+  title: 'Laundry',
   version: '1.0.0',
 };
 
@@ -123,7 +124,7 @@ const manifest = {
 | `format` | `haag-glance/v1`, this contract's version. |
 | `name` | The name used in settings. |
 | `element` | The web component's tag, defined by `glance.js`. |
-| `title` | The name people see: *Subject* Glance. |
+| `title` | The name people see, such as Laundry: just the name, without "glance". |
 | `version` | The glance's version. |
 | `settings` | Optional: the glance's settings, below. |
 | `alerts` | Optional: the alerts it raises, below. |
@@ -267,7 +268,7 @@ Each mixes a night and a day value (`--n-sky`, `--d-sky`, …) by `--haag-daylig
 | `edges(el)` | `el`'s visible `top` and `bottom`, from its top: text from its cap height to its baseline, graphics by their box. `data-descender="0.5"` on a text counts that share of its descender. |
 | `toSplit(el, y, distance)` | Where to put `el`, its top at `y`, so its nearest visible corner is `distance` from the split: negative on the upper side, positive on the lower. Kept inside the screen's margin. `{ x, left, clamped }`: `left` is its visible left edge, `clamped` that the margin stopped it short. |
 | `room(top, bottom, distance)` | How far a line spanning `top` to `bottom` may reach and stay `distance` from the split: rightward on the upper side, leftward on the lower. |
-| `pair(upper, lower, { stagger, clear })` | Two elements side by side across the split, each a gap from it, as Overview Glance's are. Measures once and returns `at(shift)`, giving `{ upper, lower }`, each `{ x, y, left, clamped }` with `y` its top. Centered on the middle and moved up by `shift`, `stagger` pixels apart in height; while the alert row shows, slid apart along the split to clear it by `clear` (the gap if left out). |
+| `pair(upper, lower, { stagger, clear })` | Two elements side by side across the split, each a gap from it, as Overview's are. Measures once and returns `at(shift)`, giving `{ upper, lower }`, each `{ x, y, left, clamped }` with `y` its top. Centered on the middle and moved up by `shift`, `stagger` pixels apart in height; while the alert row shows, slid apart along the split to clear it by `clear` (the gap if left out). |
 
 These are a start, shaped by two glances, and may change as more are made.
 
@@ -293,13 +294,13 @@ haag.clock.place({ x, y, size, ampm, color, align });
 |---|---|
 | `x`, `y` | The top-left of the numerals' box, in pixels from the stage's top-left. With `align: 'colon'`, `x` is where the colon's middle goes, and it stays there as the time changes. |
 | `size` | The numerals' font size, in pixels. |
-| `ampm` | AM/PM's font size, in pixels. If left out, in Overview Glance's proportion to the numerals. |
+| `ampm` | AM/PM's font size, in pixels. If left out, in Overview's proportion to the numerals. |
 | `color` | Any CSS color Håg can read: its palette or a color value, not the glance's own variables. `--text` if left out. |
 
 - **When:** place it once it's known, also while off screen, and again when it changes. On screen, a new place slides there, a new size scaling with it, in Håg's usual move, 700 ms.
 - **Measuring:** `haag.clock.measure(size, ampm)` gives its `width` with AM/PM, its `height`, and `colon`, the colon's middle from its left.
-- **The text:** `haag.clock.time` and `haag.clock.period` give the time and AM/PM (empty on 24 hours), for a layout that measures its own copy. Overview Glance does.
-- **Drawing over it:** a `<slot name="clock"></slot>` in the glance's shadow root puts the clock at that level, so what comes later crosses over it, as Overview Glance's fog does. Between glances it's above both.
+- **The text:** `haag.clock.time` and `haag.clock.period` give the time and AM/PM (empty on 24 hours), for a layout that measures its own copy. Overview does.
+- **Drawing over it:** a `<slot name="clock"></slot>` in the glance's shadow root puts the clock at that level, so what comes later crosses over it, as Overview's fog does. Between glances it's above both.
 
 A glance that doesn't place it gets the clock front and center: its colon on the screen's vertical axis, the numerals in the middle, or just above the alert row while it shows, at 14 units in `--text`. Every glance shows the clock.
 

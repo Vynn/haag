@@ -156,15 +156,15 @@ Håg's own messages about its setup. They take turns in the row at their severit
 | Warning | "2 glances named "laundry" · the built-in one runs" (or "· neither runs") |
 | | "Glance name not valid: "Laundry!"" |
 | | "Glance "laundry" isn't installed" |
-| | "Laundry Glance didn't load" |
-| | "Laundry Glance needs a newer Håg" |
+| | "Laundry glance didn't load" |
+| | "Laundry glance needs a newer Håg" |
 | | "Couldn't read Home Assistant's setup" |
 
 Information notices leave the row after 5 minutes. Warnings stay until the display reloads. When nothing can show at all, Håg's startup alert turns critical instead (see [glances](glances.md#starting-up)).
 
 ## Appliance alerts
 
-The Appliance Glance raises one alert per machine:
+The Appliances glance raises one alert per machine:
 
 | Alert | Severity | Says | A tap |
 |---|---|---|---|

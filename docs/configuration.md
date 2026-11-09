@@ -53,13 +53,13 @@ strategy:
 
 | Setting | Value |
 |---|---|
-| `default` | The glance shown when nothing else needs the screen, and first in the turns when something does. Overview Glance (`sinnesro`) if left out. |
+| `default` | The glance shown when nothing else needs the screen, and first in the turns when something does. Overview (`sinnesro`) if left out. |
 | `cycle` | Seconds per turn when glances take turns, 10 to 60. 30 if left out. |
 | `easter_eggs` | `false` turns off the easter eggs in every glance. On if left out; a glance's own `easter_eggs` can still turn them off just for it. |
 | `glances.<name>.enabled` | `true` turns a glance on. Glances take turns in the order they ask, after the default glance. |
 | `glances.<name>.<setting>` | A glance's own settings. Each glance lists its own; in the editor, each glance has a section with its switch in the header. |
 
-Overview Glance (`glances.sinnesro`):
+Overview (`glances.sinnesro`):
 
 | Setting | Value |
 |---|---|
@@ -67,12 +67,12 @@ Overview Glance (`glances.sinnesro`):
 | `days` | How many days ahead appointments come from. 30 if left out. |
 | `easter_eggs` | `false` leaves out Overview's easter eggs: what's caught in a tornado (cows, a dinosaur and junk), the giant spider, the dragon, and the odd things that blow through on a gust. The tornado, wind, space station and shooting stars stay. On if left out, unless the overall `easter_eggs` is off. |
 
-Appliance Glance (`glances.vitvaror`):
+Appliances (`glances.vitvaror`):
 
 | Setting | Value |
 |---|---|
 | `rest` | Seconds a machine stays on the glance after its cycle ends, unless its door opens or its alert is dismissed first. 7200 (2 hours) if left out. |
-| `easter_eggs` | `false` leaves out the Appliance Glance's easter egg: in about one wash in 25, a red sock that turns the load pink. On if left out, unless the overall `easter_eggs` is off. |
+| `easter_eggs` | `false` leaves out the Appliances glance's easter egg: in about one wash in 25, a red sock that turns the load pink. On if left out, unless the overall `easter_eggs` is off. |
 | `doors` | YAML only. `machine entity: contact sensor`, for a machine whose integration has no door sensor, or to use another. Any of the machine's entities will do. |
 
 ```yaml
@@ -85,6 +85,13 @@ strategy:
       doors:
         sensor.washer_run_state: binary_sensor.washer_door
 ```
+
+Workshop (`glances.verkstad`):
+
+| Setting | Value |
+|---|---|
+| `rest` | Seconds a printer stays on the glance after its print ends or fails, unless its door opens first. 7200 (2 hours) if left out. |
+| `camera` | `snapshots`: a picture from the printer's camera every 10 seconds. `live`: a frame a second. Either way only while the printer is on screen. `snapshots` if left out. |
 
 ## Day and night
 
@@ -162,7 +169,7 @@ The household alerts (`<alert>`), with their timings and limits when left out:
 | `co_level` | Indoor carbon monoxide readings | `hold: 900` | 30 ppm |
 | `outdoor_air` | Outdoor air quality, by its scale | `hold: 900` | |
 
-The Appliance Glance's alerts (`alerts.vitvaror`):
+The Appliances glance's alerts (`alerts.vitvaror`):
 
 | Alert | Covers | Snooze |
 |---|---|---|

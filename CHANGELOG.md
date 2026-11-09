@@ -2,9 +2,21 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
+## 0.6.1 · unreleased
+
+In progress: the Workshop glance.
+
+### Added
+
+- The Workshop glance (`verkstad`), off until turned on: 3D printers while they print, and for a while after a print ends or fails, until the printer's door opens. One printer at a time, up to three taking turns, failed first, then finished, then the closest to finishing, with a count of the rest. Each shows its camera (snapshots, or live at a frame a second), else the print's cover picture; its state; the print's name, layer, time left and end; nozzle, bed and chamber temperatures and fans; and progress along the split in the loaded filament's color. Bambu Lab printers for now. Settings `rest` and `camera`. See [configuration](docs/configuration.md#glances).
+
+### Changed
+
+- A glance's name is just its name, and "glance" is lowercase: Overview Glance is now Overview, Appliance Glance is Appliances. Messages that name a glance say so: "the Overview glance".
+
 ## 0.6.0 · unreleased
 
-In progress: glance instances, for the 3D Printer Glance in 0.6.1.
+In progress: glance instances, for the Workshop glance in 0.6.1.
 
 ### Added
 

@@ -1,9 +1,9 @@
-// Test Glance: a stand-in second glance for the test page. Not shipped.
+// Test glance: a stand-in second glance for the test page. Not shipped.
 const manifest = {
   format: 'haag-glance/v1',
   name: 'test',
   element: 'haag-test',
-  title: 'Test Glance',
+  title: 'Test',
   version: '0.0.0',
 };
 

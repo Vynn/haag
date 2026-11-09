@@ -1,11 +1,11 @@
-// Appliance Glance: washers, dryers, washer-dryers and dishwashers while
+// Appliances glance: washers, dryers, washer-dryers and dishwashers while
 // they run, and for a while after a cycle ends. Its code loads only when
 // it's on.
 const manifest = {
   format: 'haag-glance/v1',
   name: 'vitvaror',
   element: 'haag-vitvaror',
-  title: 'Appliance Glance',
+  title: 'Appliances',
   version: '0.5.1',
   settings: [
     { key: 'rest', type: 'seconds', default: 7200, min: 60, max: 86400, label: 'Rest',

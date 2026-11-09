@@ -1,5 +1,5 @@
 /*
-  Appliance Glance: washers, dryers, washer-dryers and dishwashers while
+  Appliances glance: washers, dryers, washer-dryers and dishwashers while
   they run, and for a while after a cycle ends. It asks for the screen
   while any machine has something to show.
   License: GPL-3.0
@@ -343,7 +343,7 @@ class ApplianceGlance extends HTMLElement {
         .map(t => this._hass.callWS({ type: `config/${t}_registry/list` })));
       this._machines = findMachines(this._hass, entities, devices);
     } catch (err) {
-      console.error("Håg: Appliance Glance couldn't read Home Assistant's setup", err);
+      console.error("Håg: the Appliances glance couldn't read Home Assistant's setup", err);
       this._machines = [];
     }
     this._update();

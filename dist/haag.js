@@ -1140,7 +1140,7 @@ function setupLine(check) {
    ------------------------------------------------------------------------ */
 
 const GLANCE_FORMAT = 'haag-glance/v1';
-const BUILT_IN = ['sinnesro', 'vitvaror'];
+const BUILT_IN = ['sinnesro', 'vitvaror', 'verkstad'];
 const DEFAULT_GLANCE = 'sinnesro';
 const CYCLE = 30;           // seconds per turn when glances take turns (10–60)
 const INSTANCES_MAX = 3;    // instances of one glance, sharing its turn
@@ -1996,8 +1996,8 @@ class HaagHost extends HTMLElement {
       if (entry) entry.stopped = true;
       for (const inst of entry?.list ?? []) { inst.alerts.drop(); inst.el.remove(); }
       this._failed.add(name);
-      const title = reg.manifest?.title || `Glance "${name}"`;
-      notice('warning', err.newer ? `${title} needs a newer Håg` : `${title} didn't load`, { file: reg.url, error: err });
+      const who = reg.manifest?.title ? `${reg.manifest.title} glance` : `Glance "${name}"`;
+      notice('warning', err.newer ? `${who} needs a newer Håg` : `${who} didn't load`, { file: reg.url, error: err });
     } finally {
       this._loading.delete(name);
       this._schedule();
@@ -2599,7 +2599,7 @@ class HaagHost extends HTMLElement {
     if (!this._showing) return;
     // Through a glance's instances first, slot by slot, then to its neighbour.
     const step = e.clientX - box.left < box.width / 2 ? -1 : 1, entry = this._running.get(this._showing);
-    if (entry?.multi && this._showing !== this._visit && this._stepSlot(entry, step)) return;
+    if (entry?.multi && this._stepSlot(entry, step)) return;
     this._schedule(step);
   }
 
@@ -2733,7 +2733,7 @@ class HaagHost extends HTMLElement {
     if (!this._hass) return 'No connection to Home Assistant';
     const { def, defOn } = this._settings || {};
     const regs = registry.get(def) || [];
-    const title = regs[0]?.manifest?.title || def;
+    const title = `the ${regs[0]?.manifest?.title || def} glance`;
     if (!defOn) return `Nothing to show: ${title} is turned off`;
     if (this._failed.has(def)) return `Nothing to show: ${title} failed to load`;
     if (regs.length > 1 && !regs.some(isBuiltIn)) return `Nothing to show: ${regs.length} glances are named ${def}`;

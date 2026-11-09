@@ -1,9 +1,9 @@
-// Overview Glance: Håg's default glance. Its code loads only when it's on.
+// Overview glance: Håg's default glance. Its code loads only when it's on.
 const manifest = {
   format: 'haag-glance/v1',
   name: 'sinnesro',
   element: 'haag-sinnesro',
-  title: 'Overview Glance',
+  title: 'Overview',
   version: '0.5.1',
   settings: [
     { key: 'appointments', type: 'number', default: 4, min: 1, step: 1, label: 'Appointments',

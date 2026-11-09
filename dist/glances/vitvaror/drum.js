@@ -1,5 +1,5 @@
 /*
-  Appliance Glance: the drum. One drum on the screen's center, shared by
+  Appliances glance: the drum. One drum on the screen's center, shared by
   the machines shown: one fills it; two take halves on the split; three
   take thirds, one edge on the split toward the upper right. The ground
   splits along the same lines. Each part holds its machine's contents, a

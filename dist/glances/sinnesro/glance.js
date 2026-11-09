@@ -1,5 +1,5 @@
 /*
-  Overview Glance: the time and date, outdoor conditions, one row per
+  Overview glance: the time and date, outdoor conditions, one row per
   indoor floor, people, and the next appointments. Håg's default glance.
   License: GPL-3.0
 */

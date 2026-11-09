@@ -1,5 +1,5 @@
 /*
-  Overview Glance: the weather background. Cel-shaded scenes for Home
+  Overview glance: the weather background. Cel-shaded scenes for Home
   Assistant's 15 weather conditions, in inline SVG animated with CSS; the
   random events (lightning, gusts, night visitors, the dragon) are timed
   here.

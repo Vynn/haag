@@ -23,7 +23,7 @@ The default screen when nothing else needs attention.
 The idle screen's illustrated look, and how glances work.
 
 - [x] Glance architecture: how glances are installed, turned on and configured, documented (shipped in 0.1.2)
-- [x] Glances appear only when relevant and give way to the default glance (Overview Glance) afterwards (shipped in 0.1.2)
+- [x] Glances appear only when relevant and give way to the default glance (Overview) afterwards (shipped in 0.1.2)
 - [x] Several glances take turns on a 30-second timer, adjustable in YAML (shipped in 0.1.2)
 - [x] Animated weather background for all 15 Home Assistant weather conditions
 - [x] Day and night colors, switching at sunrise and sunset (shipped in 0.1.2)
@@ -49,7 +49,7 @@ The idle screen's illustrated look, and how glances work.
 
 ## 0.5 · Appliance glance · released
 
-The first glance after Overview Glance: washers, dryers, washer-dryers and dishwashers.
+The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 
 - [x] Glances take turns, the default glance among them, with no priority or cooldown
 - [x] Transitions between glances (0.5.1)

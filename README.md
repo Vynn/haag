@@ -10,13 +10,15 @@ A calm, glanceable dashboard for a wall display that answers one question: *what
 
 ## What it shows
 
-Håg shows *glances*. The default one, Overview Glance, is the idle screen, split diagonally into outdoors and indoors:
+Håg shows *glances*. The default one, Overview, is the idle screen, split diagonally into outdoors and indoors:
 
 - **Outdoors:** the time and date; temperature, humidity and air quality over an animated scene of the current weather; who's away from home; and the next few appointments.
 - **Indoors:** one row per floor with its heating or cooling status, temperature, humidity, air quality, and who's on that floor.
 - **Alert row:** a full-width band through the middle for what needs attention now: smoke, carbon monoxide and gas alarms, water leaks, doors, windows and locks left open, air quality, weather alerts, and alerts from glances. See [alerts](docs/alerts.md).
 
-**Appliance Glance**, off until turned on, shows washers, dryers, washer-dryers and dishwashers while they run: one drum shared by up to three machines, each with its contents, progress and time left, and the clock at its center. After a cycle ends, a machine stays for a while with an alert, until its door opens or the alert is dismissed. It reads [seven appliance integrations](#appliances), core and custom.
+**Appliances**, off until turned on, shows washers, dryers, washer-dryers and dishwashers while they run: one drum shared by up to three machines, each with its contents, progress and time left, and the clock at its center. After a cycle ends, a machine stays for a while with an alert, until its door opens or the alert is dismissed. It reads [seven appliance integrations](#appliances), core and custom.
+
+**Workshop**, off until turned on, shows 3D printers while they print, one at a time, up to three taking turns: the printer's camera or the print's picture, its state, the print's name, layer, time left and end, the temperatures and fans, and progress along the split in the loaded filament's color. After a print ends or fails, the printer stays for a while, until its door opens. It reads [Bambu Lab printers](#3d-printers) for now.
 
 Håg is designed square-first and works in portrait and landscape, from a Raspberry Pi kiosk to a tablet or a 4K screen. Colors follow day and night.
 
@@ -36,7 +38,7 @@ Håg shows weather alerts from one of these Home Assistant integrations, whichev
 
 ### Appliances
 
-The Appliance Glance reads machines from these Home Assistant integrations. Each was built from the integration's own code; most aren't tested yet. Reports are welcome as [issues](https://github.com/Vynn/haag/issues).
+The Appliances glance reads machines from these Home Assistant integrations. Each was built from the integration's own code; most aren't tested yet. Reports are welcome as [issues](https://github.com/Vynn/haag/issues).
 
 | Source | Integration | Machines | Tested |
 |---|---|---|---|
@@ -47,6 +49,14 @@ The Appliance Glance reads machines from these Home Assistant integrations. Each
 | LG ThinQ | Core | Washers, dryers, washer-dryers, dishwashers | Not yet |
 | SmartThinQ LGE Sensors | Custom | Washers, dryers, dishwashers | Verified |
 | Sub-Zero | Custom | Dishwashers | Verified |
+
+### 3D printers
+
+The Workshop glance reads printers from these Home Assistant integrations. More are planned. Reports are welcome as [issues](https://github.com/Vynn/haag/issues).
+
+| Source | Integration | Printers | Tested |
+|---|---|---|---|
+| Bambu Lab | Custom | One- and two-nozzle printers | Not yet |
 
 ## Requirements
 

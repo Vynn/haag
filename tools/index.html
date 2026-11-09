@@ -70,7 +70,7 @@
   </div>
   <div class="frame" id="frame"></div>
   <h2>Strategy config</h2>
-  <p class="muted" style="margin:0 0 6px">The same options a <code>strategy:</code> block would hold, as JSON (e.g. <code>{"providers": {"calendar": {"calendars": ["calendar.example"]}}}</code>). <code>{"glances": {"test": {"enabled": true}}}</code> turns on Test Glance. Kept in this browser only, never in a file.</p>
+  <p class="muted" style="margin:0 0 6px">The same options a <code>strategy:</code> block would hold, as JSON (e.g. <code>{"providers": {"calendar": {"calendars": ["calendar.example"]}}}</code>). <code>{"glances": {"test": {"enabled": true}}}</code> turns on the Test glance. Kept in this browser only, never in a file.</p>
   <textarea id="config" rows="6" spellcheck="false" style="width:min(100%,640px);font:12px/1.4 ui-monospace,monospace"></textarea>
   <div><button type="button" id="apply">Apply config</button> <span id="config-msg" class="muted"></span></div>
 </div>
@@ -80,7 +80,7 @@
   import { connectHass } from './hass-shim.js';
   import './ha-icon-standin.js';   // HA's ha-icon isn't here outside HA
   import '../dist/haag.js';   // the Håg plugin itself (registers its elements)
-  import './glances/test/test.js';   // Test Glance; off until turned on in settings
+  import './glances/test/test.js';   // the Test glance; off until turned on in settings
 
   const KEY = 'haag-dev-connection';
   const $ = id => document.getElementById(id);

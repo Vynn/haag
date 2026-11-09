@@ -1,5 +1,5 @@
 /*
-  Test Glance: placeholder text on a plain fill. It asks for the screen for
+  Test glance: placeholder text on a plain fill. It asks for the screen for
   5 seconds, then lets go for 25, so turns show on the test page.
   License: GPL-3.0
 */
@@ -16,7 +16,7 @@ const STYLE = `
 class TestGlance extends HTMLElement {
   constructor() {
     super();
-    this.attachShadow({ mode: 'open' }).innerHTML = `<style>${STYLE}</style><p>Test Glance</p>`;
+    this.attachShadow({ mode: 'open' }).innerHTML = `<style>${STYLE}</style><p>Test glance</p>`;
   }
 
   setConfig() {}
