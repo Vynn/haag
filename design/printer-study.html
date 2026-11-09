@@ -11,18 +11,18 @@
   shows through.
 
   Upper side, outward from the clock: the clock in Overview's place, the
-  printer's name, its state in one word, the fleet summary. Lower side, rows
-  from the split down, each item a small label over its value: print name;
-  layer, time left, ends; nozzles, bed, chamber; fans (icons, spinning while
-  on). Items a printer lacks are left out. Progress runs along the split in
-  the loaded filament's color.
+  printer's name, its state in one word, the fleet summary. Lower side: the
+  job near the split (print name, then layer and time), the printer's
+  readouts at the bottom, where the side is widest (nozzles, bed, chamber;
+  fans as icons, spinning while on). Items a printer lacks are left out.
+  Progress runs along the split in the loaded filament's color.
 
   One printer at a time. Printers in the cycle share the glance's turn evenly;
   a fast clock wipe around the center brings in the next. Order: failed,
   finished, then closest to finishing. Idle printers are hidden; at most
   three take turns, with a line for the rest. All idle: no glance.
 
-  Second pass. Pictures are drawn placeholders; try your own with the file
+  Third pass. Pictures are drawn placeholders; try your own with the file
   picker (it stays in this page).
 -->
 <style>
@@ -124,6 +124,7 @@
   .cells { display: flex; gap: calc(3.2 * var(--u)); align-items: flex-start; }
   .cell { display: flex; flex-direction: column; gap: calc(.4 * var(--u)); }
   .cell.dim .t2 { color: var(--text-2); }
+  .lines { display: flex; flex-direction: column; gap: calc(.4 * var(--u)); }
   .fan { display: block; width: calc(5 * var(--u)); height: calc(5 * var(--u)); margin-top: calc(.5 * var(--u)); color: var(--text-2); }
   .fan svg { width: 100%; height: 100%; display: block; fill: currentColor; }
   .fan.on { color: var(--text); }
@@ -180,7 +181,8 @@ const span = min => min >= 60 ? `${Math.floor(min / 60)} h ${min % 60 ? `${min %
 
 // Starts at the picks (D143).
 const opt = { shape: 'square', day: true, row: false, center: 'weather', panel: 80, dim: 35, line: true,
-  wipeFrom: 45, wipe: 600, cycle: 30, morePrinting: 0, moreIdle: 1, slow: false, auto: false };
+  wipeFrom: 45, wipe: 600, cycle: 30, morePrinting: 0, moreIdle: 1, slow: false, auto: false,
+  job: 'lines', bottom: 88 };
 
 const STATES = ['Preparing', 'Heating', 'Printing', 'Paused', 'Finished', 'Failed', 'Idle'];
 const SOURCES = [['camera', 'Camera'], ['cover', 'Cover render'], ['none', 'None (fallback)']];
@@ -243,6 +245,12 @@ group(C, 'Picture centered on', 'center', [['screen', 'The screen'], ['weather',
   slider(fs, 'panel', 'Lower half opaque', 0, 100, 5, v => `${v}%`, paintVars);
 }
 group(C, 'Progress along the split', 'line', [[false, 'Off'], [true, 'On']]);
+group(C, 'Layer and time', 'job', [['lines', 'Three lines'], ['floor', 'Like a floor'], ['cells', 'Side by side']]);
+{
+  const fs = C.appendChild(document.createElement('fieldset'));
+  fs.innerHTML = '<legend>Readouts</legend>';
+  slider(fs, 'bottom', 'End at', 80, 96, 1, v => `${v}%`);
+}
 group(C, 'Wipe starts at', 'wipeFrom', [[0, '12 o’clock'], [45, 'The split (1:30)']], () => {});
 {
   const fs = C.appendChild(document.createElement('fieldset'));
@@ -430,9 +438,21 @@ function texts(p) {
   if (p.chamber) heat.push(cell('Chamber', `${done ? 33 : warming ? 29 : 38}°`));
 
   const fans = FANS.filter(([k]) => p.fans[k] !== 'none').map(([k, l]) => fan(l, p.fans[k] === 'on'));
-  const down = [`<div class="t2">${esc(p.name)}</div>`, time, heat];
-  if (fans.length) down.push(fans);
-  return { up, down };
+
+  // The job, near the split: the print's name, then layer and time in one of
+  // the study's combinations.
+  const of = layer ? `Layer ${layer} of ${p.layers}` : `${p.layers} layers`;
+  const end = done ? `${p.state === 'Failed' ? 'Stopped' : 'Ended'} ${fmt(ended)}` : '';
+  const name = `<div class="t2">${esc(p.name)}</div>`;
+  const job = {
+    lines: [name, `<div class="lines"><div class="t3">${of}</div><div class="t2">${end || `${span(p.left)} left`}</div>${done ? '' : `<div class="t3">Ends ${fmt(ends)}</div>`}</div>`],
+    floor: [name, `<div class="cell"><div class="t3">${of}</div><div class="row"><span class="t2">${end || span(p.left)}</span>${done ? '' : `<span class="t3">ends ${fmt(ends)}</span>`}</div></div>`],
+    cells: [`<div class="cell">${name}<div class="t3">${of}</div></div>`, time.slice(1)],
+  }[opt.job];
+  // The printer's readouts, at the bottom: temperatures, then fans.
+  const readouts = [heat];
+  if (fans.length) readouts.push(fans);
+  return { up, job, readouts };
 }
 
 function build(layer, p) {
@@ -472,33 +492,50 @@ function build(layer, p) {
       ${f > 0 ? line('edge', w + 2) + line('fill', w, `stroke="${p.multi ? `url(#${id})` : p.color}"`) : ''}`;
   }
 
-  // Text in Overview's places: above the clock, stacked outward; below the
-  // split from the floors' top, stacked down. Each one's nearest corner a
-  // gap from the split.
-  const box = layer.querySelector('.texts'), { up, down } = texts(p);
+  // Text in Overview's places: above the clock, stacked outward; the job
+  // below the split from the floors' top, stacked down; the readouts from
+  // the bottom up, where the lower side is widest. Each one's nearest corner
+  // a gap from the split. A row too wide carries on in another row.
+  const box = layer.querySelector('.texts'), { up, job, readouts } = texts(p);
   const blk = (html, side) => { const e = box.appendChild(document.createElement('div')); e.className = `blk ${side}`; e.innerHTML = html; return e; };
   const put = (e, x, y) => { e.style.left = `${x}px`; e.style.top = `${y}px`; };
+  const row = item => blk(Array.isArray(item) ? `<div class="cells">${item.join('')}</div>` : item, 'in');
+  const xAt = y => g.cx + GAP.text * g.m - (y - g.cy);
+  // Where a row too wide for the room right of `x` needs cutting, or 0.
+  const cutOf = (e, item, x) => !Array.isArray(item) || item.length < 2 ? 0
+    : Math.max(0, [...e.firstElementChild.children].findIndex(c => c.offsetLeft + c.offsetWidth > g.W - GAP.margin * g.m - x));
+  const gap = GAP.downStack * g.m;
+
   let top = clockEl.offsetTop;
   for (const html of up) {
     const e = blk(html, 'out'), h = e.offsetHeight, y = top - GAP.upStack * g.m - h;
     put(e, g.cx - GAP.text * g.m - (y + h - g.cy) - e.offsetWidth, y);
     top = y;
   }
+
   let y = g.cy + (PLACES[opt.row ? 'row' : 'noRow'].lower - .5) * g.m;
-  const rows = [...down];
+  const rows = [...job];
   while (rows.length) {
-    const item = rows.shift(), x = g.cx + GAP.text * g.m - (y - g.cy);
-    const e = blk(Array.isArray(item) ? `<div class="cells">${item.join('')}</div>` : item, 'in');
+    const item = rows.shift(), e = row(item), x = xAt(y), cut = cutOf(e, item, x);
+    if (cut) { e.remove(); rows.unshift(item.slice(0, cut), item.slice(cut)); continue; }
     put(e, x, y);
-    // Too wide: the items that don't fit carry on in the next row.
-    if (Array.isArray(item) && item.length > 1) {
-      const room = g.W - GAP.margin * g.m - x;
-      const cut = [...e.firstElementChild.children].findIndex(c => c.offsetLeft + c.offsetWidth > room);
-      if (cut > 0) { e.remove(); rows.unshift(item.slice(0, cut), item.slice(cut)); continue; }
-    }
-    y += e.offsetHeight + GAP.downStack * g.m;
+    y += e.offsetHeight + gap;
   }
+  const jobEnd = y - gap;
+
+  // From the bottom up: returns the top of what it placed.
+  const above = (item, bottom) => {
+    const e = row(item), y = bottom - e.offsetHeight, x = xAt(y), cut = cutOf(e, item, x);
+    if (!cut) { put(e, x, y); return y; }
+    e.remove();
+    return above(item.slice(0, cut), above(item.slice(cut), bottom) - gap);
+  };
+  let bottom = g.cy + (opt.bottom / 100 - .5) * g.m;
+  for (const item of [...readouts].reverse()) bottom = above(item, bottom) - gap;
+  // How far the job runs into the readouts, closer than a gap (study only).
+  meet = jobEnd - bottom;
 }
+let meet = 0;
 
 // The clock, Håg's own: Overview's size, in Overview's place.
 function placeClock() {
@@ -572,7 +609,8 @@ function readout() {
   if (!list.length) { $('#status').textContent = 'No printer to show.'; return; }
   const each = Math.round(opt.cycle / list.length);
   const order = list.map((p, i) => `${i === at ? '▸ ' : ''}${p.printer || 'Unnamed'} (${p.state.toLowerCase()}${p.state === 'Finished' || p.state === 'Failed' ? '' : `, ${span(p.left)} left`})`).join(', ');
-  $('#status').textContent = `${list.length === 1 ? 'One printer: the whole turn' : `${list.length} printers, ${each} s each`}${opt.auto ? ', taking turns' : ''}. Order: ${order}.`;
+  const g = geo(), tight = meet > 0 ? ` The job runs ${Math.round(meet / g.m * 100)}% of the side into the readouts.` : '';
+  $('#status').textContent = `${list.length === 1 ? 'One printer: the whole turn' : `${list.length} printers, ${each} s each`}${opt.auto ? ', taking turns' : ''}. Order: ${order}.${tight}`;
 }
 
 new ResizeObserver(() => show()).observe(stage);
