@@ -267,6 +267,7 @@ const STYLE = `
     gap: calc(.4 * var(--u)); line-height: 1.05; white-space: nowrap;
   }
   .stage.animate .cluster { transition: transform var(--move); }
+  .stage.animate .cluster.fresh { transition: none; }   /* new readout rows appear in place */
   .t1 { font-size: calc(14 * var(--u)); }
   .t2 { font-size: var(--t2); }
   .t3 { font-size: calc(2.8 * var(--u)); color: var(--text-2); }
@@ -316,8 +317,17 @@ const TEMPLATE = `
   </div>
 `;
 
-const cell = (label, value, sub = '', dim = false) =>
-  `<div class="cell${dim ? ' dim' : ''}"><div class="t3">${label}</div><div class="line"><span class="t2">${value}</span>${sub ? `<span class="t3">${sub}</span>` : ''}</div></div>`;
+// A readout's empty cell; fill() writes its values, in place.
+const cellHTML = c => `<div class="cell"><div class="t3">${c.label}</div>${c.fan
+  ? '<span class="fan"></span>' : '<div class="line"><span class="t2"></span><span class="t3"></span></div>'}</div>`;
+function fill(el, c) {
+  el.classList.toggle('dim', !!c.dim);
+  if (c.fan) return el.querySelector('.fan').classList.toggle('on', c.on);
+  const [value, sub] = el.querySelectorAll('.line > span');
+  value.textContent = c.value;
+  sub.textContent = c.sub || '';
+  sub.hidden = !c.sub;
+}
 const degrees = t => `${Math.round(t)}°`;
 
 // One printer, as an instance of the glance.
@@ -366,7 +376,7 @@ class WorkshopPrinter extends HTMLElement {
   }
 
   connectedCallback() {
-    this._resize = new ResizeObserver(() => this._layout());
+    this._resize = new ResizeObserver(() => { this._rebuild = true; this._layout(); });
     this._resize.observe(this._stage);
     document.fonts.ready.then(() => { if (this.isConnected) this._layout(); });
     requestAnimationFrame(() => requestAnimationFrame(() => this._stage.classList.add('animate')));
@@ -414,21 +424,30 @@ class WorkshopPrinter extends HTMLElement {
     };
     // Temperatures, with the target while warming up; then the fans.
     const warming = t => t?.target > 0 && t.now < t.target - 3;
+    const temp = (id, label, t, dim) => ({ id, label, value: degrees(t.now), sub: warming(t) ? `/ ${degrees(t.target)}` : '', dim });
     const temps = [
-      ...d.nozzles.map(n => cell(n.label, degrees(n.now), warming(n) ? `/ ${degrees(n.target)}` : '', d.nozzles.length > 1 && !n.active)),
-      d.bed && cell('Bed', degrees(d.bed.now), warming(d.bed) ? `/ ${degrees(d.bed.target)}` : ''),
-      d.chamber && cell('Chamber', degrees(d.chamber.now)),
+      ...d.nozzles.map(n => temp(`nozzle:${n.label}`, n.label, n, d.nozzles.length > 1 && !n.active)),
+      d.bed && temp('bed', 'Bed', d.bed),
+      d.chamber && temp('chamber', 'Chamber', { now: d.chamber.now }),
     ].filter(Boolean);
-    const fans = d.fans.map(f => `<div class="cell"><div class="t3">${f.label}</div><span class="fan${f.on ? ' on' : ''}"></span></div>`);
+    const fans = d.fans.map(f => ({ id: `fan:${f.label}`, label: f.label, fan: true, on: f.on }));
     const rows = [temps, fans].filter(r => r.length);
     let changed = false;
     for (const [part, h] of Object.entries(html)) {
       if (this._parts[part].innerHTML !== h) { this._parts[part].innerHTML = h; changed = true; }
     }
-    const key = JSON.stringify(rows);
-    if (key !== this._rowsKey) {
-      this._rowsKey = key;
+    // A reading that comes or goes rebuilds the rows; a new value is written in place.
+    const shape = JSON.stringify(rows.map(r => r.map(c => c.id)));
+    if (shape !== this._shape) {
+      this._shape = shape;
+      this._rebuild = true;
+      changed = true;
+    }
+    const values = JSON.stringify(rows);
+    if (values !== this._values) {
+      this._values = values;
       this._rows = rows;
+      for (const c of rows.flat()) { const el = this._cells?.get(c.id); if (el) fill(el, c); }
       changed = true;
     }
     this._line(d);
@@ -589,10 +608,12 @@ class WorkshopPrinter extends HTMLElement {
     // Readouts: rows of cells, cut where one would run off the screen.
     const rows = this._rows.map(r => [...r]);
     const build = () => {
+      this._cells = new Map();
       this._readouts.replaceChildren(...rows.map(r => {
         const el = document.createElement('div');
-        el.className = 'cluster';
-        el.innerHTML = `<div class="cells">${r.join('')}</div>`;
+        el.className = 'cluster fresh';
+        el.innerHTML = `<div class="cells">${r.map(cellHTML).join('')}</div>`;
+        r.forEach((c, i) => { const cel = el.querySelector('.cells').children[i]; this._cells.set(c.id, cel); fill(cel, c); });
         for (const f of el.querySelectorAll('.fan')) this._haag.icon(f, 'mdi:fan');
         return el;
       }));
@@ -610,15 +631,28 @@ class WorkshopPrinter extends HTMLElement {
       return { top: b + cgap };
     };
     const bottom = m * READOUTS + (H - m) / 2;
-    let els = build(), res = stack(els, bottom);
-    for (let tries = 0; res.cut !== undefined && rows[res.cut].length > 1 && tries < 6; tries++) {
-      const i = res.cut, half = Math.ceil(rows[i].length / 2);
-      rows.splice(i, 1, rows[i].slice(0, half), rows[i].slice(half));
+    // The rows as they are, unless a reading came or went, the screen
+    // changed, or a row no longer fits.
+    let els = [...this._readouts.children], res = !this._rebuild && els.length ? stack(els, bottom) : { cut: 0 };
+    if (res.cut !== undefined) {
       els = build();
       res = stack(els, bottom);
+      for (let tries = 0; res.cut !== undefined && rows[res.cut].length > 1 && tries < 6; tries++) {
+        const i = res.cut, half = Math.ceil(rows[i].length / 2);
+        rows.splice(i, 1, rows[i].slice(0, half), rows[i].slice(half));
+        els = build();
+        res = stack(els, bottom);
+      }
     }
+    this._rebuild = false;
     const slide = res.top === undefined ? 0 : jobEnd + cgap - res.top;
     if (slide > 0) stack(els, bottom + slide);
+    // New rows took their places without moving; later moves slide.
+    const fresh = els.filter(el => el.classList.contains('fresh'));
+    if (fresh.length) {
+      this._readouts.offsetWidth;
+      for (const el of fresh) el.classList.remove('fresh');
+    }
   }
 }
 
