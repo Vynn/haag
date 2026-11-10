@@ -101,7 +101,8 @@ function readPrinter(hass, p, now) {
   A printer's print, kept in the browser: when it started (`since`), when
   it ended (`ended`), whether its rest is over (`cleared`) and the state
   last seen. Seen for the first time, the state's last change stands in
-  for now.
+  for now. A print first seen already over, with no record of it (a new
+  display, or Home Assistant restarted), isn't shown as just ended.
 */
 function track(rec, r, now) {
   const at = rec.last === undefined ? r.changed : now;
@@ -111,6 +112,7 @@ function track(rec, r, now) {
       rec.since = at;
     }
   } else if (r.state === 'finished' || r.state === 'failed') {
+    if (!rec.since) rec.cleared = true;
     rec.ended ??= at;
     rec.since ??= at;
   }
@@ -119,11 +121,23 @@ function track(rec, r, now) {
 
 const loadRuns = () => { try { return JSON.parse(localStorage.getItem(RUNS)) || {}; } catch { return {}; } };
 
+let workshop = null;   // the coordinator, for printers to report a dismissal
+
 // The coordinator: never shown.
 class WorkshopGlance extends HTMLElement {
   constructor() {
     super();
     this._runs = loadRuns();
+    workshop = this;
+  }
+
+  // A printer's alert was dismissed: its rest is over.
+  dismiss(id) {
+    const rec = this._runs[id];
+    if (!rec?.ended || rec.cleared) return;
+    rec.cleared = true;
+    this._save();
+    this._update();
   }
 
   // ----- Glance API (docs/glances.md) -----
@@ -162,9 +176,9 @@ class WorkshopGlance extends HTMLElement {
   }
 
   // Printers printing, paused or getting ready; after a print ends, a rest
-  // of `rest` seconds, cut short by the door opening. Failed first, then
-  // finished, then the closest to finishing; three take turns, the rest
-  // are counted.
+  // of `rest` seconds, cut short by the door opening or the alert being
+  // dismissed. Failed first, then finished, then the closest to
+  // finishing; three take turns, the rest are counted.
   _update() {
     if (!this._printers || !this._hass || !this._haag) return;
     const now = Date.now(), rest = (this._settings?.rest ?? REST) * 1000;
@@ -237,7 +251,7 @@ const STYLE = `
   :host([between]) .stage { background: none; }
 
   /* The picture in the weather area: the sky behind it, dimmed toward the
-     sky above the split; below it, the home color, mostly opaque. */
+     night sky above the split; below it, the home color, mostly opaque. */
   .sky, .veil, .panel, .split { position: absolute; inset: 0; }
   .sky { background: radial-gradient(120% 90% at 30% 85%, var(--horizon), transparent 60%), var(--sky); }
   .pic { position: absolute; }
@@ -246,7 +260,7 @@ const STYLE = `
   .pic img.cover { object-fit: contain; }
   .pic .fallback { position: absolute; color: var(--text-2-out); opacity: .55; }
   .veil {
-    background: var(--sky); opacity: .35;
+    background: var(--n-sky); opacity: .35;
     -webkit-mask-image: linear-gradient(var(--haag-split), #000 50%, transparent 50%);
             mask-image: linear-gradient(var(--haag-split), #000 50%, transparent 50%);
   }
@@ -272,6 +286,8 @@ const STYLE = `
   .t2 { font-size: var(--t2); }
   .t3 { font-size: calc(2.8 * var(--u)); color: var(--text-2); }
   .upper .t3 { color: var(--text-2-out); }
+  /* Over the picture, night's text by day too: a camera's frame is mostly dark. */
+  .upper { --text: var(--n-text); --text-2: var(--n-text-2); --text-2-out: var(--n-text-2); color: var(--text); }
   .line { display: flex; gap: calc(1.2 * var(--u)); align-items: baseline; }
   .name { max-width: calc(48 * var(--u)); overflow: hidden; text-overflow: ellipsis; }
 
@@ -344,12 +360,17 @@ class WorkshopPrinter extends HTMLElement {
     this.addEventListener('haag-instance', () => this._render());
     this.addEventListener('haag-alertrow', () => this._layout());
     this.addEventListener('haag-visible', () => this._visible());
+    this.addEventListener('haag-dismissed', e => {
+      if (/^(finished|failed):/.test(e.detail.key)) workshop?.dismiss(this._haag?.instance?.id);
+    });
   }
 
   // ----- Glance API (docs/glances.md) -----
 
   setConfig(settings) {
     this._settings = settings;
+    this._alertKey = undefined;   // its alert's settings may have changed
+    this._render();
   }
 
   set haag(haag) {
@@ -452,7 +473,21 @@ class WorkshopPrinter extends HTMLElement {
     }
     this._line(d);
     this._picture();
+    this._alert(d);
     if (changed || !this._laidOut) this._layout();
+  }
+
+  // Its alert while its print is over; a tap dismisses it, and the printer
+  // leaves. Keyed by the print's end, so an earlier dismissal can't hide it.
+  _alert(d) {
+    const alerts = this._haag?.alerts;
+    if (!alerts) return;
+    const over = d.state === 'finished' || d.state === 'failed';
+    const key = over && d.ended ? `${d.state}:${d.ended}` : null;
+    if (key === this._alertKey) return;
+    if (this._alertKey) alerts.delete(this._alertKey);
+    this._alertKey = key;
+    if (key) alerts.set(key, { level: d.state === 'failed' ? 'warning' : 'info', text: `${d.printer} ${d.state}`, dismiss: true });
   }
 
   // ----- The picture -----
@@ -593,7 +628,7 @@ class WorkshopPrinter extends HTMLElement {
       if (el.contains(time)) {
         const base = el.getBoundingClientRect(), r = time.getBoundingClientRect();
         this._haag.clock.place({ x: x + r.left - base.left, y: ty + r.top - base.top,
-          size: parseFloat(getComputedStyle(time).fontSize), ampm: this._px('--t2'), color: 'var(--text)' });
+          size: parseFloat(getComputedStyle(time).fontSize), ampm: this._px('--t2'), color: 'var(--n-text)' });
       }
       y = ty + o.top - cgap;
     }

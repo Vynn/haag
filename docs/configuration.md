@@ -104,8 +104,15 @@ Workshop (`glances.verkstad`):
 
 | Setting | Value |
 |---|---|
-| `rest` | Seconds a printer stays on the glance after its print ends or fails, unless its door opens first. 7200 (2 hours) if left out. |
+| `rest` | Seconds a printer stays on the glance after its print ends or fails, unless its door opens or its alert is dismissed first. 7200 (2 hours) if left out. |
 | `camera` | `snapshots`: a picture from the printer's camera every 10 seconds. `live`: a frame a second. Either way only while the printer is on screen. `snapshots` if left out. |
+
+The Workshop glance's alerts (`glances.verkstad.alerts`):
+
+| Alert | Covers | Snooze |
+|---|---|---|
+| `finished` | A print finished: information. A tap dismisses it, and the printer leaves the glance. | |
+| `failed` | A print failed: a warning. A tap dismisses it, and the printer leaves the glance. | |
 
 ## Day and night
 
@@ -216,12 +223,12 @@ Times follow the time format in your Home Assistant profile (12 or 24 hours, or 
 | `exclude` | People not to show, such as guests. |
 | `include` | Show only these people. |
 | `links` | `person: other_person`. When someone has no location of their own (no phone, for example), they follow the other person's. |
-| `calendars` | `person: calendar`. Håg matches people to calendars by name on its own (`person.alex` and `calendar.alex`, or the same friendly name); this is for the ones it can't. |
+| `calendars` | `person: calendar`. Håg matches people to calendars by name on its own (`person.alex` and `calendar.alex`, or the same friendly name); this is for the ones it can't. `person: false` gives someone no calendar, even one matching by name. |
 | `colors` | `person or calendar: "#hex"`. Quote the color: unquoted, YAML reads `#` as the start of a comment. |
 
 Each person and calendar has a color: the one set here, else the calendar's color in Home Assistant (Google Calendar sets one, for example), else one of Håg's six, in turn. A person and their calendar share it. The color shows on a person's icon and on their appointments. Any color keeps its hue and shifts in lightness until it's readable where it's drawn, by day and by night, so a pale yellow, for example, turns darker by day.
 
-In the editor, each person has their calendar, color and who they follow, followed by a color for each calendar that's no one's. A color picker can't be cleared there: to go back to the color Håg finds, remove it in the code editor. A calendar that's someone's takes their color; giving it a different one is YAML only.
+In the editor, each person has calendar linking and their calendar, color and who they follow, followed by a color for each calendar that's no one's. Calendar linking off gives them no calendar. A color that's set has Reset beside it, which goes back to the color Håg finds. A calendar that's someone's takes their color; giving it a different one is YAML only.
 
 ## Calendar
 

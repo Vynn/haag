@@ -243,7 +243,9 @@ const pinkness = m => m.status === 'ended' || ['dry', 'cool'].includes(m.phase) 
   red sock, what it last drew (`phase`) and the state last seen. A cycle
   ends on the integration's finished state, or when a running machine
   goes idle or off. Seen for the first time, the state's last change
-  stands in for now.
+  stands in for now. A cycle first seen already finished, with no record
+  of it (a new display, or Home Assistant restarted), isn't shown as just
+  ended.
 */
 function track(rec, r, phase, now) {
   const at = rec.last === undefined ? r.changed : now;
@@ -254,6 +256,7 @@ function track(rec, r, phase, now) {
     }
     rec.phase = phase;
   } else if (r.state === 'done') {
+    if (!rec.since) rec.cleared = true;
     rec.ended ??= at;
     rec.since ??= at;
   } else if (['running', 'paused'].includes(rec.last) && !rec.ended) rec.ended = at;

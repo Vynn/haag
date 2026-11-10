@@ -173,6 +173,17 @@ The Appliances glance raises one alert per machine:
 
 A machine is named by its kind, or by its device name when there are two of a kind. A cycle-ended alert also goes when the machine's door opens, or when its rest runs out (`rest`, 2 hours if left out).
 
+## 3D printer alerts
+
+The Workshop glance raises one alert per printer, once its print is over:
+
+| Alert | Severity | Says | A tap |
+|---|---|---|---|
+| `finished` | Information | "Bench finished" | Dismisses it, and the printer leaves the glance |
+| `failed` | Warning | "Bench failed" | Dismisses it, and the printer leaves the glance |
+
+A printer is named by its device name. Either alert also goes when the printer's door opens, or when its rest runs out (`rest`, 2 hours if left out). Tapped, it shows that printer.
+
 ## Settings
 
 Which household alerts are on, sensors to leave out, timings, limits and escalation, the turn length and the weather source are all settings, under `alerts`. A glance's alerts can be turned off or given a snooze, in its entry under `glances.<glance>.alerts`. In the editor, household and weather alerts are in Overview's section and each glance's in its own, each under Alerts; the turn length is in General. See [configuration](configuration.md#alerts).

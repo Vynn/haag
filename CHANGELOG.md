@@ -2,6 +2,25 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
+## 0.6.2 · unreleased
+
+In progress: 3D printer alerts, and fixes.
+
+### Added
+
+- The Workshop glance's alerts: a print finished (information) or failed (a warning). A tap dismisses either, and the printer leaves the glance; tapped, it shows that printer. Each can be turned off. See [alerts](docs/alerts.md#3d-printer-alerts).
+- In the editor, Reset beside each color that's set, back to the color Håg finds; and calendar linking for each person: off, they have no calendar, even one matching by name (`false` under `providers.people.calendars`). See [configuration](docs/configuration.md#people).
+
+### Changed
+
+- The Workshop glance: over the printer's picture, the text is light by day too, and the picture is dimmed toward the night sky, so text reads on a camera's dark frame.
+
+### Fixed
+
+- The Appliances glance's clock no longer sits across the dividers: with two machines it moves into the upper-left half, a gap from the divider; with three, into the top third ([#1](https://github.com/Vynn/haag/issues/1)).
+- After Home Assistant restarts, a machine or printer that had already finished no longer shows as just ended on a display with no record of it.
+- Overview's appointments no longer show "Err" while Home Assistant is still starting: a failed fetch is tried again up to three times, 10 seconds apart.
+
 ## 0.6.1 · 2026-11-09
 
 The Workshop glance: 3D printers while they print, up to three taking turns. A glance's alert settings move into its own entry. With 0.6.0's glance instances. A pre-release. See [configuration](docs/configuration.md#glances).

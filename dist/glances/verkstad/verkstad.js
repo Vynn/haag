@@ -1,5 +1,6 @@
 // Workshop glance: 3D printers while they print, and for a while after a
-// print ends, one printer at a time. Its code loads only when it's on.
+// print ends, one printer at a time, with an alert when one finishes or
+// fails. Its code loads only when it's on.
 const manifest = {
   format: 'haag-glance/v1',
   name: 'verkstad',
@@ -9,10 +10,14 @@ const manifest = {
   version: '0.6.1',
   settings: [
     { key: 'rest', type: 'seconds', default: 7200, min: 60, max: 86400, label: 'Rest',
-      help: 'How long a printer stays after its print ends, unless its door opens' },
+      help: 'How long a printer stays after its print ends, unless its door opens or the alert is dismissed' },
     { key: 'camera', type: 'choice', default: 'snapshots', choices: ['snapshots', 'live'],
       labels: { snapshots: 'Snapshots', live: 'Live' }, label: 'Camera',
       help: 'A snapshot every 10 seconds, or live at a frame a second' },
+  ],
+  alerts: [
+    { key: 'finished', label: 'Print finished', dismiss: true },
+    { key: 'failed', label: 'Print failed', dismiss: true },
   ],
 };
 

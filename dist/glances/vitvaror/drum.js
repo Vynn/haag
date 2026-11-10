@@ -1036,8 +1036,7 @@ export class Drum {
   // middle up, below it down, each side as one.
   clearing(row, clock) {
     const { cx, cy, ps, refs, band, space } = this.geo;
-    const top = row ? cy - band / 2 - space - clock.height : cy - clock.height / 2, bottom = top + clock.height;
-    const left = cx - clock.colon, right = left + clock.width;
+    const { left, top } = this.clockBox(row, clock), bottom = top + clock.height, right = left + clock.width;
     let up = 0, down = 0;
     for (const r of refs) {
       const a = this.rest(r, row), hn = r.name.offsetHeight, hl = r.lines.offsetHeight;
@@ -1062,16 +1061,42 @@ export class Drum {
     return { x: a.x, name: a.name + by, lines: a.lines + by };
   }
 
-  // Håg's clock: its numerals half again the names' size, its colon on the
-  // drum's axis, at the center or just above the alert row. Håg moves it as
-  // the text moves.
+  // The clock's box at row (0 or 1): its colon on the drum's axis, at the
+  // middle or a gap above the alert row, then clear of the dividers by a
+  // gap, as the other glances' clocks are of the split. Halves: slid left,
+  // into the upper-left half. Thirds: raised, into the top third.
+  clockBox(row, { width, height, colon }) {
+    const { cx, cy, R, ps, band, space, gap } = this.geo;
+    const box = { left: cx - colon, top: row ? cy - band / 2 - space - height : cy - height / 2 };
+    if (ps.length < 2 || !height) return box;
+    const t = ps.length === 3 ? row * Y_TURN : 0, c = [cx, cy];
+    const rays = ps.map(p => [c, [cx + 2 * R * Math.cos(rad(p.to + t)), cy + 2 * R * Math.sin(rad(p.to + t))]]);
+    const clear = () => {
+      const { left: l, top: tp } = box, r = l + width, b = tp + height;
+      const edges = [[[l, tp], [r, tp]], [[r, tp], [r, b]], [[r, b], [l, b]], [[l, b], [l, tp]]];
+      return rays.every(([p, q]) => edges.every(([a, e]) => segDist(a, e, p, q) >= gap));
+    };
+    const step = Math.max(1, height * .02);
+    for (let n = 0; n < 500 && !clear(); n++) {
+      if (ps.length === 2) box.left -= step;
+      else box.top -= step;
+    }
+    return box;
+  }
+
+  // Håg's clock: its numerals half again the names' size, in its box.
+  // Håg moves it as the text moves.
   placeClock() {
     const clock = this.clockOf();
     if (!clock) return;
     const W = this.stage.clientWidth, H = this.stage.clientHeight, geo = this.geo;
-    const size = geo?.clockSize ?? CLOCK_SIZE * .09 * Math.min(W, H), { height } = clock.measure(size);
-    const y = this.rowTo ? H / 2 - (geo?.band ?? this.bandHeight()) / 2 - (geo?.space ?? this.gapOf()) - height : H / 2 - height / 2;
-    clock.place({ x: W / 2, y, size, color: 'var(--d-text)', align: 'colon' });
+    const size = geo?.clockSize ?? CLOCK_SIZE * .09 * Math.min(W, H), m = clock.measure(size);
+    if (!geo) {
+      const y = this.rowTo ? H / 2 - this.bandHeight() / 2 - this.gapOf() - m.height : H / 2 - m.height / 2;
+      return clock.place({ x: W / 2, y, size, color: 'var(--d-text)', align: 'colon' });
+    }
+    const { left, top } = this.clockBox(this.rowTo ? 1 : 0, m);
+    clock.place({ x: left + m.colon, y: top, size, color: 'var(--d-text)', align: 'colon' });
   }
 
   placeLabels() {
@@ -1125,5 +1150,15 @@ const putText = (r, x, name, lines) => {
   Object.assign(r.name.style, { left: `${x}px`, top: `${name}px` });
   Object.assign(r.lines.style, { left: `${x}px`, top: `${lines}px` });
 };
+// Least distance between segments ab and cd: 0 where they cross.
+const side = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+function toSeg(p, a, b) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], k = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)));
+  return Math.hypot(p[0] - a[0] - k * dx, p[1] - a[1] - k * dy);
+}
+function segDist(a, b, c, d) {
+  if (side(a, b, c) * side(a, b, d) < 0 && side(c, d, a) * side(c, d, b) < 0) return 0;
+  return Math.min(toSeg(a, c, d), toSeg(b, c, d), toSeg(c, a, b), toSeg(d, a, b));
+}
 const setSize = (r, px) => { for (const el of [r.name, r.lines]) el.style.setProperty('--size', `${px}px`); };
 const dims = r => ({ wn: r.name.offsetWidth, hn: r.name.offsetHeight, wl: r.lines.offsetWidth, hl: r.lines.offsetHeight });

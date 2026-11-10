@@ -85,13 +85,22 @@ The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 - [x] Progress in the loaded filament's color
 - [x] More than one printer: up to three take turns, most urgent first, with a count of the rest
 
-## 0.6.2 · 3D printer alerts
+## 0.6.2 · 3D printer alerts and fixes
 
-- [ ] Alerts for a finished print and a failed print, with settings
+- [ ] Alerts for a finished print and a failed print, with settings; a tap dismisses either, and the printer leaves
+- [ ] Light text over the printer's picture by day, as at night
+- [ ] The Appliances glance's clock clear of the dividers, like the other glances' clocks and the split
+- [ ] After Home Assistant restarts, a machine or printer that already finished isn't shown as just ended
+- [ ] Overview's first calendar fetch retried while Home Assistant starts
+- [ ] The editor: a reset for each color, and calendar linking for each person
 
 ## 0.6.3 · More 3D printers
 
 - [ ] OctoPrint, PrusaLink, Moonraker (Klipper), Dremel and Repetier
+
+## 0.6.4 · 3D printer errors
+
+- [ ] Errors a printer reports while printing, as alerts
 
 ## 0.7 · Irrigation glance
 

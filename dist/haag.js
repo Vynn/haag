@@ -446,7 +446,8 @@ function discoverCalendars(hass, reg, overrides = {}) {
    from HA, else one from Håg's palette. A person and their calendar
    share: either's setting, then the calendar's own.
    People match calendars by name (person.alex ↔ calendar.alex), or by
-   `providers.people.calendars: { person_id: calendar_id }`.
+   `providers.people.calendars: { person_id: calendar_id }`; false there
+   gives them none.
    Drawn colors keep their hue and shift in lightness until they reach
    4.5:1 on what they're drawn on, by day and by night, so text can take
    them too.
@@ -544,6 +545,7 @@ function discoverColors(hass, reg, people, calendars, settings = {}) {
   const all = Object.keys(hass.states).filter(id => id.startsWith('calendar.'));
   const cal = {};
   for (const p of people.ids) {
+    // A calendar set for them, false for none, else one matching by name.
     const c = settings.calendars?.[p]
       ?? all.find(c => c.split('.')[1] === p.split('.')[1])
       ?? all.find(c => name(c) && name(c) === name(p));
@@ -1413,7 +1415,7 @@ const OPTIONS = [
   { path: 'providers.people.exclude', type: 'entities', filter: { domain: 'person' }, label: 'People left out', help: 'Guests, for example' },
   { path: 'providers.people.include', type: 'entities', filter: { domain: 'person' }, label: 'Only these people' },
   { path: 'providers.people.links', type: 'links', label: 'Linked people' },
-  { path: 'providers.people.calendars', type: 'links', label: "People's calendars" },
+  { path: 'providers.people.calendars', type: 'calendars', label: "People's calendars" },
   { path: 'providers.people.colors', type: 'colors', label: 'Colors', format: 'hex in quotes, like "#16a765"' },
   { path: 'providers.calendar.calendars', type: 'entities', filter: { domain: 'calendar' }, label: 'Calendars', help: 'Every calendar when none are chosen' },
   { path: 'alerts.turn', type: 'seconds', default: TURN, label: 'Turn', help: 'Seconds per alert when several take turns' },
@@ -1464,6 +1466,7 @@ function checked(config, path, o = optionAt(path), title) {
     entities: () => isStrings(v),
     devices: () => isStrings(v),
     links: () => v && typeof v === 'object' && Object.values(v).every(x => typeof x === 'string'),
+    calendars: () => v && typeof v === 'object' && Object.values(v).every(x => typeof x === 'string' || x === false),
     colors: () => v && typeof v === 'object' && Object.values(v).every(x => HEX.test(x)),
   }[o.type] ?? (() => true))();
   if (ok) return o.type === 'seconds' || o.type === 'number' ? n : v;
@@ -3202,22 +3205,30 @@ class HaagEditor extends HTMLElement {
       this.textContent = "Home Assistant's form didn't load. Håg's settings can be edited in the code editor.";
       return;
     }
-    // Setup warnings; General; a section per glance; the other sections.
+    // Setup warnings; General; a section per glance; People and
+    // calendars; the other sections.
     if (!this._top) {
       this._box = this.appendChild(document.createElement('div'));
       this._box.style.cssText = 'display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px';
       this._top = this.appendChild(this._newForm());
       this._glanceBox = this.appendChild(document.createElement('div'));
       this._glanceBox.style.cssText = 'display: flex; flex-direction: column; gap: 24px; margin: 24px 0';
+      const { panel, content } = this._panel('People and calendars', 3);
+      panel.style.marginBottom = '24px';
+      content.style.cssText += '; display: flex; flex-direction: column; gap: 24px';
+      this.appendChild(panel);
+      this._peopleBox = content;
       this._rest = this.appendChild(this._newForm());
     }
     const [general, ...rest] = this._schema();
     const glances = this._glances();
-    const fields = [...[general, ...rest].flatMap(s => s.schema), ...glances.flatMap(g => [g.switch, ...g.fields, ...g.alerts])];
+    const people = this._people();
+    const fields = [...[general, ...rest].flatMap(s => s.schema), ...people, ...glances.flatMap(g => [g.switch, ...g.fields, ...g.alerts])];
     this._fields = new Map(fields.map(f => [f.name, f]));
     this._shown = this._data(fields);
     this._fill(this._top, [general]);
     this._renderGlances(glances);
+    this._renderPeople(people);
     this._fill(this._rest, rest);
     this._renderChecks();
   }
@@ -3312,6 +3323,49 @@ class HaagEditor extends HTMLElement {
     }
   }
 
+  // People and calendars: runs of fields in a form each, and each color
+  // in a form of its own with its reset beside it (ha-form has no place
+  // for one), shown once a color is set. Each part keeps its element
+  // while it's the same kind, so a switch or picker keeps its focus.
+  _renderPeople(fields) {
+    const parts = [];
+    for (const f of fields) {
+      if (f.reset) parts.push({ color: f, schema: [f] });
+      else if (parts.at(-1) && !parts.at(-1).color) parts.at(-1).schema.push(f);
+      else parts.push({ schema: [f] });
+    }
+    const box = this._peopleBox;
+    const make = p => {
+      if (!p.color) return this._newForm();
+      const row = document.createElement('div');
+      row.style.cssText = 'display: flex; align-items: center; gap: 8px';
+      const form = this._newForm();
+      form.style.flex = '1';
+      const reset = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Reset' });
+      reset.style.cssText = 'background: none; border: 0; border-radius: 4px; padding: 8px; cursor: pointer;'
+        + ' font: inherit; font-size: var(--ha-font-size-m, 14px); font-weight: var(--ha-font-weight-medium, 500); color: var(--primary-color)';
+      reset.addEventListener('click', () =>
+        this._changed({ stopPropagation() {}, detail: { value: { ...this._shown, [reset.haagName]: null } } }));
+      row.append(form, reset);
+      return row;
+    };
+    parts.forEach((p, i) => {
+      const kind = p.color ? 'DIV' : 'HA-FORM', had = box.children[i];
+      if (had?.tagName !== kind) had ? had.replaceWith(make(p)) : box.append(make(p));
+    });
+    while (box.children.length > parts.length) box.lastElementChild.remove();
+    parts.forEach((p, i) => {
+      const el = box.children[i];
+      if (!p.color) return this._fill(el, p.schema);
+      const [form, reset] = el.children;
+      this._fill(form, p.schema);
+      reset.haagName = p.color.name;
+      reset.setAttribute('aria-label', p.color.reset);
+      // Hidden, it keeps its place, so the color doesn't change width.
+      reset.style.visibility = valueAt(this._config, p.color.name) == null ? 'hidden' : '';
+    });
+  }
+
   // Setup warnings above the form: what's missing, what follows, and the
   // first few names, the rest a click away.
   _renderChecks() {
@@ -3367,11 +3421,6 @@ class HaagEditor extends HTMLElement {
         field('theme'),
         field('easter_eggs'),
       ], true),
-      section('People and calendars', [
-        ...['exclude', 'include'].map(k => field(`providers.people.${k}`)),
-        field('providers.calendar.calendars', 'Calendars shown'),
-        ...this._people(),
-      ]),
       section('Outdoor', ['temperature', 'humidity', 'aqi', 'weather', 'moon'].map(k => field(`providers.outdoor.${k}`))),
       section('Floors', floors.flatMap(f => [
         field(`providers.floors.${f.floor_id}.monitors`, `${f.name} air-quality monitors`),
@@ -3454,19 +3503,30 @@ class HaagEditor extends HTMLElement {
     return { people, calendars, theirs, colors: found };
   }
 
-  // Under each person, a subheading and their calendar, color and who
-  // they follow; then a color for each calendar that's no one's.
+  // Who's shown; under each person, a subheading, their calendar linking
+  // and calendar, color and who they follow; then a color for each
+  // calendar that's no one's. Each color has a reset (`reset`).
   _people() {
     const hass = this._hass;
     const { people, calendars, theirs } = this._lookup();
     const name = id => hass.states[id]?.attributes?.friendly_name || id;
     const key = (map, id) => `providers.people.${map}[${id}]`;
-    const color = (id, label = 'Color') => ({ name: key('colors', id), label, selector: { color_rgb: {} }, ...COLOR_FIELD });
+    const color = (id, label = 'Color') =>
+      ({ name: key('colors', id), label, selector: { color_rgb: {} }, reset: `Reset ${name(id)}'s color`, ...COLOR_FIELD });
     const unmatched = calendars.filter(c => !Object.values(theirs).includes(c));
+    // The switch writes the calendar's setting: off is false, on clears
+    // it, so Håg matches one again.
+    const linking = id => ({ name: `linked[${id}]`, path: key('calendars', id), label: 'Calendar linking',
+      help: 'Off: no calendar, even one matching by name', selector: { boolean: {} }, default: true,
+      toForm: v => v !== false, fromForm: v => v ? undefined : false });
     return [
+      ...['exclude', 'include'].map(k => this._field(`providers.people.${k}`)),
+      this._field('providers.calendar.calendars', 'Calendars shown'),
       ...people.ids.flatMap(id => [
         { type: 'constant', name: `person ${id}`, label: name(id) },
-        { name: key('calendars', id), label: 'Calendar', selector: { entity: { filter: { domain: 'calendar' } } } },
+        linking(id),
+        ...(valueAt(this._config, key('calendars', id)) === false ? []
+          : [{ name: key('calendars', id), label: 'Calendar', selector: { entity: { filter: { domain: 'calendar' } } } }]),
         color(id),
         { name: key('links', id), label: 'Follows', help: "Where they are when they have no location of their own",
           selector: { entity: { filter: { domain: 'person' } } } },
@@ -3495,10 +3555,10 @@ class HaagEditor extends HTMLElement {
     const def = config.default ?? DEFAULT_GLANCE;
     const found = { ...this._found, ...this._foundPeople() };
     const data = {};
-    for (const { name, type, toForm, default: fallback } of fields) {
+    for (const { name, path = name, type, toForm, default: fallback } of fields) {
       if (type === 'constant') continue;
       const glance = /^glances\.([^.]+)\.enabled$/.exec(name)?.[1];
-      const v = valueAt(config, name);
+      const v = valueAt(config, path);
       const unset = v == null || (Array.isArray(v) && !v.length);
       const shown = glance ? (glance === def ? v !== false : v === true)
         : unset ? found[name] ?? optionAt(name)?.default ?? fallback : v;
@@ -3515,10 +3575,10 @@ class HaagEditor extends HTMLElement {
     const config = structuredClone(this._config);
     for (const key of Object.keys(data)) {
       if (JSON.stringify(data[key]) === JSON.stringify(this._shown[key])) continue;
-      const fromForm = this._fields.get(key)?.fromForm;
+      const { fromForm, path = key } = this._fields.get(key) ?? {};
       const v = fromForm && data[key] != null ? fromForm(data[key]) : data[key];
-      if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) unsetPath(config, key);
-      else setPath(config, key, v);
+      if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) unsetPath(config, path);
+      else setPath(config, path, v);
     }
     this._config = config;
     this._render();   // what's shown follows the settings: a cleared picker shows what Håg finds again

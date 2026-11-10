@@ -77,6 +77,7 @@ const PAIR_LEFT_MARGIN = 0.028;
 
 const APPT_COUNT = 4;                 // appointments shown (setting `appointments`)
 const APPT_REFRESH = 5 * 60 * 1000;   // refetch every 5 minutes
+const APPT_RETRY = 10 * 1000, APPT_RETRIES = 3;   // a failed fetch, tried again while Home Assistant starts
 const APPT_DAYS = 30;                 // look-ahead window (setting `days`)
 const HOUR = 60 * 60 * 1000;
 const SOON_AHEAD = 1 * HOUR;          // soon: starts within this...
@@ -480,14 +481,24 @@ class SinnesroGlance extends HTMLElement {
   }
 
   // Fetch appointments now and every few minutes; also refetch when a
-  // watched calendar changes state (an event starts or ends).
+  // watched calendar changes state (an event starts or ends). A failed
+  // fetch is tried again a few times before "Err" shows: Home Assistant
+  // may still be starting.
   async _refreshEvents() {
     clearTimeout(this._eventsTimer);
     try {
       this._events = await fetchEvents(this._hass, this._calendars, this._settings?.days ?? APPT_DAYS);
       this._apptLimit = this._count();   // new events: start from the full count
+      this._tries = 0;
     } catch (err) {
+      this._calendarStamp = this._calendarStates();
+      if ((this._tries ?? 0) < APPT_RETRIES) {
+        this._tries = (this._tries ?? 0) + 1;
+        this._eventsTimer = setTimeout(() => this._refreshEvents(), APPT_RETRY);
+        return;
+      }
       console.error('Håg: calendar fetch failed', err);
+      this._tries = 0;
       this._events = 'Err';
     }
     this._calendarStamp = this._calendarStates();

@@ -100,6 +100,9 @@
   .pic img.cover { object-fit: contain; }
   .pic svg.fallback { position: absolute; color: var(--text-2-out); opacity: .55; overflow: visible; }
   .veil { background: var(--sky); opacity: var(--dim); }
+  /* Prototype (0.6.2): the upper side as at night, by day too. */
+  body.light-out .out, body.light-out .clock { --text: var(--n-text); --text-2: var(--n-text-2); --text-2-out: var(--n-text-2); color: var(--text); }
+  body.light-out .veil { background: var(--n-sky); }
   .panel { background: var(--home); opacity: var(--panel); }
   .split { width: 100%; height: 100%; }
   .split .track { stroke: color-mix(in oklab, var(--text-2) 30%, transparent); stroke-linecap: round; }
@@ -182,7 +185,7 @@ const span = min => min >= 60 ? `${Math.floor(min / 60)} h ${min % 60 ? `${min %
 // Starts at the picks (D143–D146).
 const opt = { shape: 'square', day: true, row: false, center: 'weather', panel: 80, dim: 35, line: true,
   wipeFrom: 45, wipe: 1000, cycle: 30, morePrinting: 0, moreIdle: 1, slow: false, auto: false,
-  job: 'stacked', bottom: 88 };
+  job: 'stacked', bottom: 88, outText: 'dark' };
 
 const STATES = ['Preparing', 'Heating', 'Printing', 'Paused', 'Finished', 'Failed', 'Idle'];
 const SOURCES = [['camera', 'Camera'], ['cover', 'Cover render'], ['none', 'None (fallback)']];
@@ -235,6 +238,9 @@ group(C, 'Screen', 'shape', [['square', 'Square'], ['round', 'Round'], ['landsca
 group(C, 'Light', 'day', [[true, 'Day'], [false, 'Night']], (k, v) => {
   document.body.classList.add('animate');
   document.body.style.setProperty('--daylight', v ? 1 : 0);
+});
+group(C, 'Day text over the picture', 'outText', [['dark', 'Dark (now)'], ['light', 'Light, as at night']], (k, v) => {
+  document.body.classList.toggle('light-out', v === 'light');
 });
 group(C, 'Alert row', 'row', [[false, 'Off'], [true, 'On']]);
 group(C, 'Picture centered on', 'center', [['screen', 'The screen'], ['weather', 'The weather area']]);
