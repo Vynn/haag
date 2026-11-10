@@ -58,6 +58,10 @@ strategy:
 | `easter_eggs` | `false` turns off the easter eggs in every glance. On if left out; a glance's own `easter_eggs` can still turn them off just for it. |
 | `glances.<name>.enabled` | `true` turns a glance on. Glances take turns in the order they ask, after the default glance. |
 | `glances.<name>.<setting>` | A glance's own settings. Each glance lists its own; in the editor, each glance has a section with its switch in the header. |
+| `glances.<name>.alerts.<alert>.enabled` | `false` turns off one of a glance's alerts. On if left out. |
+| `glances.<name>.alerts.<alert>.snooze` | Seconds a tap snoozes one of a glance's alerts, for those a tap can't dismiss. The glance's own default if left out. |
+
+In the editor, a glance's alerts follow its settings in a section of their own, closed until opened. It closes when the glance is turned off.
 
 Overview (`glances.sinnesro`):
 
@@ -84,7 +88,17 @@ strategy:
       rest: 3600
       doors:
         sensor.washer_run_state: binary_sensor.washer_door
+      alerts:
+        error:
+          snooze: 1800
 ```
+
+The Appliances glance's alerts (`glances.vitvaror.alerts`):
+
+| Alert | Covers | Snooze |
+|---|---|---|
+| `ended` | A cycle ended: information. A tap dismisses it, and the machine leaves the glance. | |
+| `error` | A machine reports an error: a warning. | 900 |
 
 Workshop (`glances.verkstad`):
 
@@ -107,7 +121,7 @@ strategy:
 
 ## Alerts
 
-What each alert does is in [alerts](alerts.md). Settings are grouped by source: `core` for household alerts, `weather`, and each glance by its name.
+What each alert does is in [alerts](alerts.md). Settings are grouped by source: `core` for household alerts, and `weather`. A glance's own alerts are in its entry under `glances` (see [glances](#glances)).
 
 ```yaml
 strategy:
@@ -131,9 +145,6 @@ strategy:
         limit: 1200
     weather:
       source: nina
-    vitvaror:                         # a glance's alerts, by its name
-      error:
-        snooze: 1800
 ```
 
 | Setting | Value |
@@ -151,8 +162,6 @@ strategy:
 | `alerts.core.<alert>.snooze` | Seconds a tap snoozes the alert for. Not for `smoke`, `co` and `gas`, which can't be snoozed. Left out: its `after` or `hold`, up to 3600, or 900 for alerts that show at once (jammed locks too). |
 | `alerts.weather.enabled` | `false` turns weather alerts off. On if left out. |
 | `alerts.weather.snooze` | Seconds a tap snoozes a weather alert for. 900 if left out. Extreme weather can't be snoozed. |
-| `alerts.<glance>.<alert>.enabled` | `false` turns off one of a glance's alerts. On if left out. |
-| `alerts.<glance>.<alert>.snooze` | Seconds a tap snoozes one of a glance's alerts, for those a tap can't dismiss. The glance's own default if left out. |
 | `alerts.weather.source` | The weather alert integration to use, when more than one is installed: `nina`, `environment_canada`, `dwd_weather_warnings`, `meteoalarm`, `cap_alerts`, `nws_alerts` or `weatheralerts`. Found automatically if left out. |
 
 The household alerts (`<alert>`), with their timings and limits when left out:
@@ -169,16 +178,9 @@ The household alerts (`<alert>`), with their timings and limits when left out:
 | `co_level` | Indoor carbon monoxide readings | `hold: 900` | 30 ppm |
 | `outdoor_air` | Outdoor air quality, by its scale | `hold: 900` | |
 
-The Appliances glance's alerts (`alerts.vitvaror`):
-
-| Alert | Covers | Snooze |
-|---|---|---|
-| `ended` | A cycle ended: information. A tap dismisses it, and the machine leaves the glance. | |
-| `error` | A machine reports an error: a warning. | 900 |
-
 Times of day are in Home Assistant's time zone. Quote them: unquoted, YAML can read `21:00` as a number.
 
-In the editor, the Alerts section lists the household alerts, then weather, then the alerts of each glance that's on. Turning an alert on shows the sensors Håg found for it, all ticked: untick any that aren't really that thing, and they're saved under `exclude`. Sensors found later are watched without being ticked first. Its timings, limit, warning settings and snooze follow.
+In the editor, household and weather alerts are in Overview's section, under Alerts; they run whichever glance shows. The turn length is in General. Turning a household alert on shows the sensors Håg found for it, all ticked: untick any that aren't really that thing, and they're saved under `exclude`. Sensors found later are watched without being ticked first. Its timings, limit, warning settings and snooze follow.
 
 ## Time and numbers
 

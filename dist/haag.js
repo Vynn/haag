@@ -1480,26 +1480,25 @@ function checked(config, path, o = optionAt(path), title) {
 
 // A glance's entry with its manifest's settings checked and their
 // defaults filled in. Keys the manifest doesn't list pass through.
+// `enabled` and `alerts` are Håg's, not the glance's to declare.
+const RESERVED = ['enabled', 'alerts'];
 function glanceSettings(manifest, entry = {}) {
   const out = { ...entry };
   for (const o of Array.isArray(manifest.settings) ? manifest.settings : []) {
-    if (typeof o?.key === 'string' && o.key !== 'enabled') out[o.key] = checked(entry, `[${o.key}]`, o, manifest.title || manifest.name);
+    if (typeof o?.key === 'string' && !RESERVED.includes(o.key)) out[o.key] = checked(entry, `[${o.key}]`, o, manifest.title || manifest.name);
   }
   return out;
 }
 
 // A glance's alerts (its manifest's `alerts`) with their settings under
-// `alerts.<glance>.<alert>`, checked: { key: { enabled, snooze, dismiss } }.
-// On unless turned off; those a tap can't dismiss have a snooze. Glances
-// named for Håg's own groups get none.
-const OWN_ALERT_GROUPS = ['turn', 'core', 'weather'];
+// `glances.<glance>.alerts.<alert>`, checked: { key: { enabled, snooze, dismiss } }.
+// On unless turned off; those a tap can't dismiss have a snooze.
 function glanceAlerts(manifest, config, name) {
   const out = {};
-  if (OWN_ALERT_GROUPS.includes(name)) return out;
   const title = manifest.title || name;
   for (const a of Array.isArray(manifest.alerts) ? manifest.alerts : []) {
     if (typeof a?.key !== 'string' || !NAME.test(a.key)) continue;
-    const label = a.label ?? a.key, path = `alerts.${name}.${a.key}`;
+    const label = a.label ?? a.key, path = `glances.${name}.alerts.${a.key}`;
     out[a.key] = {
       dismiss: !!a.dismiss,
       enabled: checked(config, `${path}.enabled`, { type: 'boolean', default: true, label }, title),
@@ -1517,6 +1516,10 @@ function readSettings(config) {
   const glances = objectAt(config, 'glances');
   for (const name of Object.keys(glances)) {
     if (!NAME.test(name)) notice('warning', `Glance name not valid: "${name}"`, 'lowercase letters, digits, _ and -, starting with a letter');
+  }
+  // A glance's alert settings moved into its own entry in 0.6.1.
+  for (const name of Object.keys(objectAt(config, 'alerts')).filter(k => !['turn', 'core', 'weather'].includes(k))) {
+    notice('info', `Alert settings under alerts.${name} have moved · ignored`, `glances.${name}.alerts`);
   }
   const def = get('default');
   const on = name => get(`glances.${name}.enabled`);
@@ -3210,7 +3213,7 @@ class HaagEditor extends HTMLElement {
     }
     const [general, ...rest] = this._schema();
     const glances = this._glances();
-    const fields = [...[general, ...rest].flatMap(s => s.schema), ...glances.flatMap(g => [g.switch, ...g.fields])];
+    const fields = [...[general, ...rest].flatMap(s => s.schema), ...glances.flatMap(g => [g.switch, ...g.fields, ...g.alerts])];
     this._fields = new Map(fields.map(f => [f.name, f]));
     this._shown = this._data(fields);
     this._fill(this._top, [general]);
@@ -3237,53 +3240,75 @@ class HaagEditor extends HTMLElement {
     }
   }
 
-  // Each glance: its switch, and fields from its manifest's settings.
+  // Each glance: its switch, fields from its manifest's settings, and its
+  // alerts. Overview's are Håg's own: household and weather.
   _glances() {
     return [...registry.keys()].sort().map(n => {
       const m = registry.get(n)?.[0]?.manifest || {};
       const title = m.title || n;
-      const settings = (Array.isArray(m.settings) ? m.settings : []).filter(o => typeof o?.key === 'string' && o.key !== 'enabled' && o.gui !== false);
+      const settings = (Array.isArray(m.settings) ? m.settings : []).filter(o => typeof o?.key === 'string' && !RESERVED.includes(o.key) && o.gui !== false);
+      const own = n === DEFAULT_GLANCE;
       return {
-        name: n, title,
+        name: n, title, own,
         switch: { name: `glances.${n}.enabled`, label: title },
         fields: settings.map(o => ({ name: `glances.${n}[${o.key}]`, label: o.label ?? o.key, help: o.help,
           selector: selectorOf(o), default: o.default, ...(o.type === 'time' && TIME_FIELD) })),
+        alerts: own ? this._ownAlerts() : this._glanceAlerts(n, m),
       };
     });
   }
 
-  // A section per glance, drawn like HA's own (ha-form can't put a switch
-  // in a header): the title, the on/off switch, then its settings.
+  // An outlined section like HA's own, with its title as a heading.
+  _panel(title, level) {
+    const panel = Object.assign(document.createElement('ha-expansion-panel'), { outlined: true });
+    panel.style.cssText = '--expansion-panel-content-padding: 0; border-radius: var(--ha-border-radius-md); --ha-card-border-radius: var(--ha-border-radius-md); display: block';
+    const head = Object.assign(document.createElement('div'), { slot: 'header', textContent: title });
+    head.setAttribute('role', 'heading');
+    head.setAttribute('aria-level', String(level));
+    const content = document.createElement('div');
+    content.style.padding = '12px';
+    panel.append(head, content);
+    return { panel, content };
+  }
+
+  // A section per glance (ha-form can't put a switch in a header): the
+  // title, the on/off switch, its settings, then its alerts in a section
+  // of their own, closed until opened. Rebuilt only when the glances
+  // change, so open sections stay open as fields come and go.
   _renderGlances(glances) {
-    const key = JSON.stringify(glances.map(g => [g.name, g.title, g.fields]));
+    const key = JSON.stringify(glances.map(g => [g.name, g.title, !!g.fields.length, !!g.alerts.length]));
     if (key !== this._glanceBox.haagKey) {
       this._glanceBox.haagKey = key;
       this._glanceBox.replaceChildren(...glances.map(g => {
-        const panel = Object.assign(document.createElement('ha-expansion-panel'), { outlined: true });
+        const { panel, content } = this._panel(g.title, 3);
         panel.dataset.glance = g.name;
-        panel.style.cssText = '--expansion-panel-content-padding: 0; border-radius: var(--ha-border-radius-md); --ha-card-border-radius: var(--ha-border-radius-md); display: block';
-        const head = Object.assign(document.createElement('div'), { slot: 'header', textContent: g.title });
-        head.setAttribute('role', 'heading');
-        head.setAttribute('aria-level', '3');
         const toggle = Object.assign(document.createElement('ha-switch'), { slot: 'event' });
         toggle.setAttribute('aria-label', `${g.title} on`);
         // Its clicks and keys work the switch only, not the section.
         for (const type of ['click', 'keydown']) toggle.addEventListener(type, e => e.stopPropagation());
         toggle.addEventListener('change', () =>
           this._changed({ stopPropagation() {}, detail: { value: { ...this._shown, [g.switch.name]: toggle.checked } } }));
-        const content = document.createElement('div');
-        content.style.padding = '12px';
-        if (g.fields.length) content.append(this._newForm());
-        else content.textContent = 'No settings';
-        panel.append(head, toggle, content);
+        panel.append(toggle);
+        if (g.fields.length) panel.haagForm = content.appendChild(this._newForm());
+        if (g.alerts.length) {
+          const sub = this._panel('Alerts', 4);
+          if (g.fields.length) sub.panel.style.marginTop = '24px';
+          panel.haagAlerts = content.appendChild(sub.panel);
+          panel.haagAlertForm = sub.content.appendChild(this._newForm());
+        }
+        if (!content.childElementCount) content.textContent = 'No settings';
         return panel;
       }));
     }
     for (const panel of this._glanceBox.children) {
       const g = glances.find(x => x.name === panel.dataset.glance);
-      panel.querySelector('ha-switch').checked = !!this._shown[g.switch.name];
-      const form = panel.querySelector('ha-form');
-      if (form) this._fill(form, g.fields);
+      const on = !!this._shown[g.switch.name];
+      panel.querySelector('ha-switch').checked = on;
+      if (panel.haagForm) this._fill(panel.haagForm, g.fields);
+      if (panel.haagAlertForm) this._fill(panel.haagAlertForm, g.alerts);
+      // Turned off, its alerts close; Overview's run anyway, so they stay.
+      if (panel.haagAlerts && !g.own && panel.haagOn && !on) panel.haagAlerts.expanded = false;
+      panel.haagOn = on;
     }
   }
 
@@ -3321,11 +3346,13 @@ class HaagEditor extends HTMLElement {
 
   // Sections, each listing its options' fields. Only options shown in
   // the GUI; the rest are kept for the code editor.
+  _field(path, label) {
+    const o = optionAt(path);
+    return { name: path, label: label ?? o.label, help: o.help, selector: selectorOf(o), ...(o.type === 'time' && TIME_FIELD) };
+  }
+
   _schema() {
-    const field = (path, label) => {
-      const o = optionAt(path);
-      return { name: path, label: label ?? o.label, help: o.help, selector: selectorOf(o), ...(o.type === 'time' && TIME_FIELD) };
-    };
+    const field = (path, label) => this._field(path, label);
     const section = (title, fields, expanded = false) =>
       ({ type: 'expandable', name: title.toLowerCase(), flatten: true, title, expanded, schema: fields });
     const glances = [...registry.keys()].sort();
@@ -3336,6 +3363,7 @@ class HaagEditor extends HTMLElement {
         { name: 'default', label: 'Default glance', help: optionAt('default').help,
           selector: { select: { mode: 'dropdown', options: glances.map(n => ({ value: n, label: titleOf(n) })) } } },
         field('cycle'),
+        field('alerts.turn', 'Alert turn'),
         field('theme'),
         field('easter_eggs'),
       ], true),
@@ -3349,14 +3377,14 @@ class HaagEditor extends HTMLElement {
         field(`providers.floors.${f.floor_id}.monitors`, `${f.name} air-quality monitors`),
         field(`providers.floors.${f.floor_id}.climate`, `${f.name} thermostat`),
       ])),
-      section('Alerts', [field('alerts.turn'), ...this._alerts(field)]),
     ];
   }
 
-  // Under Household, each alert's switch; one that's on is followed by
-  // its sensors (all ticked; unticked ones are left out), timings, limit
-  // and escalation. Then Weather, then each glance's.
-  _alerts(field) {
+  // Håg's own alerts, in Overview's section. Under Household, each alert's
+  // switch; one that's on is followed by its sensors (all ticked; unticked
+  // ones are left out), timings, limit and escalation. Then Weather.
+  _ownAlerts() {
+    const field = (path, label) => this._field(path, label);
     const on = path => valueAt(this._config, path);
     const fields = [{ type: 'constant', name: 'household', label: 'Household' }];
     for (const [key, a] of Object.entries(CORE_ALERTS)) {
@@ -3393,23 +3421,21 @@ class HaagEditor extends HTMLElement {
     if (on('alerts.weather.enabled') !== false) {
       fields.push(field('alerts.weather.source', 'Source'), { ...field('alerts.weather.snooze', 'Snooze'), help: 'How long a tap snoozes one' });
     }
-    // Then each glance that's on and raises alerts: each alert's switch,
-    // and its snooze when it's on and a tap can't dismiss it.
-    const def = this._config.default ?? DEFAULT_GLANCE;
-    for (const name of [...registry.keys()].sort()) {
-      const m = registry.get(name)?.[0]?.manifest || {};
-      const alerts = Object.entries(glanceAlerts(m, {}, name));
-      if (!alerts.length || !(name === def ? on(`glances.${name}.enabled`) !== false : on(`glances.${name}.enabled`) === true)) continue;
-      fields.push({ type: 'constant', name: `glance ${name}`, label: m.title || name });
-      for (const [key, a] of alerts) {
-        const base = `alerts.${name}.${key}`, label = m.alerts.find(x => x.key === key).label ?? key;
-        fields.push({ name: `${base}.enabled`, label, selector: selectorOf({ type: 'boolean' }), default: true });
-        if (!a.dismiss && on(`${base}.enabled`) !== false) {
-          fields.push({ name: `${base}.snooze`, label: 'Snooze', help: 'How long a tap snoozes it', selector: selectorOf({ type: 'seconds' }), default: a.snooze });
-        }
-      }
-    }
     return fields;
+  }
+
+  // A glance's alerts: each one's switch, and its snooze when it's on and
+  // a tap can't dismiss it.
+  _glanceAlerts(name, m) {
+    return Object.entries(glanceAlerts(m, {}, name)).flatMap(([key, a]) => {
+      const base = `glances.${name}.alerts.${key}`, label = m.alerts.find(x => x.key === key).label ?? key;
+      const on = valueAt(this._config, `${base}.enabled`) !== false;
+      return [
+        { name: `${base}.enabled`, label, selector: selectorOf({ type: 'boolean' }), default: true },
+        ...(!a.dismiss && on ? [{ name: `${base}.snooze`, label: 'Snooze', help: 'How long a tap snoozes it',
+          selector: selectorOf({ type: 'seconds' }), default: a.snooze }] : []),
+      ];
+    });
   }
 
   // People and calendars under the current settings, read quietly (the
@@ -3471,7 +3497,7 @@ class HaagEditor extends HTMLElement {
     const data = {};
     for (const { name, type, toForm, default: fallback } of fields) {
       if (type === 'constant') continue;
-      const glance = /^glances\.(.+)\.enabled$/.exec(name)?.[1];
+      const glance = /^glances\.([^.]+)\.enabled$/.exec(name)?.[1];
       const v = valueAt(config, name);
       const unset = v == null || (Array.isArray(v) && !v.length);
       const shown = glance ? (glance === def ? v !== false : v === true)

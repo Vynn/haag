@@ -66,7 +66,7 @@ haag.alerts.clear();
 - **A glance's alerts are cleared** when it stops or fails to load. What was dismissed stays dismissed.
 - **Dismissing:** a dismissed alert stays hidden until the glance deletes it, even if the glance sets it again. Once the undo has passed, the glance gets a `haag-dismissed` event, with the key as `detail.key`, so it can end that state (a load that's been emptied, for example).
 - **Holding the row and showing alone** are for Håg's own alerts only. A glance's alerts always take turns.
-- **Settings:** a glance lists its alerts in its manifest, and each can then be turned off or given a snooze under `alerts.<glance>.<alert>` (see [glances](glances.md#alerts)). A key's part before any `:` names its alert: `error:dryer` is the `error` alert.
+- **Settings:** a glance lists its alerts in its manifest, and each can then be turned off or given a snooze under `glances.<glance>.alerts.<alert>` (see [glances](glances.md#alerts)). A key's part before any `:` names its alert: `error:dryer` is the `error` alert.
 
 ## Household alerts
 
@@ -175,7 +175,7 @@ A machine is named by its kind, or by its device name when there are two of a ki
 
 ## Settings
 
-A glance's alerts can be turned off or given a snooze, under `alerts.<glance>`. Which alerts are on, sensors to leave out, timings, limits and escalation, the turn length and the weather source are all settings, in the editor's Alerts section or as YAML. See [configuration](configuration.md#alerts).
+Which household alerts are on, sensors to leave out, timings, limits and escalation, the turn length and the weather source are all settings, under `alerts`. A glance's alerts can be turned off or given a snooze, in its entry under `glances.<glance>.alerts`. In the editor, household and weather alerts are in Overview's section and each glance's in its own, each under Alerts; the turn length is in General. See [configuration](configuration.md#alerts).
 
 ## Known issues
 

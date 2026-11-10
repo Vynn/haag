@@ -143,7 +143,7 @@ settings: [
 
 | Field | Value |
 |---|---|
-| `key` | The setting's name in the entry. Not `enabled`, which is Håg's. |
+| `key` | The setting's name in the entry. Not `enabled` or `alerts`, which are Håg's. |
 | `type` | `text`, `number`, `seconds`, `time` (`"22:00"`), `choice`, `boolean`, `entity`, `entities` or `links` (entity → entity). |
 | `default` | The value when it's left out, or can't be used. |
 | `label`, `help` | What the editor shows. |
@@ -154,7 +154,7 @@ settings: [
 
 #### Alerts
 
-`alerts` lists the alerts the glance raises, so each can be turned off or given a snooze in settings, under `alerts.<name>.<alert>`. The editor shows them in its Alerts section, under the glance's title, while the glance is on.
+`alerts` lists the alerts the glance raises, so each can be turned off or given a snooze in settings, in the glance's entry under `alerts`: `glances.<name>.alerts.<alert>`. The editor shows them in the glance's section, in an Alerts section of their own after its settings. It starts closed, and closes when the glance is turned off.
 
 ```js
 alerts: [

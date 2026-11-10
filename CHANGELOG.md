@@ -6,6 +6,10 @@ All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a mi
 
 In progress: the Workshop glance.
 
+### Breaking
+
+- A glance's alert settings move from `alerts.<glance>` into the glance's own entry, `glances.<glance>.alerts`. Settings left at the old place are ignored, with a notice. `alerts.turn`, `alerts.core` and `alerts.weather` stay where they are. See [configuration](docs/configuration.md#glances).
+
 ### Added
 
 - The Workshop glance (`verkstad`), off until turned on: 3D printers while they print, and for a while after a print ends or fails, until the printer's door opens. One printer at a time, up to three taking turns, failed first, then finished, then the closest to finishing, with a count of the rest. Each shows its camera (snapshots, or live at a frame a second), else the print's cover picture; its state; the print's name, layer, time left and end; nozzle, bed and chamber temperatures and fans; and progress along the split in the loaded filament's color. Bambu Lab printers for now. Settings `rest` and `camera`. See [configuration](docs/configuration.md#glances).
@@ -13,6 +17,7 @@ In progress: the Workshop glance.
 ### Changed
 
 - A glance's name is just its name, and "glance" is lowercase: Overview Glance is now Overview, Appliance Glance is Appliances. Messages that name a glance say so: "the Overview glance".
+- The editor's Alerts section is gone. Each glance's alerts follow its settings, in a section of their own that starts closed and closes when the glance is turned off. Household and weather alerts are in Overview's section, and the alert turn length in General.
 
 ## 0.6.0 · unreleased
 
