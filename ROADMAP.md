@@ -66,13 +66,13 @@ The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 - [x] Layout helpers for glance authors
 - [x] Installs through the Home Assistant Marketplace, with the first build after the Marketplace's stable release (0.5.1)
 
-## 0.6 · Glance instances
+## 0.6 · Glance instances · released
 
 - [x] A glance can show up to three instances (a printer each, say), sharing its turn
 - [x] A clock wipe between instances, made to be reused
 - [x] Taps step through instances without restarting the turn
 
-## 0.6.1 · 3D printer glance
+## 0.6.1 · 3D printer glance · released
 
 - [x] Bambu Lab printers
 - [x] Shows while a print is running, and for a while after it finishes or fails

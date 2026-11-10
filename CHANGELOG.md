@@ -2,9 +2,9 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
-## 0.6.1 · unreleased
+## 0.6.1 · 2026-11-09
 
-In progress: the Workshop glance.
+The Workshop glance: 3D printers while they print, up to three taking turns. A glance's alert settings move into its own entry. With 0.6.0's glance instances. A pre-release. See [configuration](docs/configuration.md#glances).
 
 ### Breaking
 
@@ -19,9 +19,13 @@ In progress: the Workshop glance.
 - A glance's name is just its name, and "glance" is lowercase: Overview Glance is now Overview, Appliance Glance is Appliances. Messages that name a glance say so: "the Overview glance".
 - The editor's Alerts section is gone. Each glance's alerts follow its settings, in a section of their own that starts closed and closes when the glance is turned off. Household and weather alerts are in Overview's section, and the alert turn length in General.
 
-## 0.6.0 · unreleased
+### Known issues
 
-In progress: glance instances, for the Workshop glance in 0.6.1.
+- By day, text over a dark camera picture can be hard to read.
+
+## 0.6.0 · 2026-11-09
+
+Glance instances, for the Workshop glance. Not released on its own: it's part of 0.6.1.
 
 ### Added
 
