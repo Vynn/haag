@@ -87,12 +87,12 @@ The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 
 ## 0.6.2 · 3D printer alerts and fixes
 
-- [ ] Alerts for a finished print and a failed print, with settings; a tap dismisses either, and the printer leaves
-- [ ] Light text over the printer's picture by day, as at night
-- [ ] The Appliances glance's clock clear of the dividers, like the other glances' clocks and the split
-- [ ] After Home Assistant restarts, a machine or printer that already finished isn't shown as just ended
-- [ ] Overview's first calendar fetch retried while Home Assistant starts
-- [ ] The editor: a reset for each color, and calendar linking for each person
+- [x] Alerts for a finished print and a failed print, with settings; a tap dismisses either, and the printer leaves
+- [x] Light text over the printer's picture by day, as at night
+- [x] The Appliances glance's clock clear of the dividers, like the other glances' clocks and the split
+- [x] After Home Assistant restarts, a machine or printer that already finished isn't shown as just ended
+- [x] Overview's calendar fetch retried when it fails, as while Home Assistant starts
+- [x] The editor: a reset for each color, and calendar linking for each person
 
 ## 0.6.3 · More 3D printers
 
