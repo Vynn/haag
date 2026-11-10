@@ -56,7 +56,7 @@ The Workshop glance reads printers from these Home Assistant integrations. More 
 
 | Source | Integration | Printers | Tested |
 |---|---|---|---|
-| Bambu Lab | Custom | One- and two-nozzle printers | Not yet |
+| Bambu Lab | Custom | One- and two-nozzle printers | Partially verified |
 
 ## Requirements
 
