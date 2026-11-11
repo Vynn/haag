@@ -2,7 +2,8 @@
   Workshop glance: 3D printers while they print, and for a while after a
   print ends. Its own element coordinates: it finds the printers, puts them
   in order and lists up to three as instances, each drawing one printer
-  (docs/glances.md#instances). Bambu Lab for now.
+  (docs/glances.md#instances). Reads Bambu Lab, OctoPrint, PrusaLink,
+  Dremel and Moonraker printers.
   License: GPL-3.0
 */
 
@@ -15,7 +16,33 @@ const LIVE = 1;             // seconds between live frames (Home Assistant's flo
 const PAIR_LEFT_MARGIN = 0.028;   // as Overview's: the clock's least room on the left
 const READOUTS = .88;       // the readouts' bottom, as a share of the short side from the top
 const ACTIVE = ['preparing', 'heating', 'printing', 'paused'];
-const WORDS = { preparing: 'Preparing', heating: 'Heating', printing: 'Printing', paused: 'Paused', finished: 'Finished', failed: 'Failed' };
+const ENDED = ['finished', 'failed', 'cancelled'];
+const WORDS = { preparing: 'Preparing', heating: 'Heating', printing: 'Printing', paused: 'Paused',
+  finished: 'Finished', failed: 'Failed', cancelled: 'Cancelled' };
+
+// A printer's entities, read by the keys its integration gives them.
+function sensors(hass, p) {
+  const st = key => hass.states[p.entities[key]];
+  const num = key => { const s = st(key), v = Number(s?.state); return s && s.state !== '' && Number.isFinite(v) ? v : null; };
+  const text = key => { const v = st(key)?.state; return v && v !== 'unavailable' && v !== 'unknown' ? v : ''; };
+  const temp = (now, target) => num(now) == null ? null : { now: num(now), target: num(target) };
+  return { hass, p, st, num, text, temp };
+}
+
+// When the print ends: from the time left, in its own unit (hours if
+// unlabeled), else from an end time.
+function ending(r, now, left, end) {
+  const v = left ? r.num(left) : null, unit = left && r.st(left)?.attributes?.unit_of_measurement;
+  const ms = v == null ? null : v * ({ s: 1000, min: MINUTE, h: 60 * MINUTE, d: 1440 * MINUTE }[unit] ?? 60 * MINUTE);
+  const t = end ? Date.parse(r.st(end)?.state) : NaN;
+  return ms != null && ms > 0 ? now + ms : Number.isFinite(t) && t > now ? t : null;
+}
+
+// A file's name without its folder or G-code extension.
+const fileName = s => s.replace(/^.*\//, '').replace(/\.(b?gcode|gco|g)$/i, '');
+
+// Numbered nozzles when there's more than one; the printers here don't say which is active.
+const numbered = list => list.map((n, i) => ({ label: list.length > 1 ? `Nozzle ${i + 1}` : 'Nozzle', ...n, active: true }));
 
 /*
   Bambu Lab (greghesp/ha-bambulab): a printer is a device with a print
@@ -25,34 +52,16 @@ const WORDS = { preparing: 'Preparing', heating: 'Heating', printing: 'Printing'
 */
 const HEATING = new Set(['heatbed_preheating', 'heating_hotend', 'heating_chamber', 'waiting_for_heatbed_temperature',
   'heatbed_stabilizing', 'thermal_preconditioning', 'waiting_chamber_temperature_equalize']);
-const DOMAINS = ['sensor', 'binary_sensor', 'camera', 'image'];
 
 // One word for a print status and stage. Before the first layer, a running
 // printer is heating or preparing; paused stages are paused.
-function stateOf(status, stage, layer) {
+function bambuState(status, stage, layer) {
   if (status === 'running') {
     if (String(stage).startsWith('paused')) return 'paused';
     if (stage === 'printing' || layer > 0) return 'printing';
     return HEATING.has(stage) ? 'heating' : 'preparing';
   }
   return { prepare: 'preparing', slicing: 'preparing', init: 'preparing', pause: 'paused', finish: 'finished', failed: 'failed', idle: 'idle' }[status] ?? 'offline';
-}
-
-function findPrinters(hass, entities, devices) {
-  const groups = new Map();
-  for (const e of entities) {
-    if (e.platform !== 'bambu_lab' || !e.device_id || e.disabled_by || !e.translation_key) continue;
-    if (!DOMAINS.includes(e.entity_id.split('.')[0])) continue;
-    const g = groups.get(e.device_id) ?? {};
-    groups.set(e.device_id, g);
-    g[e.translation_key] ??= e.entity_id;
-  }
-  const byId = new Map(devices.map(d => [d.id, d]));
-  return [...groups].filter(([, g]) => g.print_status).map(([id, g]) => {
-    const d = byId.get(id);
-    const spools = devices.filter(s => s.via_device_id === id).map(s => groups.get(s.id)?.external_spool).filter(Boolean);
-    return { id, name: d?.name_by_user || d?.name || '', entities: g, spools };
-  });
 }
 
 // A color from Bambu Lab's #RRGGBBAA, or null when it's unknown (transparent).
@@ -68,32 +77,159 @@ function filament(hass, p) {
   return cols.length > 1 ? cols : hex(a?.color) ? [hex(a.color)] : [];
 }
 
-function readPrinter(hass, p, now) {
-  const st = key => hass.states[p.entities[key]];
-  const num = key => { const v = Number(st(key)?.state); return st(key) && st(key).state !== '' && Number.isFinite(v) ? v : null; };
-  const status = st('print_status')?.state, layer = num('current_layer');
-  const state = stateOf(status, st('stage')?.state, layer);
-  // Time left: Bambu Lab gives hours; other units as they're labeled.
-  const left = num('remaining_time'), unit = st('remaining_time')?.attributes?.unit_of_measurement;
-  const ms = left == null ? null : left * ({ s: 1000, min: MINUTE, h: 60 * MINUTE, d: 1440 * MINUTE }[unit] ?? 60 * MINUTE);
-  const end = Date.parse(st('end_time')?.state);
-  const ends = ms != null && ms > 0 ? now + ms : Number.isFinite(end) && end > now ? end : null;
-  const temp = (now, target) => num(now) == null ? null : { now: num(now), target: num(target) };
-  const nozzles = p.entities.left_nozzle_temp
+function readBambu(r, now) {
+  const { st, num, temp } = r, layer = num('current_layer');
+  const nozzles = r.p.entities.left_nozzle_temp
     ? [['Left', 'left'], ['Right', 'right']].map(([label, side]) => ({ label, ...temp(`${side}_nozzle_temp`, `${side}_target_nozzle_temp`),
       active: st('active_nozzle')?.state === side }))
     : [{ label: 'Nozzle', ...temp('nozzle_temp', 'target_nozzle_temp'), active: true }];
   return {
-    state, changed: Date.parse(st('print_status')?.last_changed) || now,
+    state: bambuState(st('print_status')?.state, st('stage')?.state, layer),
     progress: num('print_progress'), layer, layers: num('total_layers'),
-    ends: ends == null ? null : Math.round(ends / MINUTE) * MINUTE,
+    ends: ending(r, now, 'remaining_time', 'end_time'),
     job: st('subtask_name')?.state || st('gcode_file')?.state || '',
-    nozzles: nozzles.filter(n => n.now != null),
-    bed: temp('bed_temp', 'target_bed_temp'), chamber: temp('chamber_temp', 'target_chamber_temp'),
+    nozzles, bed: temp('bed_temp', 'target_bed_temp'), chamber: temp('chamber_temp', 'target_chamber_temp'),
     fans: [['cooling_fan_speed', 'Part'], ['aux_fan_speed', 'Aux'], ['chamber_fan_speed', 'Chamber']]
       .filter(([key]) => num(key) != null).map(([key, label]) => ({ label, on: num(key) > 0 })),
-    colors: filament(hass, p),
+    colors: filament(r.hass, r.p),
     door: st('door_open'),
+  };
+}
+
+/*
+  OctoPrint (core): one device per server. Unique IDs are "<name>-<server
+  ID>", the camera's the server ID alone. It has no finished state: the
+  printer goes back to operational, and the job keeps its percentage.
+*/
+const OCTOPRINT = { printing: 'printing', printing_sd: 'printing', resuming: 'printing', finishing: 'printing',
+  starting: 'preparing', starting_sd: 'preparing', pausing: 'paused', paused: 'paused', cancelling: 'cancelled',
+  error: 'failed', offline_after_error: 'failed', operational: 'idle', transferring_file: 'idle',
+  starting_streaming: 'idle', printing_streaming: 'idle' };   // streaming: a file going to the SD card
+
+function readOctoPrint(r, now, last) {
+  const status = r.text('Current State'), progress = r.num('Job Percentage');
+  let state = OCTOPRINT[status] ?? 'offline';
+  // Back to operational: finished at 100%; short of it, straight after a
+  // print, cancelled (until the next one).
+  if (status === 'operational') {
+    if (progress >= 99.5) state = 'finished';
+    else if (ACTIVE.includes(last) || last === 'cancelled') state = 'cancelled';
+  }
+  const tools = Object.keys(r.p.entities).map(k => k.match(/^actual tool(\d+) temp$/)?.[1]).filter(Boolean).sort((a, b) => a - b);
+  return {
+    state, progress,
+    ends: ending(r, now, null, 'Estimated Finish Time'),
+    job: fileName(r.text('Current File')),
+    nozzles: numbered(tools.map(t => r.temp(`actual tool${t} temp`, `target tool${t} temp`))),
+    bed: r.temp('actual bed temp', 'target bed temp'),
+  };
+}
+
+/*
+  PrusaLink (core): entities by translation key. Temperatures and fans
+  (in rpm) are off by default in Home Assistant. Its camera is the file's
+  thumbnail.
+*/
+const PRUSALINK = { printing: 'printing', paused: 'paused', attention: 'paused', finished: 'finished', stopped: 'cancelled',
+  error: 'failed', idle: 'idle', ready: 'idle', busy: 'idle' };
+
+const readPrusaLink = (r, now) => ({
+  state: PRUSALINK[r.text('printer_state')] ?? 'offline',
+  progress: r.num('progress'),
+  ends: ending(r, now, null, 'print_finish'),
+  job: fileName(r.text('filename')),
+  nozzles: numbered([r.temp('nozzle_temperature', 'nozzle_target_temperature')]),
+  bed: r.temp('heatbed_temperature', 'heatbed_target_temperature'),
+  fans: r.num('fan_print') == null ? [] : [{ label: 'Part', on: r.num('fan_print') > 0 }],
+});
+
+/*
+  Dremel 3D Printer (core): sensors by translation key; the door has none,
+  so it's found by its unique ID's end. Progress, temperatures and the job's
+  name are off by default in Home Assistant.
+*/
+const DREMEL = { preparing: 'preparing', building: 'printing', resuming: 'printing', pausing: 'paused', paused: 'paused',
+  completed: 'finished', abort: 'cancelled', idle: 'idle' };
+
+const readDremel = (r, now) => ({
+  state: DREMEL[r.text('job_phase')] ?? 'offline',
+  progress: r.num('progress'),
+  ends: ending(r, now, null, 'completion_time'),
+  job: r.text('job_name'),
+  nozzles: numbered([r.temp('extruder', 'target_extruder_temperature')]),
+  bed: r.temp('platform_temperature', 'target_platform_temperature'),
+  chamber: r.temp('chamber'),
+  door: r.st('door'),
+});
+
+/*
+  Moonraker (custom, for Klipper): no translation keys; unique IDs are
+  "<entry>_<key>", and webcams are named by the user. Targets are number
+  entities. Progress and layers read 0 except while printing.
+*/
+const MOONRAKER = { printing: 'printing', paused: 'paused', complete: 'finished', cancelled: 'cancelled', error: 'failed', standby: 'idle' };
+
+function readMoonraker(r, now) {
+  const tools = Object.keys(r.p.entities).filter(k => /^extruder\d*_temp$/.test(k)).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+  const fan = r.num('fan_speed');
+  return {
+    state: MOONRAKER[r.text('print_state')] ?? 'offline',
+    progress: r.num('progress'), layer: r.num('current_layer'), layers: r.num('total_layer'),
+    ends: ending(r, now, 'print_time_left', 'print_eta'),
+    job: fileName(r.text('filename')),
+    nozzles: numbered(tools.map(t => r.temp(t, t.replace(/_temp$/, '_target')))),
+    bed: r.temp('heater_bed_temp', 'heater_bed_target'),
+    fans: fan == null ? [] : [{ label: 'Part', on: fan > 0 }],
+  };
+}
+
+// Each integration: the domains read, each entity's key, the entity a
+// printer must have, its pictures (a camera, a cover), and its reader.
+const afterEntry = e => e.unique_id?.startsWith(`${e.config_entry_id}_`) ? e.unique_id.slice(e.config_entry_id.length + 1) : null;
+const isCamera = e => e.entity_id.startsWith('camera.');
+const BRANDS = {
+  bambu_lab: { domains: ['sensor', 'binary_sensor', 'camera', 'image'], key: e => e.translation_key,
+    state: 'print_status', camera: 'camera', cover: 'cover_image', read: readBambu },
+  octoprint: { domains: ['sensor', 'camera'], key: e => isCamera(e) ? 'camera' : e.unique_id?.split('-')[0],
+    state: 'Current State', camera: 'camera', read: readOctoPrint },
+  prusalink: { domains: ['sensor', 'camera'], key: e => e.translation_key,
+    state: 'printer_state', cover: 'job_preview', read: readPrusaLink },
+  dremel_3d_printer: { domains: ['sensor', 'binary_sensor', 'camera'],
+    key: e => e.translation_key ?? (isCamera(e) ? 'camera' : e.unique_id?.endsWith('_door') ? 'door' : null),
+    state: 'job_phase', camera: 'camera', read: readDremel },
+  moonraker: { domains: ['sensor', 'camera', 'number'], key: e => isCamera(e) ? (afterEntry(e) === 'thumbnail' ? 'thumbnail' : 'webcam') : afterEntry(e),
+    state: 'print_state', camera: 'webcam', cover: 'thumbnail', read: readMoonraker },
+};
+
+function findPrinters(hass, entities, devices) {
+  const groups = new Map();
+  for (const e of entities) {
+    const brand = BRANDS[e.platform];
+    if (!brand || !e.device_id || e.disabled_by || !brand.domains.includes(e.entity_id.split('.')[0])) continue;
+    const key = brand.key(e), g = groups.get(e.device_id) ?? { brand: e.platform, entities: {} };
+    if (!key || g.brand !== e.platform) continue;
+    groups.set(e.device_id, g);
+    g.entities[key] ??= e.entity_id;
+  }
+  const byId = new Map(devices.map(d => [d.id, d]));
+  return [...groups].filter(([, g]) => g.entities[BRANDS[g.brand].state]).map(([id, g]) => {
+    const d = byId.get(id), b = BRANDS[g.brand];
+    const spools = devices.filter(s => s.via_device_id === id).map(s => groups.get(s.id)?.entities.external_spool).filter(Boolean);
+    return { id, brand: g.brand, name: d?.name_by_user || d?.name || '', entities: g.entities, spools,
+      camera: g.entities[b.camera] ?? null, cover: g.entities[b.cover] ?? null };
+  });
+}
+
+// A printer's reading, the same for every integration; what it doesn't
+// report is left empty. `last` is the state last seen, for OctoPrint.
+function readPrinter(hass, p, now, last) {
+  const b = BRANDS[p.brand], r = sensors(hass, p), v = b.read(r, now, last);
+  return {
+    progress: null, layer: null, layers: null, job: '', bed: null, chamber: null, fans: [], colors: [], door: null,
+    ...v,
+    changed: Date.parse(r.st(b.state)?.last_changed) || now,
+    ends: v.ends == null ? null : Math.round(v.ends / MINUTE) * MINUTE,
+    nozzles: (v.nozzles ?? []).filter(n => n.now != null),
   };
 }
 
@@ -111,7 +247,7 @@ function track(rec, r, now) {
       for (const k in rec) delete rec[k];
       rec.since = at;
     }
-  } else if (r.state === 'finished' || r.state === 'failed') {
+  } else if (ENDED.includes(r.state)) {
     if (!rec.since) rec.cleared = true;
     rec.ended ??= at;
     rec.since ??= at;
@@ -177,15 +313,15 @@ class WorkshopGlance extends HTMLElement {
 
   // Printers printing, paused or getting ready; after a print ends, a rest
   // of `rest` seconds, cut short by the door opening or the alert being
-  // dismissed. Failed first, then finished, then the closest to
-  // finishing; three take turns, the rest are counted.
+  // dismissed. Failed first, then finished or cancelled, then the closest
+  // to finishing; three take turns, the rest are counted.
   _update() {
     if (!this._printers || !this._hass || !this._haag) return;
     const now = Date.now(), rest = (this._settings?.rest ?? REST) * 1000;
     const before = JSON.stringify(this._runs), shown = [];
     let idle = 0;
     for (const p of this._printers) {
-      const r = readPrinter(this._hass, p, now), rec = this._runs[p.id] ??= {};
+      const rec = this._runs[p.id] ??= {}, r = readPrinter(this._hass, p, now, rec.last);
       track(rec, r, now);
       if (rec.ended && !rec.cleared && r.door?.state === 'on' && Date.parse(r.door.last_changed) > rec.ended) rec.cleared = true;
       const showing = ACTIVE.includes(r.state) || (rec.ended && !rec.cleared && now < rec.ended + rest);
@@ -195,7 +331,7 @@ class WorkshopGlance extends HTMLElement {
     for (const id in this._runs) if (!this._printers.some(p => p.id === id)) delete this._runs[id];
     if (JSON.stringify(this._runs) !== before) this._save();
 
-    const rank = ({ r }) => ({ failed: 0, finished: 1 }[r.state] ?? 2);
+    const rank = ({ r }) => ({ failed: 0, finished: 1, cancelled: 1 }[r.state] ?? 2);
     shown.sort((a, b) => rank(a) - rank(b) || (rank(a) < 2 ? b.rec.ended - a.rec.ended
       : (a.r.ends ?? Infinity) - (b.r.ends ?? Infinity) || a.rec.since - b.rec.since));
     const more = Math.max(0, shown.length - SHOWN);
@@ -203,7 +339,7 @@ class WorkshopGlance extends HTMLElement {
     this._haag.instances.set(shown.slice(0, SHOWN).map(({ p, r, rec }) => {
       const { changed, door, ...view } = r;
       return { id: p.id, data: { ...view, printer: p.name, ended: ACTIVE.includes(r.state) ? null : rec.ended,
-        camera: p.entities.camera ?? null, cover: p.entities.cover_image ?? null, summary } };
+        camera: p.camera, cover: p.cover, summary } };
     }));
     if (!!shown.length !== this._wants) {
       this._wants = !!shown.length;
@@ -433,14 +569,14 @@ class WorkshopPrinter extends HTMLElement {
   _render() {
     const d = this._haag?.instance?.data;
     if (!d || !this._hass) return;
-    const now = Date.now(), done = d.state === 'finished' || d.state === 'failed';
+    const now = Date.now(), done = ENDED.includes(d.state);
     const dot = { preparing: 'warm', heating: 'warm', printing: 'go', paused: '', finished: 'go', failed: 'warn' }[d.state] ?? '';
     const html = {
       printer: `<div class="t2 name">${esc(d.printer)}</div>`,
       state: `<div class="t2${d.state === 'failed' ? ' warn' : ''}"><span class="dot ${dot}"></span>${WORDS[d.state] ?? ''}</div>`,
       summary: d.summary ? `<div class="t3">${esc(d.summary)}</div>` : '',
       job: `<div class="t2 name">${esc(d.job || 'Print')}</div>${d.layers ? `<div class="t3">${d.layer > 0 ? `Layer ${d.layer} of ${d.layers}` : `${d.layers} layers`}</div>` : ''}`,
-      time: done ? `<div class="t2">${d.state === 'failed' ? 'Stopped' : 'Ended'} ${d.ended ? formatTime(this._hass, d.ended, now) : ''}</div>`
+      time: done ? `<div class="t2">${d.state === 'finished' ? 'Ended' : 'Stopped'} ${d.ended ? formatTime(this._hass, d.ended, now) : ''}</div>`
         : d.ends ? `<div class="t2">${span(d.ends - now)} left</div><div class="t3">Ends ${formatTime(this._hass, d.ends, now)}</div>` : '',
     };
     // Temperatures, with the target while warming up; then the fans.
@@ -477,8 +613,8 @@ class WorkshopPrinter extends HTMLElement {
     if (changed || !this._laidOut) this._layout();
   }
 
-  // Its alert while its print is over; a tap dismisses it, and the printer
-  // leaves. Keyed by the print's end, so an earlier dismissal can't hide it.
+  // Its alert while its print is over (none for a cancelled one); a tap
+  // dismisses it, and the printer leaves. Keyed by the print's end, so an earlier dismissal can't hide it.
   _alert(d) {
     const alerts = this._haag?.alerts;
     if (!alerts) return;
@@ -493,7 +629,8 @@ class WorkshopPrinter extends HTMLElement {
   // ----- The picture -----
 
   // The camera while on screen (snapshots, or live), else the print's
-  // cover image, else a drawn printer.
+  // cover image or thumbnail (fetched again when the job changes), else a
+  // drawn printer.
   _picture() {
     const d = this._haag?.instance?.data, hass = this._hass;
     if (!d || !hass) return;
@@ -507,7 +644,7 @@ class WorkshopPrinter extends HTMLElement {
     if (kind === 'camera' && on) {
       src = live ? url(`${cam.attributes.entity_picture.replace('/camera_proxy/', '/camera_proxy_stream/')}&interval=${LIVE}`)
         : url(`${cam.attributes.entity_picture}&t=${Math.floor(Date.now() / SNAPSHOT)}`);
-    } else if (kind === 'cover') src = url(`${cover.attributes.entity_picture}&t=${encodeURIComponent(cover.state)}`);
+    } else if (kind === 'cover') src = url(`${cover.attributes.entity_picture}&t=${encodeURIComponent(`${cover.state} ${d.job}`)}`);
     // A snapshot keeps the last one until the next has loaded.
     if (kind !== this._kind || src !== this._src) {
       this._kind = kind;

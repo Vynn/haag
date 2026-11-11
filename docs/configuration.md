@@ -104,7 +104,7 @@ Workshop (`glances.verkstad`):
 
 | Setting | Value |
 |---|---|
-| `rest` | Seconds a printer stays on the glance after its print ends or fails, unless its door opens or its alert is dismissed first. 7200 (2 hours) if left out. |
+| `rest` | Seconds a printer stays on the glance after its print ends, fails or is cancelled, unless its door opens or its alert is dismissed first. 7200 (2 hours) if left out. |
 | `camera` | `snapshots`: a picture from the printer's camera every 10 seconds. `live`: a frame a second. Either way only while the printer is on screen. `snapshots` if left out. |
 
 The Workshop glance's alerts (`glances.verkstad.alerts`):

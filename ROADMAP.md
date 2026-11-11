@@ -96,7 +96,8 @@ The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 
 ## 0.6.3 · More 3D printers
 
-- [ ] OctoPrint, PrusaLink, Moonraker (Klipper), Dremel and Repetier
+- [ ] OctoPrint, PrusaLink, Moonraker (Klipper) and Dremel
+- [ ] A cancelled print shows as Cancelled, without an alert (Bambu Lab reports a cancel as a failure)
 
 ## 0.6.4 · 3D printer errors
 
@@ -152,4 +153,5 @@ The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 
 - **Now playing** (after 1.0): what's playing in which room, with artwork.
 - **Robot vacuum** (after 1.0): cleaning now and where, the map, stuck or in error, the dock needing attention.
+- **Repetier-Server printers**: its integration is set up in YAML and registers no devices, so its printers can't be told apart on their own. Possible with a setting naming each printer's entities.
 - **Settings import and export** (revisit at 1.0): worth it if it lets glances be bundled with their settings. Home Assistant's code editor already copies settings out and in.

@@ -182,7 +182,7 @@ The Workshop glance raises one alert per printer, once its print is over:
 | `finished` | Information | "Bench finished" | Dismisses it, and the printer leaves the glance |
 | `failed` | Warning | "Bench failed" | Dismisses it, and the printer leaves the glance |
 
-A printer is named by its device name. Either alert also goes when the printer's door opens, or when its rest runs out (`rest`, 2 hours if left out). Tapped, it shows that printer.
+A printer is named by its device name. Either alert also goes when the printer's door opens, or when its rest runs out (`rest`, 2 hours if left out). Tapped, it shows that printer. A cancelled print raises no alert: the printer shows Cancelled for its rest. Bambu Lab reports a cancel as a failure, so it raises the `failed` alert.
 
 ## Settings
 

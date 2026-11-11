@@ -2,6 +2,19 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
+## 0.6.3 · unreleased
+
+In progress: more 3D printers.
+
+### Added
+
+- The Workshop glance reads OctoPrint, PrusaLink and Dremel 3D Printer (core) and Moonraker (custom, for Klipper) printers, as well as Bambu Lab: each one's state, progress, end, print name and temperatures, and its camera or the print's thumbnail. Layers and the part fan where the printer reports them. Readings an integration has off by default show once they're turned on in Home Assistant. Not tested on these printers yet. See [3D printers](README.md#3d-printers).
+- A cancelled print shows as Cancelled, with no alert, and the printer leaves after its rest or when its door opens. OctoPrint has no state for it: a print that goes back to idle short of 100% is taken as cancelled. Bambu Lab reports a cancel as a failure, so there it still shows as Failed.
+
+### Changed
+
+- The print's picture, when it's a cover or thumbnail, is fetched again when the print changes.
+
 ## 0.6.2 · unreleased
 
 In progress: 3D printer alerts, and fixes.

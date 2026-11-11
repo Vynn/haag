@@ -18,7 +18,7 @@ Håg shows *glances*. The default one, Overview, is the idle screen, split diago
 
 **Appliances**, off until turned on, shows washers, dryers, washer-dryers and dishwashers while they run: one drum shared by up to three machines, each with its contents, progress and time left, and the clock at its center. After a cycle ends, a machine stays for a while with an alert, until its door opens or the alert is dismissed. It reads [seven appliance integrations](#appliances), core and custom.
 
-**Workshop**, off until turned on, shows 3D printers while they print, one at a time, up to three taking turns: the printer's camera or the print's picture, its state, the print's name, layer, time left and end, the temperatures and fans, and progress along the split in the loaded filament's color. After a print ends or fails, the printer stays for a while with an alert, until its door opens or the alert is dismissed. It reads [Bambu Lab printers](#3d-printers) for now.
+**Workshop**, off until turned on, shows 3D printers while they print, one at a time, up to three taking turns: the printer's camera or the print's picture, its state, the print's name, layer, time left and end, the temperatures and fans, and progress along the split in the loaded filament's color. After a print ends, fails or is cancelled, the printer stays for a while, with an alert unless it was cancelled, until its door opens or the alert is dismissed. It reads [five printer integrations](#3d-printers), core and custom.
 
 Håg is designed square-first and works in portrait and landscape, from a Raspberry Pi kiosk to a tablet or a 4K screen. Colors follow day and night.
 
@@ -52,11 +52,17 @@ The Appliances glance reads machines from these Home Assistant integrations. Eac
 
 ### 3D printers
 
-The Workshop glance reads printers from these Home Assistant integrations. More are planned. Reports are welcome as [issues](https://github.com/Vynn/haag/issues).
+The Workshop glance reads printers from these Home Assistant integrations. Each was built from the integration's own code; most aren't tested yet. Reports are welcome as [issues](https://github.com/Vynn/haag/issues).
 
 | Source | Integration | Printers | Tested |
 |---|---|---|---|
+| OctoPrint | Core | Printers OctoPrint runs | Not yet |
+| PrusaLink | Core | Prusa printers | Not yet |
+| Dremel 3D Printer | Core | 3D20, 3D40, 3D45 | Not yet |
 | Bambu Lab | Custom | One- and two-nozzle printers | Partially verified |
+| Moonraker | Custom | Klipper printers | Not yet |
+
+Some readings are off by default in Home Assistant: PrusaLink's temperatures and fans, and Dremel's progress, temperatures and print name. Turn them on in the integration's entities to show them. Only Bambu Lab reports the filament's color; for the others, progress is drawn in a neutral color. Repetier-Server isn't supported: its integration registers no devices, so Håg can't tell its printers apart.
 
 ## Requirements
 
