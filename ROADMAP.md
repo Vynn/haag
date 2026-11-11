@@ -96,8 +96,8 @@ The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 
 ## 0.6.3 · More 3D printers
 
-- [ ] OctoPrint, PrusaLink, Moonraker (Klipper) and Dremel
-- [ ] A cancelled print shows as Cancelled, without an alert (Bambu Lab reports a cancel as a failure)
+- [x] OctoPrint, PrusaLink, Moonraker (Klipper) and Dremel
+- [x] A cancelled print shows as Cancelled, without an alert (Bambu Lab reports a cancel as a failure)
 
 ## 0.6.4 · 3D printer errors
 
