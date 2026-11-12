@@ -175,14 +175,17 @@ A machine is named by its kind, or by its device name when there are two of a ki
 
 ## 3D printer alerts
 
-The Workshop glance raises one alert per printer, once its print is over:
+The Workshop glance raises an alert per printer when its print is over, or while it needs attention during a print:
 
 | Alert | Severity | Says | A tap |
 |---|---|---|---|
 | `finished` | Information | "Bench finished" | Dismisses it, and the printer leaves the glance |
 | `failed` | Warning | "Bench failed" | Dismisses it, and the printer leaves the glance |
+| `error` | Warning | "Bench needs attention" | Snoozes it, for 15 minutes unless set |
 
-A printer is named by its device name. Either alert also goes when the printer's door opens, or when its rest runs out (`rest`, 2 hours if left out). Tapped, it shows that printer. A cancelled print raises no alert: the printer shows Cancelled for its rest. Bambu Lab reports a cancel as a failure, so it raises the `failed` alert.
+A printer is named by its device name. A finished or failed alert also goes when the printer's door opens, when the printer goes idle, or when its rest runs out (`rest`, 2 hours if left out). Tapped, it shows that printer. A cancelled print raises no alert: the printer shows Cancelled for its rest. Bambu Lab reports a cancel as a failure, so it raises the `failed` alert.
+
+A printer needs attention while it prints, or while it's paused, if it reports a problem: for Bambu Lab, anything on its error list, a print error, or a pause it didn't ask for (filament running out, say; a pause from you or the print file doesn't count); for PrusaLink, attention. The alert goes when the problem clears; meanwhile the printer's state shows in the warning color. OctoPrint, Dremel and Moonraker report a problem only as a failed print.
 
 ## Settings
 

@@ -2,6 +2,18 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
+## 0.6.4 · unreleased
+
+In progress: 3D printer errors.
+
+### Added
+
+- The Workshop glance's `error` alert: a warning, "Bench needs attention", while a printer reports a problem during a print. For Bambu Lab, anything on its error list, a print error, or a pause it didn't ask for; for PrusaLink, attention. A tap snoozes it for 15 minutes; it goes when the problem clears. Meanwhile the printer's state shows in the warning color, and the printer comes right after failed ones in the turns. See [alerts](docs/alerts.md#3d-printer-alerts).
+
+### Fixed
+
+- A printer that went idle during its rest stayed on the Workshop glance with no state and a stale time left. It now leaves, as when its door opens.
+
 ## 0.6.3 · unreleased
 
 In progress: more 3D printers.

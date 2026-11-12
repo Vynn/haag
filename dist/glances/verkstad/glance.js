@@ -64,6 +64,10 @@ function bambuState(status, stage, layer) {
   return { prepare: 'preparing', slicing: 'preparing', init: 'preparing', pause: 'paused', finish: 'finished', failed: 'failed', idle: 'idle' }[status] ?? 'offline';
 }
 
+// Pauses a print can ask for; any other pause stage is a problem.
+const DELIBERATE = new Set(['paused_user', 'paused_user_gcode']);
+const CANCEL = '0300_400C';   // the print error a cancel raises for a moment
+
 // A color from Bambu Lab's #RRGGBBAA, or null when it's unknown (transparent).
 const hex = c => typeof c !== 'string' ? null : /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(c) && !/^#[0-9a-f]{6}00$/i.test(c) ? c.slice(0, 7) : null;
 
@@ -78,13 +82,13 @@ function filament(hass, p) {
 }
 
 function readBambu(r, now) {
-  const { st, num, temp } = r, layer = num('current_layer');
+  const { st, num, temp } = r, layer = num('current_layer'), stage = st('stage')?.state;
   const nozzles = r.p.entities.left_nozzle_temp
     ? [['Left', 'left'], ['Right', 'right']].map(([label, side]) => ({ label, ...temp(`${side}_nozzle_temp`, `${side}_target_nozzle_temp`),
       active: st('active_nozzle')?.state === side }))
     : [{ label: 'Nozzle', ...temp('nozzle_temp', 'target_nozzle_temp'), active: true }];
   return {
-    state: bambuState(st('print_status')?.state, st('stage')?.state, layer),
+    state: bambuState(st('print_status')?.state, stage, layer),
     progress: num('print_progress'), layer, layers: num('total_layers'),
     ends: ending(r, now, 'remaining_time', 'end_time'),
     job: st('subtask_name')?.state || st('gcode_file')?.state || '',
@@ -93,6 +97,10 @@ function readBambu(r, now) {
       .filter(([key]) => num(key) != null).map(([key, label]) => ({ label, on: num(key) > 0 })),
     colors: filament(r.hass, r.p),
     door: st('door_open'),
+    // Its error list (any severity), a print error, or a pause it didn't ask for.
+    problem: st('hms_errors')?.state === 'on'
+      || (st('print_error')?.state === 'on' && st('print_error').attributes?.code !== CANCEL)
+      || (String(stage).startsWith('paused_') && !DELIBERATE.has(stage)),
   };
 }
 
@@ -128,7 +136,7 @@ function readOctoPrint(r, now, last) {
 /*
   PrusaLink (core): entities by translation key. Temperatures and fans
   (in rpm) are off by default in Home Assistant. Its camera is the file's
-  thumbnail.
+  thumbnail. Attention (waiting for someone) is paused, with a problem.
 */
 const PRUSALINK = { printing: 'printing', paused: 'paused', attention: 'paused', finished: 'finished', stopped: 'cancelled',
   error: 'failed', idle: 'idle', ready: 'idle', busy: 'idle' };
@@ -141,6 +149,7 @@ const readPrusaLink = (r, now) => ({
   nozzles: numbered([r.temp('nozzle_temperature', 'nozzle_target_temperature')]),
   bed: r.temp('heatbed_temperature', 'heatbed_target_temperature'),
   fans: r.num('fan_print') == null ? [] : [{ label: 'Part', on: r.num('fan_print') > 0 }],
+  problem: r.text('printer_state') === 'attention',
 });
 
 /*
@@ -221,7 +230,8 @@ function findPrinters(hass, entities, devices) {
 }
 
 // A printer's reading, the same for every integration; what it doesn't
-// report is left empty. `last` is the state last seen, for OctoPrint.
+// report is left empty. A problem counts only during a print. `last` is
+// the state last seen, for OctoPrint.
 function readPrinter(hass, p, now, last) {
   const b = BRANDS[p.brand], r = sensors(hass, p), v = b.read(r, now, last);
   return {
@@ -230,6 +240,7 @@ function readPrinter(hass, p, now, last) {
     changed: Date.parse(r.st(b.state)?.last_changed) || now,
     ends: v.ends == null ? null : Math.round(v.ends / MINUTE) * MINUTE,
     nozzles: (v.nozzles ?? []).filter(n => n.now != null),
+    problem: ACTIVE.includes(v.state) && !!v.problem,
   };
 }
 
@@ -312,9 +323,10 @@ class WorkshopGlance extends HTMLElement {
   }
 
   // Printers printing, paused or getting ready; after a print ends, a rest
-  // of `rest` seconds, cut short by the door opening or the alert being
-  // dismissed. Failed first, then finished or cancelled, then the closest
-  // to finishing; three take turns, the rest are counted.
+  // of `rest` seconds, cut short by the door opening, the printer going
+  // idle or the alert being dismissed. Failed first, then those needing
+  // attention, then finished or cancelled, then the closest to finishing;
+  // three take turns, the rest are counted.
   _update() {
     if (!this._printers || !this._hass || !this._haag) return;
     const now = Date.now(), rest = (this._settings?.rest ?? REST) * 1000;
@@ -324,6 +336,7 @@ class WorkshopGlance extends HTMLElement {
       const rec = this._runs[p.id] ??= {}, r = readPrinter(this._hass, p, now, rec.last);
       track(rec, r, now);
       if (rec.ended && !rec.cleared && r.door?.state === 'on' && Date.parse(r.door.last_changed) > rec.ended) rec.cleared = true;
+      if (rec.ended && r.state === 'idle') rec.cleared = true;   // someone cleared the printer
       const showing = ACTIVE.includes(r.state) || (rec.ended && !rec.cleared && now < rec.ended + rest);
       if (showing) shown.push({ p, r, rec });
       else if (r.state !== 'offline') idle++;
@@ -331,8 +344,8 @@ class WorkshopGlance extends HTMLElement {
     for (const id in this._runs) if (!this._printers.some(p => p.id === id)) delete this._runs[id];
     if (JSON.stringify(this._runs) !== before) this._save();
 
-    const rank = ({ r }) => ({ failed: 0, finished: 1, cancelled: 1 }[r.state] ?? 2);
-    shown.sort((a, b) => rank(a) - rank(b) || (rank(a) < 2 ? b.rec.ended - a.rec.ended
+    const rank = ({ r }) => r.problem ? 1 : ({ failed: 0, finished: 2, cancelled: 2 }[r.state] ?? 3);
+    shown.sort((a, b) => rank(a) - rank(b) || (ENDED.includes(a.r.state) ? b.rec.ended - a.rec.ended
       : (a.r.ends ?? Infinity) - (b.r.ends ?? Infinity) || a.rec.since - b.rec.since));
     const more = Math.max(0, shown.length - SHOWN);
     const summary = [more && `${more} more printing`, idle && `${idle} idle`].filter(Boolean).join(' · ');
@@ -570,10 +583,11 @@ class WorkshopPrinter extends HTMLElement {
     const d = this._haag?.instance?.data;
     if (!d || !this._hass) return;
     const now = Date.now(), done = ENDED.includes(d.state);
-    const dot = { preparing: 'warm', heating: 'warm', printing: 'go', paused: '', finished: 'go', failed: 'warn' }[d.state] ?? '';
+    const warn = d.state === 'failed' || d.problem;
+    const dot = warn ? 'warn' : { preparing: 'warm', heating: 'warm', printing: 'go', finished: 'go' }[d.state] ?? '';
     const html = {
       printer: `<div class="t2 name">${esc(d.printer)}</div>`,
-      state: `<div class="t2${d.state === 'failed' ? ' warn' : ''}"><span class="dot ${dot}"></span>${WORDS[d.state] ?? ''}</div>`,
+      state: `<div class="t2${warn ? ' warn' : ''}"><span class="dot ${dot}"></span>${WORDS[d.state] ?? ''}</div>`,
       summary: d.summary ? `<div class="t3">${esc(d.summary)}</div>` : '',
       job: `<div class="t2 name">${esc(d.job || 'Print')}</div>${d.layers ? `<div class="t3">${d.layer > 0 ? `Layer ${d.layer} of ${d.layers}` : `${d.layers} layers`}</div>` : ''}`,
       time: done ? `<div class="t2">${d.state === 'finished' ? 'Ended' : 'Stopped'} ${d.ended ? formatTime(this._hass, d.ended, now) : ''}</div>`
@@ -613,17 +627,21 @@ class WorkshopPrinter extends HTMLElement {
     if (changed || !this._laidOut) this._layout();
   }
 
-  // Its alert while its print is over (none for a cancelled one); a tap
-  // dismisses it, and the printer leaves. Keyed by the print's end, so an earlier dismissal can't hide it.
+  // Its alert: while its print is over (none for a cancelled one), a tap
+  // dismisses it and the printer leaves; keyed by the print's end, so an
+  // earlier dismissal can't hide it. While a problem lasts during a print,
+  // a warning a tap snoozes.
   _alert(d) {
     const alerts = this._haag?.alerts;
     if (!alerts) return;
     const over = d.state === 'finished' || d.state === 'failed';
-    const key = over && d.ended ? `${d.state}:${d.ended}` : null;
+    const key = over && d.ended ? `${d.state}:${d.ended}` : d.problem ? `error:${this._haag.instance.id}` : null;
     if (key === this._alertKey) return;
     if (this._alertKey) alerts.delete(this._alertKey);
     this._alertKey = key;
-    if (key) alerts.set(key, { level: d.state === 'failed' ? 'warning' : 'info', text: `${d.printer} ${d.state}`, dismiss: true });
+    if (!key) return;
+    if (over) alerts.set(key, { level: d.state === 'failed' ? 'warning' : 'info', text: `${d.printer} ${d.state}`, dismiss: true });
+    else alerts.set(key, { level: 'warning', text: `${d.printer} needs attention` });
   }
 
   // ----- The picture -----

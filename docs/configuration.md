@@ -104,7 +104,7 @@ Workshop (`glances.verkstad`):
 
 | Setting | Value |
 |---|---|
-| `rest` | Seconds a printer stays on the glance after its print ends, fails or is cancelled, unless its door opens or its alert is dismissed first. 7200 (2 hours) if left out. |
+| `rest` | Seconds a printer stays on the glance after its print ends, fails or is cancelled, unless its door opens, it goes idle or its alert is dismissed first. 7200 (2 hours) if left out. |
 | `camera` | `snapshots`: a picture from the printer's camera every 10 seconds. `live`: a frame a second. Either way only while the printer is on screen. `snapshots` if left out. |
 
 The Workshop glance's alerts (`glances.verkstad.alerts`):
@@ -113,6 +113,7 @@ The Workshop glance's alerts (`glances.verkstad.alerts`):
 |---|---|---|
 | `finished` | A print finished: information. A tap dismisses it, and the printer leaves the glance. | |
 | `failed` | A print failed: a warning. A tap dismisses it, and the printer leaves the glance. | |
+| `error` | A printer needs attention during a print: a warning. See [alerts](alerts.md#3d-printer-alerts). | 900 |
 
 ## Day and night
 

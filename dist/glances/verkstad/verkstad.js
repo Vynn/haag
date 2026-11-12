@@ -1,6 +1,6 @@
 // Workshop glance: 3D printers while they print, and for a while after a
-// print ends, one printer at a time, with an alert when one finishes or
-// fails. Its code loads only when it's on.
+// print ends, one printer at a time, with an alert when one finishes,
+// fails or needs attention. Its code loads only when it's on.
 const manifest = {
   format: 'haag-glance/v1',
   name: 'verkstad',
@@ -18,6 +18,7 @@ const manifest = {
   alerts: [
     { key: 'finished', label: 'Print finished', dismiss: true },
     { key: 'failed', label: 'Print failed', dismiss: true },
+    { key: 'error', label: 'Printer needs attention', snooze: 900 },
   ],
 };
 
