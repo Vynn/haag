@@ -85,7 +85,7 @@ The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 - [x] Progress in the loaded filament's color
 - [x] More than one printer: up to three take turns, most urgent first, with a count of the rest
 
-## 0.6.2 · 3D printer alerts and fixes
+## 0.6.2 · 3D printer alerts and fixes · released
 
 - [x] Alerts for a finished print and a failed print, with settings; a tap dismisses either, and the printer leaves
 - [x] Light text over the printer's picture by day, as at night
@@ -94,12 +94,12 @@ The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 - [x] Overview's calendar fetch retried when it fails, as while Home Assistant starts
 - [x] The editor: a reset for each color, and calendar linking for each person
 
-## 0.6.3 · More 3D printers
+## 0.6.3 · More 3D printers · released
 
 - [x] OctoPrint, PrusaLink, Moonraker (Klipper) and Dremel
 - [x] A cancelled print shows as Cancelled, without an alert (Bambu Lab reports a cancel as a failure)
 
-## 0.6.4 · 3D printer errors
+## 0.6.4 · 3D printer errors · released
 
 - [x] A printer that reports a problem during a print raises one warning, "… needs attention"
 - [x] A printer that goes idle during its rest leaves the glance

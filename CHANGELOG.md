@@ -2,9 +2,9 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
-## 0.6.4 · unreleased
+## 0.6.4 · 2026-11-12
 
-In progress: 3D printer errors.
+3D printers from five integrations, with alerts when a print finishes, fails or needs attention, and fixes. Includes 0.6.2 and 0.6.3. A pre-release. See [alerts](docs/alerts.md#3d-printer-alerts) and [3D printers](README.md#3d-printers).
 
 ### Added
 
@@ -14,9 +14,15 @@ In progress: 3D printer errors.
 
 - A printer that went idle during its rest stayed on the Workshop glance with no state and a stale time left. It now leaves, as when its door opens.
 
-## 0.6.3 · unreleased
+### Known issues
 
-In progress: more 3D printers.
+- OctoPrint, PrusaLink, Dremel and Moonraker printers aren't tested on real printers yet.
+- Moonraker reports progress and layers as 0 while a print is paused, so the progress line empties during a pause.
+- A printer that goes offline during a print leaves the Workshop glance without a notice.
+
+## 0.6.3 · 2026-11-12
+
+More 3D printers, and cancelled prints. Not released on its own: it's part of 0.6.4.
 
 ### Added
 
@@ -27,9 +33,9 @@ In progress: more 3D printers.
 
 - The print's picture, when it's a cover or thumbnail, is fetched again when the print changes.
 
-## 0.6.2 · unreleased
+## 0.6.2 · 2026-11-12
 
-In progress: 3D printer alerts, and fixes.
+3D printer alerts, and fixes. Not released on its own: it's part of 0.6.4.
 
 ### Added
 

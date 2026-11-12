@@ -24,7 +24,7 @@ Håg is designed square-first and works in portrait and landscape, from a Raspbe
 
 ### Weather alerts
 
-Håg shows weather alerts from one of these Home Assistant integrations, whichever it finds first. Each was built from the integration's own code; most are tested only with sample data so far. Reports from real alerts are welcome as [issues](https://github.com/Vynn/haag/issues).
+Håg shows weather alerts from one of these Home Assistant integrations, whichever it finds first. Each was built from the integration's own code; most are tested only with sample data so far. Reports from real alerts are welcome: see [testing an integration](#testing-an-integration).
 
 | Source | Integration | Tested |
 |---|---|---|
@@ -38,7 +38,7 @@ Håg shows weather alerts from one of these Home Assistant integrations, whichev
 
 ### Appliances
 
-The Appliances glance reads machines from these Home Assistant integrations. Each was built from the integration's own code; most aren't tested yet. Reports are welcome as [issues](https://github.com/Vynn/haag/issues).
+The Appliances glance reads machines from these Home Assistant integrations. Each was built from the integration's own code; most aren't tested yet. Reports are welcome: see [testing an integration](#testing-an-integration).
 
 | Source | Integration | Machines | Tested |
 |---|---|---|---|
@@ -52,7 +52,7 @@ The Appliances glance reads machines from these Home Assistant integrations. Eac
 
 ### 3D printers
 
-The Workshop glance reads printers from these Home Assistant integrations. Each was built from the integration's own code; most aren't tested yet. Reports are welcome as [issues](https://github.com/Vynn/haag/issues).
+The Workshop glance reads printers from these Home Assistant integrations. Each was built from the integration's own code; most aren't tested yet. Reports are welcome: see [testing an integration](#testing-an-integration).
 
 | Source | Integration | Printers | Tested |
 |---|---|---|---|
@@ -63,6 +63,10 @@ The Workshop glance reads printers from these Home Assistant integrations. Each 
 | Moonraker | Custom | Klipper printers | Not yet |
 
 Some readings are off by default in Home Assistant: PrusaLink's temperatures and fans, and Dremel's progress, temperatures and print name. Turn them on in the integration's entities to show them. Only Bambu Lab reports the filament's color; for the others, progress is drawn in a neutral color. Repetier-Server isn't supported: its integration registers no devices, so Håg can't tell its printers apart.
+
+### Testing an integration
+
+Integrations marked *Not yet* or *Sample data only* haven't been seen working on a real install. If you use one, you can help: run Håg with it, check what it shows against the integration's own entities in Home Assistant, and [open an issue](https://github.com/Vynn/haag/issues/new) with what you found. Say which integration and Håg version, what showed correctly, and what was wrong or missing. A screenshot helps; hide anything personal first. Confirmed reports update the Tested column.
 
 ## Requirements
 

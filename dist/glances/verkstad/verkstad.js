@@ -7,7 +7,7 @@ const manifest = {
   element: 'haag-verkstad',
   instances: { element: 'haag-verkstad-printer', max: 3 },
   title: 'Workshop',
-  version: '0.6.1',
+  version: '0.6.4',
   settings: [
     { key: 'rest', type: 'seconds', default: 7200, min: 60, max: 86400, label: 'Rest',
       help: 'How long a printer stays after its print ends, unless its door opens or the alert is dismissed' },
