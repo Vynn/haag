@@ -101,8 +101,8 @@ The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 
 ## 0.6.4 · 3D printer errors
 
-- [ ] A printer that reports a problem during a print raises one warning, "… needs attention"
-- [ ] A printer that goes idle during its rest leaves the glance
+- [x] A printer that reports a problem during a print raises one warning, "… needs attention"
+- [x] A printer that goes idle during its rest leaves the glance
 
 ## 0.7 · Irrigation glance
 
