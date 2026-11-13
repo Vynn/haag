@@ -15,15 +15,11 @@
   License: GPL-3.0
 */
 
-const NS = 'http://www.w3.org/2000/svg';
-const svgEl = (tag, attrs = {}, parent) => {
-  const n = document.createElementNS(NS, tag);
-  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
-  parent?.append(n);
-  return n;
-};
-// Seeded random for layouts (the same on every reload); Math.random for events.
-const seeded = seed => (a, b) => { seed = (seed * 16807) % 2147483647; return a + (seed / 2147483647) * (b - a); };
+// Håg's drawing helpers (haag.draw), handed over by the glance before
+// anything is drawn: SVG elements, seeded random for layouts (the same on
+// every reload) and smooth paths. Math.random is for events.
+let svgEl, seeded, smooth;
+export const use = draw => { ({ svg: svgEl, seeded, smooth } = draw); };
 const rnd = (a, b) => a + Math.random() * (b - a);
 const f = v => v.toFixed(2);
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
@@ -667,6 +663,13 @@ function windDir(bearing) {
   return 0;
 }
 
+// The heavier layers, each built when a scene first needs it: whether a
+// scene does, and the method that builds it.
+const LAYERS = {
+  rain: [sc => sc.rain, 'buildRain'], snow: [sc => sc.snow, 'buildSnow'], hail: [sc => sc.hail, 'buildHail'],
+  fog: [sc => sc.fog, 'buildFog'], wind: [sc => sc.wind, 'buildWind'], exc: [sc => sc.exc, 'buildExceptional'],
+};
+
 /* ---------- The scene ---------- */
 export class Weather {
   // root: the glance's stage (classes and data attributes go on it);
@@ -687,9 +690,12 @@ export class Weather {
     this.hours = { now: 12, sun: [6, 12, 18], midnight: 0 };
     this.root.dataset.alert = '0';
     for (const el of this._all('.vis')) el.classList.add('wx-off');
+    this.built = new Set();       // the heavier layers built so far (see LAYERS)
     this._onMotion = () => { this.build(); this.apply(); };
-    reduced.addEventListener('change', this._onMotion);
   }
+
+  // On the page: follow the reduced-motion setting. Off it (destroy): stop.
+  attach() { reduced.addEventListener('change', this._onMotion); }
 
   _all(sel) { return [...this.under.querySelectorAll(sel), ...this.over.querySelectorAll(sel)]; }
   q(sel) { return this.under.querySelector(sel) || this.over.querySelector(sel); }
@@ -809,28 +815,25 @@ export class Weather {
         </g>`);
     }
 
-    this.buildRain();
-    this.buildSnow();
-    this.buildHail();
-    this.buildFog();
-    this.buildWind();
-    this.buildExceptional();
+    // The heavier layers: those built so far, again (see _layers).
+    for (const key of this.built) this[LAYERS[key][1]]();
     this.buildAccumulation();
+  }
+
+  // Build what this scene needs that hasn't been built yet.
+  _layers(sc) {
+    for (const [key, [wanted, build]] of Object.entries(LAYERS)) {
+      if (!wanted(sc) || this.built.has(key)) continue;
+      this.built.add(key);
+      this[build]();
+    }
   }
 
   // The near side of the moon, simplified into flat seas and a few
   // landmark craters (north up). Coordinates are fractions of the radius.
   buildMoon() {
     for (const s of ['.maria', '.maria-core', '.pits', '.bright', '.rims']) this.q(s).replaceChildren();
-    const blob = pts => {                      // smooth closed outline through the points
-      const P = pts.map(([x, y]) => [x * R, y * R]), n = P.length;
-      let d = `M${f(P[0][0])} ${f(P[0][1])}`;
-      for (let i = 0; i < n; i++) {
-        const [p0, p1, p2, p3] = [P[(i + n - 1) % n], P[i], P[(i + 1) % n], P[(i + 2) % n]];
-        d += `C${f(p1[0] + (p2[0] - p0[0]) / 6)} ${f(p1[1] + (p2[1] - p0[1]) / 6)} ${f(p2[0] - (p3[0] - p1[0]) / 6)} ${f(p2[1] - (p3[1] - p1[1]) / 6)} ${f(p2[0])} ${f(p2[1])}`;
-      }
-      return d + 'Z';
-    };
+    const blob = pts => smooth(pts.map(([x, y]) => [x * R, y * R]), { digits: 2 });   // a smooth closed outline
     const MARIA = [
       [[-.58, -.38], [-.5, -.6], [-.3, -.68], [-.08, -.58], [-.05, -.38], [-.15, -.22], [-.38, -.2]],                     // Imbrium
       [[-.9, -.25], [-.72, -.42], [-.58, -.3], [-.42, -.15], [-.38, .05], [-.48, .25], [-.62, .38], [-.82, .32], [-.93, .05]], // Procellarum
@@ -894,6 +897,44 @@ export class Weather {
     return this.dir > 0 ? rand(b.x0 - m, 100 - b.y0) : rand(b.x0, 100 - b.y0 + m);
   }
 
+  // What rain, snow and hail share. At each depth (`tiers`), `count` of
+  // them start above the top edge (`y0`), spread evenly over the outdoor
+  // side, and fall on a slant (`k`: sideways per unit of fall) until
+  // they're `past` what they land on: the split, or with `edges` the
+  // screen's left edge when blown there first. A fall shorter than `min`,
+  // or landing above `top`, is left out. `draw(fall, x0, y0)` draws one in
+  // its falling group; `landed({ x, y, dur, delay, edge })` gets where it
+  // lands and when, for splashes and hops. `over`: see _startX.
+  _sheet(rand, k, over, norm, tiers) {
+    const b = this.b;
+    for (const { g, count, y0, speed, min, past, top = -Infinity, edges = false, draw, landed } of tiers) {
+      let made = 0, tries = 0;
+      while (made < count && tries++ < 20000) {
+        const x0 = this._startX(rand, over);
+        const tLine = (100 - x0 - y0) / (1 + k);                        // reaches the split
+        const tEdge = edges && k < 0 ? (x0 - b.x0) / -k : Infinity;     // reaches the left edge
+        const t = Math.min(tLine, tEdge);
+        if (t < min || y0 + t < top) continue;
+        if (rand(0, 1) > t / norm) continue;                            // even density: long paths cover more sky
+        const total = t + past, dur = total / speed, delay = -rand(0, dur);
+        const fall = svgEl('g', { class: 'fall', style: `--tx:${f(k * total)}px;--ty:${f(total)}px;--t:${f(dur)}s;--d:${f(delay)}s` }, g);
+        draw(fall, x0, y0);
+        landed?.({ x: x0 + k * t, y: y0 + t, dur, delay: delay + t / total * dur, edge: tEdge < tLine });
+        made++;
+      }
+    }
+  }
+
+  // About 1 in 7 splash where they meet the split, timed to the landing.
+  _splash(rand, splashes, cls, { x, y, dur, delay }) {
+    const b = this.b;
+    if (!(rand(0, 1) < 1 / 7 && x > b.x0 && y > b.y0 && y < b.y1)) return;
+    const sp = svgEl('g', { class: `spl ${cls}`, style: `--t:${f(dur)}s;--d:${f(delay)}s` }, svgEl('g', { transform: `translate(${f(x)} ${f(y)})` }, splashes));
+    svgEl('circle', { cx: -.8, cy: -.5, r: .32 }, sp);
+    svgEl('circle', { cx: .8, cy: -.5, r: .32 }, sp);
+    svgEl('circle', { cx: 0, cy: -1, r: .25 }, sp);
+  }
+
   // Two rain sheets (light and heavy), so rainy and pouring can crossfade.
   // Each drop starts above the top edge, falls behind the clouds and keeps
   // going until its whole tail has passed the split, so nothing pops.
@@ -908,35 +949,13 @@ export class Weather {
       const n = (heavy ? 120 : 60) * b.k;
       const tail = heavy ? TAIL.heavy : TAIL.light;
       // [depth, share, fall speed (units/s), size]
-      for (const [depth, share, speed, size] of [['far', .45, 38, .11], ['mid', .35, 48, .14], ['near', .2, 60, .18]]) {
-        const g = svgEl('g', { class: depth }, drops);
-        const sc = size * (heavy ? 1.1 : 1);
-        const L = tail * sc;                                // streak length
-        const y0 = b.y0 - L - 1;                            // fully above the screen
-        let made = 0, tries = 0;
-        while (made < Math.round(n * share) && tries++ < 20000) {
-          const x0 = this._startX(rand, 34);
-          const tLine = (100 - x0 - y0) / (1 + k);          // fall until the head meets the split
-          if (tLine < L) continue;
-          if (rand(0, 1) > tLine / norm) continue;          // even density: long paths cover more sky
-          const total = tLine + L * 1.2;                    // until the tail is past the split too
-          const dur = total / (speed * (heavy ? 1.4 : 1));
-          const delay = -rand(0, dur);
-          const fall = svgEl('g', { class: 'fall', style: `--tx:${f(k * total)}px;--ty:${f(total)}px;--t:${f(dur)}s;--d:${f(delay)}s` }, g);
-          svgEl('path', { d: streak(tail), transform: `translate(${f(x0)} ${f(y0)}) rotate(${-15 * this.dir}) scale(${sc.toFixed(3)})` }, fall);
-          // About 1 in 7 drops splash where they meet the split, timed to
-          // the moment the head lands.
-          const ex = x0 + k * tLine, ey = y0 + tLine;
-          if (rand(0, 1) < 1 / 7 && ex > b.x0 && ey > b.y0 && ey < b.y1) {
-            const at = svgEl('g', { transform: `translate(${f(ex)} ${f(ey)})` }, splashes);
-            const sp = svgEl('g', { class: `spl ${depth}`, style: `--t:${f(dur)}s;--d:${f(delay + tLine / total * dur)}s` }, at);
-            svgEl('circle', { cx: -.8, cy: -.5, r: .32 }, sp);
-            svgEl('circle', { cx: .8, cy: -.5, r: .32 }, sp);
-            svgEl('circle', { cx: 0, cy: -1, r: .25 }, sp);
-          }
-          made++;
-        }
-      }
+      this._sheet(rand, k, 34, norm, [['far', .45, 38, .11], ['mid', .35, 48, .14], ['near', .2, 60, .18]].map(([depth, share, speed, size]) => {
+        const sc = size * (heavy ? 1.1 : 1), L = tail * sc;   // L: the streak's length
+        return { g: svgEl('g', { class: depth }, drops), count: Math.round(n * share), y0: b.y0 - L - 1, speed: speed * (heavy ? 1.4 : 1),
+          min: L, past: L * 1.2,
+          draw: (fall, x0, y0) => svgEl('path', { d: streak(tail), transform: `translate(${f(x0)} ${f(y0)}) rotate(${-15 * this.dir}) scale(${sc.toFixed(3)})` }, fall),
+          landed: hit => this._splash(rand, splashes, depth, hit) };
+      }));
     }
   }
 
@@ -1199,49 +1218,37 @@ export class Weather {
     this.hopAnims = [];
     const n = 56 * b.k, norm = 130 * Math.max(1, (b.w + b.h) / 200);
     // [depth, share, fall speed (units/s), pellet radius, streak length]
-    for (const [depth, share, speed, r, tail] of [['far', .45, 82, .32, 6], ['mid', .35, 102, .41, 7.6], ['near', .2, 124, .5, 9.2]]) {
-      const g = svgEl('g', { class: `hl-${depth}` }, drops);
-      const y0 = b.y0 - tail - 2;
-      let made = 0, tries = 0;
-      while (made < Math.round(n * share) && tries++ < 20000) {
-        const x0 = this._startX(rand, 20);
-        const tLine = (100 - x0 - y0) / (1 + k);              // reaches the split
-        const tEdge = k < 0 ? (x0 - b.x0) / -k : Infinity;    // reaches the left edge (blown left)
-        const tHit = Math.min(tLine, tEdge), edge = tEdge < tLine;
-        if (tHit < tail || y0 + tHit < b.y0 + 5) continue;    // none land in the top 5% (too short a fall)
-        if (rand(0, 1) > tHit / norm) continue;               // even density
-        const total = tHit + tail * 1.2;
-        const dur = total / speed;
-        const delay = -rand(0, dur);
-        const fall = svgEl('g', { class: 'fall', style: `--tx:${f(k * total)}px;--ty:${f(total)}px;--t:${f(dur)}s;--d:${f(delay)}s` }, g);
+    this._sheet(rand, k, 20, norm, [['far', .45, 82, .32, 6], ['mid', .35, 102, .41, 7.6], ['near', .2, 124, .5, 9.2]].map(([depth, share, speed, r, tail]) => ({
+      g: svgEl('g', { class: `hl-${depth}` }, drops), count: Math.round(n * share), y0: b.y0 - tail - 2, speed,
+      min: tail, past: tail * 1.2, top: b.y0 + 5, edges: true,   // none land in the top 5% (too short a fall)
+      draw: (fall, x0, y0) => {
         const stone = svgEl('g', { transform: `translate(${f(x0)} ${f(y0)}) rotate(${(-10 * this.dir).toFixed(1)})` }, fall);
         svgEl('path', { class: 'hs', d: `M${f(-r * .45)} ${f(-r * .4)}L${f(r * .45)} ${f(-r * .4)}L0 ${f(-r - tail)}Z` }, stone);
         svgEl('circle', { class: 'hp', r }, stone);
         svgEl('circle', { class: 'hg', cx: f(-r * .35), cy: f(-r * .35), r: f(r * .3) }, stone);
-        // About 1 in 6 hop off what they hit: up and to the left off the
-        // split, to the right off the left edge. Hops are events: none
-        // with reduced motion.
-        const ex = x0 + k * tHit, ey = y0 + tHit;
-        if (rand(0, 1) < 1 / 6 && ey > b.y0 && ey < b.y1) {
-          const reach = 3 * hrand(.85, 1.15), lift = 2.4 * hrand(.75, 1.25), secs = .75 * hrand(.8, 1.2);
-          if (reduced.matches) { made++; continue; }
-          const at = svgEl('g', { transform: `translate(${f(Math.max(ex, b.x0 + r))} ${f(ey)})` }, hops);
-          const bx = edge ? reach : -reach, by = edge ? -.4 : -.8;
-          const hp = svgEl('g', { class: `hop hl-${depth}` }, at);
-          svgEl('circle', { r: f(r * .8) }, hp);
-          // About three quarters of a second whatever the stone's speed, so
-          // its keyframes are set per stone, synced to the landing.
-          const hf = Math.min(.9, secs / dur);
-          this.hopAnims.push(hp.animate([
-            { offset: 0, opacity: 1, transform: 'translate(0, 0)' },
-            { offset: hf * .45, opacity: 1, transform: `translate(${f(bx * .5)}px, ${f(-lift)}px)` },
-            { offset: hf, opacity: 0, transform: `translate(${f(bx)}px, ${by}px)` },
-            { offset: 1, opacity: 0, transform: `translate(${f(bx)}px, ${by}px)` },
-          ], { duration: dur * 1000, iterations: Infinity, delay: (delay + tHit / total * dur) * 1000, easing: 'linear' }));
-        }
-        made++;
-      }
-    }
+      },
+      // About 1 in 6 hop off what they hit: up and to the left off the
+      // split, to the right off the left edge. Hops are events: none
+      // with reduced motion.
+      landed: ({ x, y, dur, delay, edge }) => {
+        if (!(rand(0, 1) < 1 / 6 && y > b.y0 && y < b.y1)) return;
+        const reach = 3 * hrand(.85, 1.15), lift = 2.4 * hrand(.75, 1.25), secs = .75 * hrand(.8, 1.2);
+        if (reduced.matches) return;
+        const at = svgEl('g', { transform: `translate(${f(Math.max(x, b.x0 + r))} ${f(y)})` }, hops);
+        const bx = edge ? reach : -reach, by = edge ? -.4 : -.8;
+        const hp = svgEl('g', { class: `hop hl-${depth}` }, at);
+        svgEl('circle', { r: f(r * .8) }, hp);
+        // About three quarters of a second whatever the stone's speed, so
+        // its keyframes are set per stone, synced to the landing.
+        const hf = Math.min(.9, secs / dur);
+        this.hopAnims.push(hp.animate([
+          { offset: 0, opacity: 1, transform: 'translate(0, 0)' },
+          { offset: hf * .45, opacity: 1, transform: `translate(${f(bx * .5)}px, ${f(-lift)}px)` },
+          { offset: hf, opacity: 0, transform: `translate(${f(bx)}px, ${by}px)` },
+          { offset: 1, opacity: 0, transform: `translate(${f(bx)}px, ${by}px)` },
+        ], { duration: dur * 1000, iterations: Infinity, delay: delay * 1000, easing: 'linear' }));
+      },
+    })));
   }
 
   // Snow sheets: full (snowy, settles) and mixed with rain (snowy-rainy,
@@ -1257,33 +1264,16 @@ export class Weather {
       splashes.replaceChildren();
       const n = (mix ? 50 : 240) * b.k;
       // [depth, share, fall speed (units/s), radius, sway]
-      for (const [depth, share, speed, r, sway] of [['far', .45, 6, .45, 1.5], ['mid', .35, 8, .62, 2.3], ['near', .2, 10, .85, 3.3]]) {
-        const g = svgEl('g', { class: `sf-${depth}` }, drops);
-        const y0 = b.y0 - 2;
-        let made = 0, tries = 0;
-        while (made < Math.round(n * share) && tries++ < 20000) {
-          const x0 = this._startX(rand, 60);
-          const tLine = (100 - x0 - y0) / (1 + k);
-          if (tLine < 2) continue;
-          if (rand(0, 1) > tLine / norm) continue;           // even density
-          const total = tLine + r * 3 + sway;                // until fully past the split
-          const dur = total / speed;
-          const delay = -rand(0, dur);
-          const fall = svgEl('g', { class: 'fall', style: `--tx:${f(k * total)}px;--ty:${f(total)}px;--t:${f(dur)}s;--d:${f(delay)}s` }, g);
+      this._sheet(rand, k, 60, norm, [['far', .45, 6, .45, 1.5], ['mid', .35, 8, .62, 2.3], ['near', .2, 10, .85, 3.3]].map(([depth, share, speed, r, sway]) => ({
+        g: svgEl('g', { class: `sf-${depth}` }, drops), count: Math.round(n * share), y0: b.y0 - 2, speed,
+        min: 2, past: r * 3 + sway,   // until fully past the split
+        draw: (fall, x0, y0) => {
           const w = svgEl('g', { class: 'sway', style: `--sa:${sway}px;--sp:${f(rand(1.8, 3.4))}s;--sd:${f(-rand(0, 3))}s` }, fall);
           svgEl('circle', { class: 'fsh', cx: f(x0 + r * .3), cy: f(y0 + r * .3), r }, w);
           svgEl('circle', { class: 'fbd', cx: f(x0), cy: f(y0), r }, w);
-          const ex = x0 + k * tLine, ey = y0 + tLine;
-          if (mix && rand(0, 1) < 1 / 7 && ex > b.x0 && ey > b.y0 && ey < b.y1) {
-            const at = svgEl('g', { transform: `translate(${f(ex)} ${f(ey)})` }, splashes);
-            const sp = svgEl('g', { class: `spl sf-${depth}`, style: `--t:${f(dur)}s;--d:${f(delay + tLine / total * dur)}s` }, at);
-            svgEl('circle', { cx: -.8, cy: -.5, r: .32 }, sp);
-            svgEl('circle', { cx: .8, cy: -.5, r: .32 }, sp);
-            svgEl('circle', { cx: 0, cy: -1, r: .25 }, sp);
-          }
-          made++;
-        }
-      }
+        },
+        landed: mix ? hit => this._splash(rand, splashes, `sf-${depth}`, hit) : null,
+      })));
     }
   }
 
@@ -1324,12 +1314,9 @@ export class Weather {
     const TOP = [[0, 2.5], [5, 2.3], [10, 2.2], [14, 2.6], [18, 2.9], [22, 3.0], [28, 3.2], [36, 3.5], [44, 3.3],
                  [52, 3.1], [60, 3.0], [68, 2.9], [76, 2.8], [84, 2.6], [92, 2.4], [100, 2.3]];
     const pts = TOP.map(([x, h]) => [b.x0 + x / 100 * b.w, -h]);
-    let d = `M${f(b.x0)} 0L${f(pts[0][0])} ${f(pts[0][1])}`;
-    for (let i = 0; i < pts.length - 1; i++) {    // smooth curve through the depths
-      const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
-      d += `C${f(p1[0] + (p2[0] - p0[0]) / 6)} ${f(p1[1] + (p2[1] - p0[1]) / 6)} ${f(p2[0] - (p3[0] - p1[0]) / 6)} ${f(p2[1] - (p3[1] - p1[1]) / 6)} ${f(p2[0])} ${f(p2[1])}`;
-    }
-    this.q('.acc-alert').setAttribute('d', `${d}L${f(b.x1)} 0Z`);
+    // Up from the left, a smooth curve through the depths, and down on the right.
+    const line = smooth(pts, { digits: 2, closed: false }).slice(1);
+    this.q('.acc-alert').setAttribute('d', `M${f(b.x0)} 0L${line}L${f(b.x1)} 0Z`);
     this.q('.acc-alert-at').setAttribute('transform', `translate(0 ${f(top)})`);
   }
 
@@ -1391,7 +1378,7 @@ export class Weather {
   _flip(dir) {
     this.dir = dir;
     this.root.classList.toggle('wx-left', dir < 0);
-    if (this.b) { this.buildRain(); this.buildSnow(); this.buildHail(); }
+    if (this.b) for (const key of ['rain', 'snow', 'hail']) if (this.built.has(key)) this[LAYERS[key][1]]();
   }
 
   // On screen or not: off screen, scripted animations pause (CSS ones
@@ -1423,6 +1410,7 @@ export class Weather {
   apply(instant = false) {
     if (!this.b) return;
     const sc = SCENES[this.cond], night = this.day === false;
+    this._layers(sc);
     if (instant) this.root.style.setProperty('--change', '0s');
     const on = (el, v) => this._show(el, !!v, instant);
     on(this.q('.sunv'), sc.sun);                 // below the horizon it's simply out of view

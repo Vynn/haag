@@ -2,6 +2,32 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
+## 0.7.0 · unreleased
+
+The first part of a code review and refactor. Håg does much less work to show the same things, and its glances share more of the core. Nothing should look or read differently, except as noted under Changed.
+
+### Added
+
+- For glance makers, more from the core: Home Assistant's registries (`haag.registry`), a list of the entities a glance reads (`haag.watch`), number, time and duration formats (`haag.format`), small drawing helpers (`haag.draw`), kept runs for things that run and end (`haag.runs`), and helpers and styles for blocks along the split (`haag.layout`). See [glances](docs/glances.md#what-håg-provides).
+- A readings check for development: Håg on a stand-in Home Assistant, with one machine or printer for each supported integration, compared with kept readings. See [development](docs/development.md#readings-check).
+
+### Changed
+
+- Laying out the Overview and Workshop glances takes about a fifth of the time. They used to measure each piece of text on its own, making the browser lay the page out over a hundred times; now they measure in batches.
+- Home Assistant's state changes are passed on at most twice a second, and each part of Håg looks at them only when something it reads changed. It used to redo everything on every change in the house, several times a second. A reading can now show up to half a second later than it did.
+- The Workshop glance lays out again when a readout's shape changes (99° to 100°), not on every degree.
+- The Appliances glance's loads move at 30 frames a second at most, and nothing is computed while none moves. They used to follow the display's rate, also when everything was paused or ended.
+- The weather draws rain, snow, hail, fog, wind and the exceptional scene when a condition first needs them, not all at the start and again on every resize. Starting up draws less than half as much; the first switch to a condition takes about a hundredth of a second longer.
+- Inside: one copy of what was written two or three times. Appliances and Workshop keep their runs through the core; Overview and Workshop share one split layout and its styles; rain, snow and hail are built by one routine; glances get the registries from the core and no longer fetch them again.
+
+### Fixed
+
+- The weather kept listening for the reduced-motion setting after its glance was removed.
+
+### Known issues
+
+- On a narrow portrait screen, the Workshop glance's clock can come out about a pixel different in size and place from one layout to the next. Found in this review; 0.6.4 does the same.
+
 ## 0.6.4 · 2026-11-12
 
 3D printers from five integrations, with alerts when a print finishes, fails or needs attention, and fixes. Includes 0.6.2 and 0.6.3. A pre-release. See [alerts](docs/alerts.md#3d-printer-alerts) and [3D printers](README.md#3d-printers).

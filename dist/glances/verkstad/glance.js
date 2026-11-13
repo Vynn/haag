@@ -9,7 +9,6 @@
 
 const MINUTE = 60 * 1000;
 const REST = 7200;          // seconds a printer stays after its print ends (setting `rest`)
-const RUNS = 'haag-verkstad';   // browser storage: each printer's print
 const SHOWN = 3;            // printers taking turns; the rest are counted
 const SNAPSHOT = 10 * 1000; // ms between camera snapshots
 const LIVE = 1;             // seconds between live frames (Home Assistant's floor is .5)
@@ -210,7 +209,7 @@ const BRANDS = {
     state: 'print_state', camera: 'webcam', cover: 'thumbnail', read: readMoonraker },
 };
 
-function findPrinters(hass, entities, devices) {
+function findPrinters(entities, devices) {
   const groups = new Map();
   for (const e of entities) {
     const brand = BRANDS[e.platform];
@@ -244,47 +243,19 @@ function readPrinter(hass, p, now, last) {
   };
 }
 
-/*
-  A printer's print, kept in the browser: when it started (`since`), when
-  it ended (`ended`), whether its rest is over (`cleared`) and the state
-  last seen. Seen for the first time, the state's last change stands in
-  for now. A print first seen already over, with no record of it (a new
-  display, or Home Assistant restarted), isn't shown as just ended.
-*/
-function track(rec, r, now) {
-  const at = rec.last === undefined ? r.changed : now;
-  if (ACTIVE.includes(r.state)) {
-    if (!rec.since || rec.ended) {
-      for (const k in rec) delete rec[k];
-      rec.since = at;
-    }
-  } else if (ENDED.includes(r.state)) {
-    if (!rec.since) rec.cleared = true;
-    rec.ended ??= at;
-    rec.since ??= at;
-  }
-  rec.last = r.state;
-}
-
-const loadRuns = () => { try { return JSON.parse(localStorage.getItem(RUNS)) || {}; } catch { return {}; } };
-
 let workshop = null;   // the coordinator, for printers to report a dismissal
 
-// The coordinator: never shown.
+// The coordinator: never shown. Each printer's print is kept by Håg
+// (haag.runs): when it started and ended, and whether its rest is over.
 class WorkshopGlance extends HTMLElement {
   constructor() {
     super();
-    this._runs = loadRuns();
     workshop = this;
   }
 
   // A printer's alert was dismissed: its rest is over.
   dismiss(id) {
-    const rec = this._runs[id];
-    if (!rec?.ended || rec.cleared) return;
-    rec.cleared = true;
-    this._save();
-    this._update();
+    if (this._haag?.runs.clear(id)) this._update();
   }
 
   // ----- Glance API (docs/glances.md) -----
@@ -301,25 +272,17 @@ class WorkshopGlance extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    if (!this._finding) this._finding = this._find();
+    if (!this._printers) {
+      // The printers, from Håg's registries; from then on, only their entities matter.
+      const { entities, devices } = this._haag.registry;
+      this._printers = findPrinters(entities, devices);
+      this._haag.watch(this._printers.flatMap(p => [...Object.values(p.entities), ...p.spools]));
+    }
     this._update();
   }
 
   disconnectedCallback() {
     clearTimeout(this._timer);
-  }
-
-  // Registries once, as the core reads them (any logged-in user can).
-  async _find() {
-    try {
-      const [entities, devices] = await Promise.all(['entity', 'device']
-        .map(t => this._hass.callWS({ type: `config/${t}_registry/list` })));
-      this._printers = findPrinters(this._hass, entities, devices);
-    } catch (err) {
-      console.error("Håg: the Workshop glance couldn't read Home Assistant's setup", err);
-      this._printers = [];
-    }
-    this._update();
   }
 
   // Printers printing, paused or getting ready; after a print ends, a rest
@@ -329,20 +292,17 @@ class WorkshopGlance extends HTMLElement {
   // three take turns, the rest are counted.
   _update() {
     if (!this._printers || !this._hass || !this._haag) return;
-    const now = Date.now(), rest = (this._settings?.rest ?? REST) * 1000;
-    const before = JSON.stringify(this._runs), shown = [];
+    const now = Date.now(), rest = (this._settings?.rest ?? REST) * 1000, runs = this._haag.runs, shown = [];
     let idle = 0;
     for (const p of this._printers) {
-      const rec = this._runs[p.id] ??= {}, r = readPrinter(this._hass, p, now, rec.last);
-      track(rec, r, now);
-      if (rec.ended && !rec.cleared && r.door?.state === 'on' && Date.parse(r.door.last_changed) > rec.ended) rec.cleared = true;
+      const r = readPrinter(this._hass, p, now, runs.get(p.id)?.last), active = ACTIVE.includes(r.state);
+      const rec = runs.track(p.id, { state: r.state, active, ended: ENDED.includes(r.state), changed: r.changed, now,
+        opened: r.door?.state === 'on' ? Date.parse(r.door.last_changed) : null });
       if (rec.ended && r.state === 'idle') rec.cleared = true;   // someone cleared the printer
-      const showing = ACTIVE.includes(r.state) || (rec.ended && !rec.cleared && now < rec.ended + rest);
-      if (showing) shown.push({ p, r, rec });
+      if (active || runs.resting(rec, rest, now)) shown.push({ p, r, rec });
       else if (r.state !== 'offline') idle++;
     }
-    for (const id in this._runs) if (!this._printers.some(p => p.id === id)) delete this._runs[id];
-    if (JSON.stringify(this._runs) !== before) this._save();
+    runs.keep(this._printers.map(p => p.id));
 
     const rank = ({ r }) => r.problem ? 1 : ({ failed: 0, finished: 2, cancelled: 2 }[r.state] ?? 3);
     shown.sort((a, b) => rank(a) - rank(b) || (ENDED.includes(a.r.state) ? b.rec.ended - a.rec.ended
@@ -364,21 +324,8 @@ class WorkshopGlance extends HTMLElement {
     const ends = shown.filter(s => s.rec.ended && !ACTIVE.includes(s.r.state)).map(s => s.rec.ended + rest);
     if (ends.length) this._timer = setTimeout(() => this._update(), Math.min(...ends) - now + 50);
   }
-
-  _save() {
-    try { localStorage.setItem(RUNS, JSON.stringify(this._runs)); } catch {}
-  }
 }
 
-// Times follow HA's time format and zone, with the weekday when it isn't today.
-function formatTime(hass, t, now = Date.now()) {
-  const timeZone = hass?.config?.time_zone, style = hass?.locale?.time_format;
-  const locale = style === 'system' ? undefined : hass?.locale?.language || hass?.language;
-  const day = d => new Intl.DateTimeFormat('en-CA', { timeZone }).format(d);   // YYYY-MM-DD
-  const options = { hour: 'numeric', minute: '2-digit', ...{ 12: { hour12: true }, 24: { hourCycle: 'h23' } }[style], timeZone };
-  if (day(t) !== day(now)) options.weekday = 'short';
-  return new Intl.DateTimeFormat(locale, options).format(t);
-}
 // "1 h 25 min", "40 min".
 const span = ms => {
   const m = Math.max(0, Math.round(ms / MINUTE)), h = Math.floor(m / 60);
@@ -389,15 +336,8 @@ const esc = s => String(s).replace(/[&<>"]/g, c => `&${{ '&': 'amp', '<': 'lt', 
 const STYLE = `
   :host { display: block; width: 100%; height: 100%; container-type: size; }
 
-  .stage {
-    --cluster-gap: calc(2.7 * var(--u));   /* as Overview's */
-    --t2: calc(5.5 * var(--u));
-    --move: 700ms ease-in-out;
-    position: relative; width: 100%; height: 100%; overflow: hidden;
-    background: var(--home);
-  }
-  .stage.paused * { animation-play-state: paused !important; }
-  :host([between]) .stage { background: none; }
+  /* The stage, clusters, text sizes and the clock's stand-in are Håg's
+     (haag.layout.css, added when Håg hands over). */
 
   /* The picture in the weather area: the sky behind it, dimmed toward the
      night sky above the split; below it, the home color, mostly opaque. */
@@ -423,27 +363,11 @@ const STYLE = `
   .split .edge { stroke: color-mix(in oklab, var(--text) 45%, transparent); stroke-linecap: round; }
   .split .fill { stroke-linecap: round; }
 
-  /* Clusters, placed by _layout(), as Overview's. */
-  .cluster {
-    position: absolute; left: 0; top: 0;
-    display: flex; flex-direction: column; align-items: flex-start;
-    gap: calc(.4 * var(--u)); line-height: 1.05; white-space: nowrap;
-  }
-  .stage.animate .cluster { transition: transform var(--move); }
   .stage.animate .cluster.fresh { transition: none; }   /* new readout rows appear in place */
-  .t1 { font-size: calc(14 * var(--u)); }
-  .t2 { font-size: var(--t2); }
-  .t3 { font-size: calc(2.8 * var(--u)); color: var(--text-2); }
   .upper .t3 { color: var(--text-2-out); }
   /* Over the picture, night's text by day too: a camera's frame is mostly dark. */
   .upper { --text: var(--n-text); --text-2: var(--n-text-2); --text-2-out: var(--n-text-2); color: var(--text); }
-  .line { display: flex; gap: calc(1.2 * var(--u)); align-items: baseline; }
   .name { max-width: calc(48 * var(--u)); overflow: hidden; text-overflow: ellipsis; }
-
-  /* The clock is Håg's; this stands in for layout to measure. */
-  .time { position: relative; line-height: .8; visibility: hidden; }
-  .time [data-live="time"] { display: inline-block; line-height: .8; }
-  .ampm { position: absolute; left: 100%; top: 0; margin-left: calc(.7 * var(--u)); font-size: var(--t2); line-height: 1; }
 
   .dot { display: inline-block; width: .8em; height: .8em; margin-right: .2em; border-radius: 50%; background: var(--text-2); vertical-align: -.05em; }
   .dot.go { background: var(--seaglass); }
@@ -500,7 +424,7 @@ class WorkshopPrinter extends HTMLElement {
   constructor() {
     super();
     const root = this.attachShadow({ mode: 'open' });
-    root.innerHTML = `<style>${STYLE}</style>${TEMPLATE}`;
+    root.innerHTML = `<style></style><style>${STYLE}</style>${TEMPLATE}`;
     this._stage = root.querySelector('.stage');
     this._pic = root.querySelector('.pic');
     this._split = root.querySelector('.split');
@@ -524,6 +448,7 @@ class WorkshopPrinter extends HTMLElement {
 
   set haag(haag) {
     this._haag = haag;
+    this.shadowRoot.querySelector('style').textContent = haag.layout.css;
     this._render();
   }
 
@@ -566,6 +491,7 @@ class WorkshopPrinter extends HTMLElement {
       this.shadowRoot.querySelector('[data-live="time"]').textContent = this._haag.clock.time;
       this.shadowRoot.querySelector('[data-live="ampm"]').textContent = this._haag.clock.period;
       this._render();
+      if (this._stale) this._layout();
     }
     const now = Date.now();
     this._minute = setTimeout(() => this._tick(), MINUTE - now % MINUTE + 50);
@@ -582,7 +508,8 @@ class WorkshopPrinter extends HTMLElement {
   _render() {
     const d = this._haag?.instance?.data;
     if (!d || !this._hass) return;
-    const now = Date.now(), done = ENDED.includes(d.state);
+    const now = Date.now(), done = ENDED.includes(d.state), time = this._haag.format.time;
+    this._haag.watch([d.camera, d.cover]);   // all it reads itself: its pictures
     const warn = d.state === 'failed' || d.problem;
     const dot = warn ? 'warn' : { preparing: 'warm', heating: 'warm', printing: 'go', finished: 'go' }[d.state] ?? '';
     const html = {
@@ -590,8 +517,8 @@ class WorkshopPrinter extends HTMLElement {
       state: `<div class="t2${warn ? ' warn' : ''}"><span class="dot ${dot}"></span>${WORDS[d.state] ?? ''}</div>`,
       summary: d.summary ? `<div class="t3">${esc(d.summary)}</div>` : '',
       job: `<div class="t2 name">${esc(d.job || 'Print')}</div>${d.layers ? `<div class="t3">${d.layer > 0 ? `Layer ${d.layer} of ${d.layers}` : `${d.layers} layers`}</div>` : ''}`,
-      time: done ? `<div class="t2">${d.state === 'finished' ? 'Ended' : 'Stopped'} ${d.ended ? formatTime(this._hass, d.ended, now) : ''}</div>`
-        : d.ends ? `<div class="t2">${span(d.ends - now)} left</div><div class="t3">Ends ${formatTime(this._hass, d.ends, now)}</div>` : '',
+      time: done ? `<div class="t2">${d.state === 'finished' ? 'Ended' : 'Stopped'} ${d.ended ? time(d.ended, now) : ''}</div>`
+        : d.ends ? `<div class="t2">${span(d.ends - now)} left</div><div class="t3">Ends ${time(d.ends, now)}</div>` : '',
     };
     // Temperatures, with the target while warming up; then the fans.
     const warming = t => t?.target > 0 && t.now < t.target - 3;
@@ -614,12 +541,18 @@ class WorkshopPrinter extends HTMLElement {
       this._rebuild = true;
       changed = true;
     }
+    // A new value is laid out at once only when its shape changed (99° to
+    // 100°, a target appearing); 219° to 220° waits for the next layout, a
+    // minute away at most.
     const values = JSON.stringify(rows);
     if (values !== this._values) {
       this._values = values;
       this._rows = rows;
       for (const c of rows.flat()) { const el = this._cells?.get(c.id); if (el) fill(el, c); }
-      changed = true;
+      const look = values.replace(/\d/g, '0');
+      if (look !== this._look) changed = true;
+      else this._stale = true;
+      this._look = look;
     }
     this._line(d);
     this._picture();
@@ -716,15 +649,6 @@ class WorkshopPrinter extends HTMLElement {
 
   // ----- Layout -----
 
-  _px(name) {
-    const probe = document.createElement('div');
-    probe.style.cssText = `position:absolute;visibility:hidden;width:var(${name})`;
-    this._stage.append(probe);
-    const w = probe.getBoundingClientRect().width;
-    probe.remove();
-    return w;
-  }
-
   /*
     As Overview: the upper clusters stack up from the clock, the job down
     from the split, each one's nearest visible corner a gap from it; without
@@ -739,10 +663,10 @@ class WorkshopPrinter extends HTMLElement {
     this._owed = this.hasAttribute('between');
     if (this._owed) return;
     this._laidOut = true;
+    this._stale = false;
     const W = stage.clientWidth, H = stage.clientHeight, m = Math.min(W, H), cy = H / 2;
     const l = this._lay ??= this._haag.layout.on(stage, { graphics: '.fan, .dot' });
-    const gap = l.gap, cgap = this._px('--cluster-gap');
-    const alert = this._haag.alertrow, half = alert.showing ? (alert.bottom - alert.top) / 2 : 0;
+    const cgap = l.px('var(--cluster-gap)');
     const root = this.shadowRoot, time = root.querySelector('.time');
     const upper = [...root.querySelectorAll('.upper .cluster')].filter(el => el.childElementCount);
     const lower = [...root.querySelectorAll('.lower .cluster')].filter(el => el.childElementCount);
@@ -750,50 +674,12 @@ class WorkshopPrinter extends HTMLElement {
     this._placePicture();
 
     // The clock as tall as the job's first block, AM/PM top-aligned to it.
-    time.style.fontSize = '';
-    if (lower[0]) {
-      const t = l.edges(upper[0]), f = l.edges(lower[0]);
-      if (t.bottom > t.top && f.bottom > f.top) time.style.fontSize = `${parseFloat(getComputedStyle(time).fontSize) * (f.bottom - f.top) / (t.bottom - t.top)}px`;
-    }
-    const am = time.querySelector('.ampm');
-    am.style.top = '0px';
-    am.style.top = `${(l.baseline(time) - l.capHeight(time)) - (l.baseline(am) - l.capHeight(am))}px`;
-
-    const place = (el, ty, target) => {
-      const r = l.toSplit(el, ty, target);
-      el.style.transform = `translate(${r.x}px, ${ty}px)`;
-      return r;
-    };
-    let outStart = cy - half - cgap, inStart = cy + half + cgap;
-    if (!alert.showing && lower[0]) {
-      const ot = l.edges(upper[0]), it = l.edges(lower[0]), at = l.pair(upper[0], lower[0]);
-      let best = null;
-      for (let shift = 0; shift <= H / 2; shift += m * .005) {
-        const { upper: t, lower: f } = at(shift);
-        if (t.clamped || f.clamped) continue;
-        if (!best || t.left > best.left) best = { left: t.left, tBottom: t.y + ot.bottom, fTop: f.y + it.top };
-        if (t.left >= PAIR_LEFT_MARGIN * m) break;
-      }
-      if (best) { outStart = best.tBottom; inStart = best.fTop; }
-    }
-
-    let y = outStart;
-    for (const el of upper) {
-      const o = l.edges(el), ty = y - o.bottom, { x } = place(el, ty, -gap);
-      if (el.contains(time)) {
-        const base = el.getBoundingClientRect(), r = time.getBoundingClientRect();
-        this._haag.clock.place({ x: x + r.left - base.left, y: ty + r.top - base.top,
-          size: parseFloat(getComputedStyle(time).fontSize), ampm: this._px('--t2'), color: 'var(--n-text)' });
-      }
-      y = ty + o.top - cgap;
-    }
-    y = inStart;
-    for (const el of lower) {
-      const o = l.edges(el), ty = y - o.top;
-      place(el, ty, gap);
-      y = ty + o.bottom + cgap;
-    }
-    const jobEnd = y - cgap;
+    const known = new Map(), edges = l.fitClock(time, upper[0], lower[0]);
+    known.set(upper[0], edges[0]).set(lower[0], edges[1]);
+    const start = l.starts(upper[0], lower[0], { cgap, margin: PAIR_LEFT_MARGIN, edges }) ?? { up: cy - cgap, down: cy + cgap };
+    const clock = l.stack(upper, start.up, { up: true, cgap, known }).placed.find(p => p.el.contains(time));
+    this._haag.clock.place({ ...l.clockIn(time, clock.el, clock.x, clock.y), color: 'var(--n-text)' });
+    const jobEnd = l.stack(lower, start.down, { cgap, known }).end - cgap;
 
     // Readouts: rows of cells, cut where one would run off the screen.
     const rows = this._rows.map(r => [...r]);
@@ -812,13 +698,8 @@ class WorkshopPrinter extends HTMLElement {
     // Up from `bottom`: the readouts' visible top, or the row the screen's
     // edge stopped short.
     const stack = (els, bottom) => {
-      let b = bottom;
-      for (let i = els.length - 1; i >= 0; i--) {
-        const o = l.edges(els[i]), ty = b - o.bottom;
-        if (place(els[i], ty, gap).clamped) return { cut: i };
-        b = ty + o.top - cgap;
-      }
-      return { top: b + cgap };
+      const r = l.stack([...els].reverse(), bottom, { up: true, above: false, cgap, stop: true });
+      return r.cut === undefined ? { top: r.end + cgap } : { cut: els.length - 1 - r.cut };
     };
     const bottom = m * READOUTS + (H - m) / 2;
     // The rows as they are, unless a reading came or went, the screen

@@ -104,7 +104,22 @@ The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 - [x] A printer that reports a problem during a print raises one warning, "… needs attention"
 - [x] A printer that goes idle during its rest leaves the glance
 
-## 0.7 · Irrigation glance
+## 0.7 · Code review and refactor, part 1
+
+- [ ] Layout measures in batches; Workshop lays out only when a readout's shape changes
+- [ ] State changes passed on at most twice a second, and only to the parts that read what changed
+- [ ] The drum stops when nothing moves, and moves at 30 frames a second at most
+- [ ] The weather builds a layer when a condition first needs it
+- [ ] One copy of shared code, in the core: formats, drawing helpers, registries, kept runs, the split layout
+- [ ] A readings check on a stand-in Home Assistant
+
+## 0.7.1 · Code review and refactor, part 2
+
+Planned, and may change.
+
+- [ ] The core's settled parts in files of their own, each fetched again only when it changes
+
+## 0.8 · Irrigation glance
 
 - [ ] Shows while watering, and shortly before a scheduled run
 - [ ] Active zone and time remaining
@@ -112,7 +127,7 @@ The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 - [ ] Skipped or delayed runs (rain, wind, freeze) with the reason
 - [ ] Controller offline or in error
 
-## 0.8 · EV charging glance
+## 0.9 · EV charging glance
 
 - [ ] Shows while a car is plugged in or charging
 - [ ] Charging power, and energy added this session
@@ -121,7 +136,7 @@ The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 - [ ] More than one charger
 - [ ] Charger faults shown clearly
 
-## 0.9 · Doorbell and deliveries glance
+## 0.10 · Doorbell and deliveries glance
 
 - [ ] Shows when someone is at the door, with a camera snapshot
 - [ ] A package detected at the door, until it's picked up
@@ -129,14 +144,14 @@ The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 - [ ] Only people, packages and rings, not routine motion
 - [ ] Snapshots only, nothing stored, and each camera can be turned off
 
-## 0.10 · Display care
+## 0.11 · Display care
 
 - [ ] Night dimming
 - [ ] Burn-in protection
 - [ ] Light theme option
 - [ ] Settings per display
 
-## 0.11 · Reach
+## 0.12 · Reach
 
 - [ ] Translations (24-hour time came in 0.3)
 - [ ] Accessibility review (contrast, motion, readability at a distance)

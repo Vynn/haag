@@ -8,9 +8,13 @@
   Plain JavaScript, no build step. Sizes use container query units
   (cqmin = 1% of the screen's shorter side), so one layout scales from a
   phone to a 4K screen.
+
+  The core is the hub: glances get Home Assistant's state, the registries,
+  discovery, formats, drawing and layout helpers, kept runs and alerts
+  from it, and never import it.
 */
 
-const VERSION = '0.6.4';
+const VERSION = '0.7.0';
 const MANIFEST = 'haag/v1';   // config format marker
 
 /* ------------------------------------------------------------------------
@@ -107,7 +111,7 @@ async function loadRegistries(hass) {
   const manifests = await hass.callWS({ type: 'manifest/list', integrations: platforms }).catch(() => []);
   const iot = Object.fromEntries(manifests.map(m => [m.domain, m.iot_class]));
   const deviceName = Object.fromEntries(devices.map(d => [d.id, d.name_by_user || d.name || '']));
-  return { entities, floors, areas, iot, deviceName };
+  return { entities, devices, floors, areas, iot, deviceName };
 }
 
 /**
@@ -424,9 +428,16 @@ function linkGroups(people) {
    [entity_id, ...]`, or every visible calendar when unset.
    ------------------------------------------------------------------------ */
 
+// HA's sun entity, found once (looked for again while there's none).
+let sunId;
+function sunOf(hass) {
+  if (!sunId || !hass?.states?.[sunId]) sunId = Object.keys(hass?.states || {}).find(id => id.startsWith('sun.'));
+  return sunId;
+}
+
 // Day or night from HA's sun entity; without one, day is 6:00 to 18:00.
 function isNight(hass, now = new Date()) {
-  const sun = Object.keys(hass?.states || {}).find(id => id.startsWith('sun.'));
+  const sun = sunOf(hass);
   if (sun) return hass.states[sun].state === 'below_horizon';
   const h = now.getHours();
   return h < 6 || h >= 18;
@@ -601,8 +612,7 @@ function minuteOfDay(hass, t) {
 }
 function inWarningHours(hass, w, now) {
   if (!w.warnAt) return false;
-  const sun = Object.keys(hass.states).find(id => id.startsWith('sun.'));
-  const rising = Date.parse(hass.states[sun]?.attributes?.next_rising);
+  const rising = Date.parse(hass.states[sunOf(hass)]?.attributes?.next_rising);
   const end = w.warnUntil ? minutesOf(w.warnUntil) : Number.isFinite(rising) ? minuteOfDay(hass, rising) : 360;
   const start = minutesOf(w.warnAt), m = minuteOfDay(hass, now);
   return start <= end ? m >= start && m < end : m >= start || m < end;
@@ -1156,6 +1166,7 @@ const HELP_URL = 'https://github.com/Vynn/haag/blob/main/docs/glances.md';
 // Alert row.
 const LEVELS = ['info', 'warning', 'critical'];   // severity, low to high
 const LEVEL_ICON = { info: 'mdi:information', warning: 'mdi:alert', critical: 'mdi:alert-octagon' };
+const PASS = 500;      // ms between passing Home Assistant's state on, at least
 const TURN = 8;        // seconds per alert when several take turns
 const MOVE = 700;      // ms per turn's slide; matches --move
 const MIN_FIT = .7;    // long text shrinks to this share of its size, then is cut
@@ -1228,6 +1239,96 @@ for (const name of BUILT_IN) {
 }
 
 /* ------------------------------------------------------------------------
+   Drawing
+   Small helpers glances draw with (haag.draw, docs/glances.md).
+   ------------------------------------------------------------------------ */
+
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = u => u < .5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2;   // in and out
+const DRAW = {
+  lerp, ease,
+  // An SVG element with these attributes, added to `parent` if given.
+  svg(tag, attrs = {}, parent) {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    parent?.append(el);
+    return el;
+  },
+  // A steady random sequence, the same on every reload: next(a, b) gives a
+  // number from a to b (0 to 1 if left out).
+  seeded: seed => (a = 0, b = 1) => { seed = (seed * 16807) % 2147483647; return a + (seed / 2147483647) * (b - a); },
+  // A smooth path through points (Catmull-Rom as cubic curves): a closed
+  // outline, or an open line.
+  smooth(pts, { digits = 1, closed = true } = {}) {
+    const n = pts.length, f = v => v.toFixed(digits);
+    const P = i => closed ? pts[(i + n) % n] : pts[Math.min(n - 1, Math.max(0, i))];
+    let d = `M${f(P(0)[0])} ${f(P(0)[1])}`;
+    for (let i = 0; i < (closed ? n : n - 1); i++) {
+      const [p0, p1, p2, p3] = [P(i - 1), P(i), P(i + 1), P(i + 2)];
+      d += `C${f(p1[0] + (p2[0] - p0[0]) / 6)} ${f(p1[1] + (p2[1] - p0[1]) / 6)} ` +
+        `${f(p2[0] - (p3[0] - p1[0]) / 6)} ${f(p2[1] - (p3[1] - p1[1]) / 6)} ${f(p2[0])} ${f(p2[1])}`;
+    }
+    return closed ? d + 'Z' : d;
+  },
+};
+
+/* ------------------------------------------------------------------------
+   Runs
+   What a glance keeps of things that run and end, such as a wash cycle
+   or a print, in the browser (haag.runs, docs/glances.md). Each has a
+   record: when it started (`since`), when it ended (`ended`), whether its
+   rest is over (`cleared`), the state last seen (`last`), and anything
+   the glance adds. Seen for the first time, the state's last change
+   stands in for now. A run first seen already over, with no record of it
+   (a new display, or Home Assistant restarted), isn't shown as just ended.
+   ------------------------------------------------------------------------ */
+
+function runsIn(key) {
+  let all = {};
+  try { all = JSON.parse(localStorage.getItem(key)) || {}; } catch {}
+  let saved = JSON.stringify(all);
+  return {
+    get: id => all[id],
+    // A reading: `state` is kept as `last`; `active` and `ended` say what
+    // it is now; `changed`: when the state last changed; `opened`: when its
+    // door last opened, if it's open (after the end, the rest is over);
+    // `fresh()`: what a new run's record starts with. Returns the record.
+    track(id, { state, active = false, ended = false, changed, opened = null, fresh, now = Date.now() }) {
+      const rec = all[id] ??= {}, at = rec.last === undefined ? changed : now;
+      if (active) {
+        if (!rec.since || rec.ended) {
+          for (const k in rec) delete rec[k];
+          Object.assign(rec, { since: at }, fresh?.());
+        }
+      } else if (ended) {
+        if (!rec.since) rec.cleared = true;
+        rec.ended ??= at;
+        rec.since ??= at;
+      }
+      if (rec.ended && !rec.cleared && opened > rec.ended) rec.cleared = true;
+      rec.last = state;
+      return rec;
+    },
+    // Whether it's resting: for `rest` ms after its end, unless cleared.
+    resting: (rec, rest, now = Date.now()) => !!rec.ended && !rec.cleared && now < rec.ended + rest,
+    // Its rest is over (an alert dismissed); false if it wasn't resting.
+    clear(id) {
+      const rec = all[id];
+      if (!rec?.ended || rec.cleared) return false;
+      return rec.cleared = true;
+    },
+    // Keep only these, and store the records if anything changed.
+    keep(ids) {
+      for (const id in all) if (!ids.includes(id)) delete all[id];
+      const now = JSON.stringify(all);
+      if (now === saved) return;
+      saved = now;
+      try { localStorage.setItem(key, now); } catch {}
+    },
+  };
+}
+
+/* ------------------------------------------------------------------------
    Layout
    Helpers for a glance's stage (haag.layout.on, docs/glances.md): what's
    visible of text and icons, and placing it along the split, which runs
@@ -1238,8 +1339,50 @@ for (const name of BUILT_IN) {
 const SPLIT_GAP = 2.5;      // units between content and the split
 const SCREEN_EDGE = .02;    // margin at the screen's edges, of its shorter side
 
+// Styles for blocks placed along the split (haag.layout.css): the stage,
+// a block, three text sizes, a row on one baseline, and the clock's
+// stand-in.
+const LAYOUT_STYLE = `
+  .stage {
+    --cluster-gap: calc(2.7 * var(--u));   /* between blocks, by what's visible of them */
+    --t2: calc(5.5 * var(--u));            /* the medium text step; AM/PM's size too */
+    --move: 700ms ease-in-out;
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--home);
+  }
+  .stage.paused * { animation-play-state: paused !important; }
+  :host([between]) .stage { background: none; }
+  .cluster {
+    position: absolute;
+    left: 0;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: calc(.4 * var(--u));
+    line-height: 1.05;
+    white-space: nowrap;
+  }
+  .stage.animate .cluster { transition: transform var(--move); }
+  .t1 { font-size: calc(14 * var(--u)); }
+  .t2 { font-size: var(--t2); }
+  .t3 { font-size: calc(2.8 * var(--u)); color: var(--text-2); }
+  .line { display: flex; gap: calc(1.2 * var(--u)); align-items: baseline; }
+  /* The clock is Håg's. This stands in for layout to measure: a tight box
+     around the numerals (inline boxes take the font's full height), AM/PM
+     hanging outside it, top-aligned by fitClock(). */
+  .time { position: relative; line-height: .8; visibility: hidden; }
+  .time [data-live="time"] { display: inline-block; line-height: .8; }
+  .ampm { position: absolute; left: 100%; top: 0; margin-left: calc(.7 * var(--u)); font-size: var(--t2); line-height: 1; }
+`;
+
 // `graphics`: what counts as a picture (measured by its box, not its text).
 // `band`: the alert row's { showing, top, bottom }.
+// Measuring forces the page's layout, so it's done in batches: probes go in
+// together, are read together and come out together.
 function layoutOn(stage, { graphics = 'svg, img, ha-icon' } = {}, band) {
   const ctx = document.createElement('canvas').getContext('2d');
   const font = el => {
@@ -1249,37 +1392,78 @@ function layoutOn(stage, { graphics = 'svg, img, ha-icon' } = {}, band) {
   const a = SPLIT_ANGLE * Math.PI / 180, sa = Math.sin(a), ca = Math.cos(a);
   const screen = () => {
     const W = stage.clientWidth, H = stage.clientHeight;
-    return { W, cx: W / 2, cy: H / 2, edge: Math.min(W, H) * SCREEN_EDGE };
+    return { W, H, cx: W / 2, cy: H / 2, edge: Math.min(W, H) * SCREEN_EDGE };
   };
   const hasText = el => [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
   // The visible pieces of an element: those holding text, plus graphics.
   const ink = el => [...el.querySelectorAll('*')].filter(e =>
     e.getClientRects().length && (e.matches(graphics) || hasText(e)));
   const descent = el => { font(el); return Math.max(0, ctx.measureText(el.textContent).actualBoundingBoxDescent); };
+  // The last visible line's baseline, from the first's (text that wraps or is cut off).
+  const lastLine = (el, first) => {
+    const lh = parseFloat(getComputedStyle(el).lineHeight);
+    return lh ? first + (Math.max(1, Math.round(el.getBoundingClientRect().height / lh)) - 1) * lh : first;
+  };
+  // An element's graphics (by their boxes) and the elements holding its text.
+  const pieces = el => {
+    const boxes = [], texts = [];
+    const walk = node => {
+      for (const e of node.children) {
+        if (!e.getClientRects().length) continue;
+        if (e.matches(graphics)) { boxes.push(e.getBoundingClientRect()); continue; }
+        if (hasText(e)) texts.push(e);
+        walk(e);
+      }
+    };
+    walk(el);
+    return { base: el.getBoundingClientRect().top, boxes, texts };
+  };
+  // Where to put corners (from their element's top-left, its top at y) so
+  // the nearest is `distance` from the split, inside the screen's margin.
+  const split = (corners, y, distance) => {
+    const { W, cx, cy, edge } = screen();
+    const s = corners.map(([x, cy0]) => sa * x + ca * (y + cy0 - cy));
+    const want = cx + (distance - (distance < 0 ? Math.max : Math.min)(...s)) / sa;
+    const xs = corners.map(c => c[0]), minX = Math.min(...xs), maxX = Math.max(...xs);
+    const x = Math.min(Math.max(want, edge - minX), W - edge - maxX);
+    return { x, left: x + minX, clamped: Math.abs(x - want) > .5 };
+  };
+  let sized = '', lengths = new Map();   // lengths in px, for the stage's size
 
   const l = {
-    get gap() {
-      const probe = document.createElement('div');
-      probe.style.cssText = `position:absolute;visibility:hidden;width:calc(${SPLIT_GAP} * var(--u))`;
-      stage.appendChild(probe);
-      const w = probe.getBoundingClientRect().width;
-      probe.remove();
-      return w;
+    // A CSS length in pixels, such as 'var(--t2)' or 'calc(2 * var(--u))'.
+    // Measured once for each size of the stage.
+    px(length) {
+      const size = `${stage.clientWidth}x${stage.clientHeight}`;
+      if (size !== sized) { sized = size; lengths = new Map(); }
+      if (!lengths.has(length)) {
+        const probe = document.createElement('div');
+        probe.style.cssText = `position:absolute;visibility:hidden;width:${length}`;
+        stage.appendChild(probe);
+        lengths.set(length, probe.getBoundingClientRect().width);
+        probe.remove();
+      }
+      return lengths.get(length);
     },
+    get gap() { return l.px(`calc(${SPLIT_GAP} * var(--u))`); },
     capHeight(el) { font(el); return ctx.measureText('H').actualBoundingBoxAscent; },
-    // The first line's baseline, via a zero-size inline probe, or the last
-    // visible line's (for text that wraps or is cut off). In the page's
-    // coordinates, like getBoundingClientRect.
+    // Each element's first-line baseline, via a zero-size inline probe in
+    // each, in one pass. In the page's coordinates, like getBoundingClientRect.
+    baselines(els) {
+      const probes = els.map(el => {
+        const probe = document.createElement('span');
+        probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
+        el.insertBefore(probe, el.firstChild);
+        return probe;
+      });
+      const out = probes.map(p => p.getBoundingClientRect().bottom);
+      for (const p of probes) p.remove();
+      return out;
+    },
+    // The first line's baseline, or the last visible line's.
     baseline(el, last = false) {
-      const probe = document.createElement('span');
-      probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
-      el.insertBefore(probe, el.firstChild);
-      const first = probe.getBoundingClientRect().bottom;
-      probe.remove();
-      if (!last) return first;
-      const lh = parseFloat(getComputedStyle(el).lineHeight);
-      if (!lh) return first;
-      return first + (Math.max(1, Math.round(el.getBoundingClientRect().height / lh)) - 1) * lh;
+      const [first] = l.baselines([el]);
+      return last ? lastLine(el, first) : first;
     },
     // Corners of the visible pieces, from the element's top-left.
     corners(el) {
@@ -1293,39 +1477,31 @@ function layoutOn(stage, { graphics = 'svg, img, ha-icon' } = {}, band) {
     // Visible top and bottom, from the element's top: text from cap height
     // to baseline, graphics by their box. data-descender="f" counts that
     // share of a text's descender (a "y" hanging toward its neighbour).
+    // Given a list, each one's, measured together.
     edges(el) {
-      const base = el.getBoundingClientRect().top;
-      let top = Infinity, bottom = -Infinity;
-      const walk = node => {
-        for (const e of node.children) {
-          if (!e.getClientRects().length) continue;
-          if (e.matches(graphics)) {
-            const r = e.getBoundingClientRect();
-            top = Math.min(top, r.top);
-            bottom = Math.max(bottom, r.bottom);
-            continue;
-          }
-          if (hasText(e)) {
-            top = Math.min(top, l.baseline(e) - l.capHeight(e));
-            bottom = Math.max(bottom, l.baseline(e, true) + (parseFloat(e.dataset.descender) || 0) * descent(e));
-          }
-          walk(e);
+      const list = Array.isArray(el) ? el : [el], found = list.map(pieces);
+      // What reads the page first, then every probe at once.
+      const texts = found.flatMap(f => f.texts);
+      const lines = texts.map(e => ({ cap: l.capHeight(e), down: (parseFloat(e.dataset.descender) || 0) * descent(e) }));
+      const firsts = l.baselines(texts);
+      let i = 0;
+      const out = found.map(f => {
+        let top = Math.min(Infinity, ...f.boxes.map(r => r.top)), bottom = Math.max(-Infinity, ...f.boxes.map(r => r.bottom));
+        for (const e of f.texts) {
+          const { cap, down } = lines[i], first = firsts[i++];
+          top = Math.min(top, first - cap);
+          bottom = Math.max(bottom, lastLine(e, first) + down);
         }
-      };
-      walk(el);
-      return { top: top - base, bottom: bottom - base };
+        return { top: top - f.base, bottom: bottom - f.base };
+      });
+      return Array.isArray(el) ? out : out[0];
     },
     // The x for an element whose top is at y, with its nearest visible corner
     // `distance` from the split (negative: the upper side), kept inside the
     // screen's margin. `left`: its visible left edge; `clamped`: the margin
     // stopped it short.
     toSplit(el, y, distance) {
-      const { W, cx, cy, edge } = screen(), corners = l.corners(el);
-      const s = corners.map(([x, cy0]) => sa * x + ca * (y + cy0 - cy));
-      const want = cx + (distance - (distance < 0 ? Math.max : Math.min)(...s)) / sa;
-      const xs = corners.map(c => c[0]), minX = Math.min(...xs), maxX = Math.max(...xs);
-      const x = Math.min(Math.max(want, edge - minX), W - edge - maxX);
-      return { x, left: x + minX, clamped: Math.abs(x - want) > .5 };
+      return split(l.corners(el), y, distance);
     },
     // How far a line spanning top..bottom may reach and stay `distance` from
     // the split: rightward on the upper side, leftward on the lower.
@@ -1336,19 +1512,97 @@ function layoutOn(stage, { graphics = 'svg, img, ha-icon' } = {}, band) {
     },
     // Two elements side by side across the split, each a gap from it:
     // centered on the middle, or, with the alert row showing, slid apart
-    // along the split to clear it by `clear`. Measures once and returns
-    // at(shift): shift slides the pair up the line, stagger (px) sets them
-    // apart in height. Each side is { x, y, left, clamped }, y its top.
-    pair(upper, lower, { stagger = 0, clear } = {}) {
-      const u = l.edges(upper), d = l.edges(lower), gap = l.gap;
+    // along the split to clear it by `clear`. Measures once (`edges`: the
+    // two's, when already measured) and returns at(shift): shift slides
+    // the pair up the line, stagger (px) sets them apart in height. Each
+    // side is { x, y, left, clamped }, y its top.
+    pair(upper, lower, { stagger = 0, clear, edges } = {}) {
+      const [u, d] = edges ?? l.edges([upper, lower]), gap = l.gap;
+      const cu = l.corners(upper), cd = l.corners(lower);
       clear ??= gap;
       return (shift = 0) => {
         const { cy } = screen(), row = band();
         const ub = row.showing ? row.top - clear : cy - shift - stagger / 2 + (u.bottom - u.top) / 2;
         const dt = row.showing ? row.bottom + clear : cy - shift + stagger / 2 - (d.bottom - d.top) / 2;
         const uy = ub - u.bottom, dy = dt - d.top;
-        return { upper: { ...l.toSplit(upper, uy, -gap), y: uy }, lower: { ...l.toSplit(lower, dy, gap), y: dy } };
+        return { upper: { ...split(cu, uy, -gap), y: uy }, lower: { ...split(cd, dy, gap), y: dy } };
       };
+    },
+
+    // ----- Blocks in two stacks along the split, as Overview's -----
+
+    // A clock stand-in (its AM/PM a .ampm inside it) made as tall as
+    // `block` is, visible top to bottom, with AM/PM top-aligned to the
+    // numerals. `own`: the block holding the stand-in. Without `block`,
+    // only AM/PM is aligned. Returns the edges of both, [own, block].
+    fitClock(time, own, block) {
+      let f = null;
+      if (block) {
+        time.style.fontSize = '';
+        const [t, to] = l.edges([own, block]);
+        const current = t.bottom - t.top, target = to.bottom - to.top;
+        if (current > 0 && target > 0) time.style.fontSize = `${parseFloat(getComputedStyle(time).fontSize) * target / current}px`;
+        f = to;
+      }
+      const am = time.querySelector('.ampm');
+      if (am) {
+        am.style.top = '0px';
+        const [numerals, period] = l.baselines([time, am]);
+        am.style.top = `${(numerals - l.capHeight(time)) - (period - l.capHeight(am))}px`;
+      }
+      return [l.edges(own), f];
+    },
+    // Where the two stacks start: the visible bottom of the first upper
+    // block (`up`) and the visible top of the first lower one (`down`).
+    // With the alert row showing, `cgap` clear of it. Without it, the two
+    // sit side by side across the split: centered on the middle, or slid
+    // up the line just far enough for the upper to keep `margin` (a share
+    // of the screen's shorter side) on its left. null when no height fits
+    // both. `edges`: the two's, when already measured.
+    starts(upper, lower, { cgap = 0, margin = 0, edges } = {}) {
+      const { W, H, cy } = screen(), row = band();
+      if (row.showing || !upper || !lower) {
+        const half = row.showing ? (row.bottom - row.top) / 2 : 0;
+        return { up: cy - half - cgap, down: cy + half + cgap };
+      }
+      const [u, d] = edges ?? l.edges([upper, lower]), at = l.pair(upper, lower, { edges: [u, d] });
+      const m = Math.min(W, H);
+      let best = null;
+      for (let shift = 0; shift <= H / 2; shift += m * .005) {
+        const { upper: t, lower: f } = at(shift);
+        if (t.clamped || f.clamped) continue;
+        if (!best || t.left > best.left) best = { left: t.left, up: t.y + u.bottom, down: f.y + d.top };
+        if (t.left >= margin * m) break;
+      }
+      return best && { up: best.up, down: best.down };
+    },
+    // Blocks one after another from `from`, `cgap` apart by what's visible
+    // of them: downward from their tops, or `up` from their bottoms. Each
+    // is moved (by its transform) a gap from the split, `above` it or
+    // below. `known`: edges already measured (a Map, by block). Gives each
+    // block's place ({ el, x, y, edges, clamped }) and `end`, where the
+    // next would start; with `stop`, it stops at the first block the
+    // screen's margin stops short, `cut`.
+    stack(els, from, { up = false, above = up, cgap = 0, known, stop = false } = {}) {
+      const gap = l.gap, rest = els.filter(el => !known?.has(el)), measured = l.edges(rest);
+      const placed = [];
+      let y = from, cut;
+      for (const el of els) {
+        const o = known?.get(el) ?? measured[rest.indexOf(el)], ty = up ? y - o.bottom : y - o.top;
+        const r = split(l.corners(el), ty, above ? -gap : gap);
+        el.style.transform = `translate(${r.x}px, ${ty}px)`;
+        placed.push({ el, x: r.x, y: ty, edges: o, clamped: r.clamped });
+        if (stop && r.clamped) { cut = placed.length - 1; break; }
+        y = up ? ty + o.top - cgap : ty + o.bottom + cgap;
+      }
+      return { placed, end: y, cut };
+    },
+    // A clock stand-in's place, for haag.clock.place: `own`, the block
+    // holding it, has its top-left at (x, y).
+    clockIn(time, own, x, y) {
+      const base = own.getBoundingClientRect(), r = time.getBoundingClientRect();
+      return { x: x + r.left - base.left, y: y + r.top - base.top,
+        size: parseFloat(getComputedStyle(time).fontSize), ampm: l.px('var(--t2)') };
     },
   };
   return l;
@@ -1574,8 +1828,6 @@ const OUT = [0, .45], RAYS = [.2, .8], IN = [.55, 1];
 // on the split (degrees clockwise from 12 o'clock).
 const WIPE = 1000, WIPE_FROM = 90 - SPLIT_ANGLE;
 
-const lerp = (a, b, t) => a + (b - a) * t;
-const ease = u => u < .5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2;
 const during = ([s, e], t) => ease(Math.min(1, Math.max(0, (t - s) / (e - s))));
 const norm = a => (a % 360 + 360) % 360;
 const wrap = a => norm(a + 180) - 180;   // to -180..180
@@ -1821,23 +2073,46 @@ class HaagHost extends HTMLElement {
     this._config = config;
     this._settings = readSettings(config);
     for (const [name, entry] of this._running) entry.alertSettings = glanceAlerts(entry.reg.manifest, config, name);
-    this._updateDaylight();
+    if (this._hass) this._pass(true);   // the theme may have changed
+    else this._updateDaylight();
   }
 
+  // Home Assistant sets this on every state change in the house. The
+  // first is passed on at once; after that, at most one every PASS ms.
   set hass(hass) {
-    const first = !this._hass;
+    this._latest = hass;
+    const wait = this._hass ? this._passedAt + PASS - performance.now() : 0;
+    if (wait <= 0) this._pass();
+    else this._passTimer ??= setTimeout(() => this._pass(), wait);
+  }
+
+  // Pass the latest state on: to each part of Håg and each glance when
+  // something it reads changed (haag.watch; without a list, every time),
+  // and to all of them once a minute, or when `all` is set.
+  _pass(all = false) {
+    clearTimeout(this._passTimer);
+    this._passTimer = null;
+    const hass = this._latest, old = this._hass, now = performance.now();
+    if (!hass) return;
+    this._passedAt = now;
     this._hass = hass;
-    this._updateDaylight();
-    if (first) {
+    if (all || !old || now - (this._allAt ?? 0) >= MINUTE || ['config', 'locale', 'language'].some(k => hass[k] !== old[k])) {
+      all = true;
+      this._allAt = now;
+    }
+    const changed = ids => all || !ids || ids.some(id => hass.states[id] !== old.states[id]);
+    const sun = sunOf(hass), day = this._daylight;
+    if (changed(sun && [sun])) this._updateDaylight();
+    if (this._daylight !== day) all = true;   // glances draw by it
+    if (!old) {
       this._discover();
       this._tickClock();
     }
-    for (const entry of this._running.values()) {
-      entry.el.hass = hass;
-      for (const inst of entry.list ?? []) inst.el.hass = hass;
+    for (const face of [...this._running.values()].flatMap(entry => [entry, ...(entry.list ?? [])])) {
+      if (changed(face.watch)) face.el.hass = hass;
     }
-    this._household();
-    this._weatherAlerts();
+    if (changed(this._homeWatch)) this._household();
+    if (changed(this._wxWatch)) this._weatherAlerts();
   }
 
   getCardSize() { return 12; }
@@ -1887,6 +2162,8 @@ class HaagHost extends HTMLElement {
     registryListeners.delete(this._sync);
     noticeListeners.delete(this._showNotices);
     clearTimeout(this._noticeTimer);
+    clearTimeout(this._passTimer);
+    this._passTimer = null;
     clearTimeout(this._clockTimer);
     clearTimeout(this._turnTimer);
     clearTimeout(this._slotTimer);
@@ -1911,26 +2188,35 @@ class HaagHost extends HTMLElement {
   async _discover() {
     const hass = this._hass;
     const p = this._settings.providers;
-    let reg = { entities: [], floors: [], areas: [], iot: {}, deviceName: {} };
+    let reg = { entities: [], devices: [], floors: [], areas: [], iot: {}, deviceName: {} };
     try {
       reg = await loadRegistries(hass);
     } catch (err) {
       notice('warning', "Couldn't read Home Assistant's setup", err);
     }
+    this._registry = reg;
     const people = discoverPeople(hass, p.people);
     const calendars = discoverCalendars(hass, reg, p.calendar);
     const { calendars: theirs, colors } = discoverColors(hass, reg, people, calendars, p.people);
     this._colors = colors;
     this._tints = new Map();
+    const outdoor = discoverOutdoor(hass, reg, p.outdoor), floors = discoverFloors(hass, reg, p.floors);
     this._providers = {
-      outdoor: discoverOutdoor(hass, reg, p.outdoor),
-      floors: discoverFloors(hass, reg, p.floors),
+      outdoor,
+      floors,
       people: { ...people, groups: linkGroups(people), calendars: theirs },
       calendars,
       value: ref => numericValue(this._hass, ref),
       unit: ref => unitOf(this._hass, ref),
       hvac: climate => hvacStatus(this._hass, climate),
       locate: () => locatePeople(this._hass, people, reg),
+      // Every entity these read, as of now (a person's trackers can change): for haag.watch.
+      entities: () => {
+        const who = [...people.ids, ...Object.keys(people.links), ...Object.values(people.links)];
+        const refs = [...Object.values(outdoor), ...floors.flatMap(f => [f.climate, ...Object.values(f.slots)]), ...calendars,
+          ...who, ...who.flatMap(id => this._hass.states[id]?.attributes?.device_trackers || [])];
+        return [...new Set(refs.filter(Boolean).map(r => typeof r === 'string' ? r : r.entity))];
+      },
     };
     this._sync();
     try {
@@ -1947,8 +2233,13 @@ class HaagHost extends HTMLElement {
       console.error('Håg: setup checks failed', err);
     }
     this._seen = new Map();   // reading → when first seen past its limit
+    // What the alerts read: the watched sensors, and the sun for warning hours.
+    this._homeWatch = [...(this._watch ?? []).map(w => w.entity), sunOf(hass)].filter(Boolean);
     this._household();
-    this._wxSource = discoverWeather(hass, reg, this._settings.alerts.weather);
+    const wx = this._wxSource = discoverWeather(hass, reg, this._settings.alerts.weather);
+    // CAP Alerts' sensors come and go, so every state is looked at.
+    this._wxWatch = wx && wx.platform !== 'cap_alerts'
+      ? [...wx.entities, ...Object.values(wx.slots ?? {}).flatMap(s => [s.headline, s.severity])].filter(Boolean) : null;
     this._wxFetched = new Map();   // action results, by config entry or NINA slot
     this._wxCalls = new Map();     // when each action was last called, and for what
     this._weatherAlerts();
@@ -2196,9 +2487,22 @@ class HaagHost extends HTMLElement {
     const { set, delete: del, clear } = face.alerts;
     const haag = {
       providers: this._providers,
+      // Home Assistant's registries, as the core read them, each entity with its `area` and `floor`.
+      get registry() { return host._registry; },
+      // The entities it reads: `hass` is then set only when one changes (null: on every pass).
+      watch(ids) { face.watch = ids ? [...new Set(ids.filter(Boolean))] : null; },
       get daylight() { return host._daylight; },
       get easterEggs() { return host._settings.easterEggs; },   // a glance's own setting can still turn them off
-      layout: { angle: SPLIT_ANGLE, on: (stage, options) => layoutOn(stage, options, () => haag.alertrow) },
+      layout: { angle: SPLIT_ANGLE, css: LAYOUT_STYLE, on: (stage, options) => layoutOn(stage, options, () => haag.alertrow) },
+      // Numbers, times and durations as Home Assistant's settings write them.
+      format: {
+        number: (n, digits) => formatNumber(host._hass, n, digits),
+        time: (t, now) => formatTime(host._hass, t, now),
+        duration, cap,
+      },
+      draw: DRAW,
+      // Its runs, kept in the browser under the glance's name.
+      get runs() { return entry.runs ??= runsIn(`haag-${entry.name}`); },
       icon: setIcon,
       colorOf: (id, on) => host._colorOf(id, on),
       get alertrow() { return host._alertBand(); },
@@ -2514,12 +2818,13 @@ class HaagHost extends HTMLElement {
     p.style.fontSize = `${size}px`;
     am.style.fontSize = `${ampm}px`;
     am.style.top = '0px';
+    const [numerals, period] = l.baselines([p, am]);
     return {
       width: am.textContent ? am.offsetLeft + am.offsetWidth : p.offsetWidth,
       height: p.offsetHeight,
       colon: colon ? colon.offsetLeft + colon.offsetWidth / 2 : 0,
       ampm,
-      top: (l.baseline(p) - l.capHeight(p)) - (l.baseline(am) - l.capHeight(am)),
+      top: (numerals - l.capHeight(p)) - (period - l.capHeight(am)),
     };
   }
 
@@ -2527,14 +2832,7 @@ class HaagHost extends HTMLElement {
   // size, just above the alert row while it shows.
   _defaultClock() {
     const stage = this._stage, W = stage.clientWidth, H = stage.clientHeight;
-    const units = n => {
-      const probe = document.createElement('div');
-      probe.style.cssText = `position:absolute;visibility:hidden;width:calc(${n} * var(--u))`;
-      stage.append(probe);
-      const w = probe.getBoundingClientRect().width;
-      probe.remove();
-      return w;
-    };
+    const units = n => (this._clockLay ??= layoutOn(stage)).px(`calc(${n} * var(--u))`);
     const size = units(14), { height } = this._clockBox(size), band = this._alertBand();
     const y = band.showing ? band.top - units(SPLIT_GAP) - height : H / 2 - height / 2;
     return { x: W / 2, y, size, align: 'colon' };

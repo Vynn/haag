@@ -183,7 +183,7 @@ alerts: [
 // glance.js
 class MyGlance extends HTMLElement {
   setConfig(settings) {}   // its entry from settings
-  set hass(hass) {}        // Home Assistant's state, on every change
+  set hass(hass) {}        // Home Assistant's state, when it changes (below)
   set haag(haag) {}        // what Håg provides, below
   parts() {}               // optional, for transitions, below
 }
@@ -193,6 +193,17 @@ customElements.define('my-glance', MyGlance);
 `setConfig` and `hass` work as in Home Assistant's own cards. If the tag is already taken, the glance fails to load and Håg gives a notice.
 
 Every glance fills its screen with at least a background color. It can use Håg's colors or a palette of its own.
+
+### Home Assistant's state
+
+Home Assistant reports every state change in the house, often several a second. Håg passes them on in step: the first at once, then at most one every half second, always ending with the latest.
+
+- **Without a list,** a glance gets `hass` on every pass.
+- **`haag.watch(ids)`** says which entities the glance reads. From then on it gets `hass` only when one of them changed. Call it again whenever the list changes; `haag.watch(null)` goes back to every pass.
+- **It's also set** when Home Assistant's own settings change (units, time zone, language), when day turns to night or back, and once a minute while anything in the house changes.
+- **The list has to be complete.** An entity that's read but not listed shows a stale reading for up to a minute. For what the glance reads through `haag.providers`, `haag.providers.entities()` gives the list.
+
+An [instance](#instances) has a list of its own.
 
 ### Asking for the screen
 
@@ -233,11 +244,16 @@ instances: { element: 'my-printer', max: 3 },
 
 | | |
 |---|---|
-| `haag.providers` | Discovery results (`outdoor`, `floors`, `people` with each person's `calendars`, `calendars`), with settings applied, and readers for their current state: `value(ref)`, `unit(ref)`, `hvac(climate)`, `locate()`. |
+| `haag.providers` | Discovery results (`outdoor`, `floors`, `people` with each person's `calendars`, `calendars`), with settings applied, and readers for their current state: `value(ref)`, `unit(ref)`, `hvac(climate)`, `locate()`. `entities()` lists every entity these read, for `haag.watch`. |
+| `haag.registry` | Home Assistant's registries as Håg read them at startup: `entities` (each with its own or its device's `area`, and that area's `floor`), `devices`, `areas` and `floors`. A glance doesn't fetch them again. |
+| `haag.watch(ids)` | The entities the glance reads, so `hass` is set only when one changes. See [Home Assistant's state](#home-assistants-state). |
+| `haag.format` | Text as Home Assistant's settings write it: `number(n, digits)`, `time(t, now)` ("4:00 PM", "16:00", with the weekday when it isn't today: "Sat 4:00 PM"), `duration(ms)` ("3 min", "2 h", "4 d", rounded down) and `cap(text)` (first letter capital). |
+| `haag.draw` | Small drawing helpers: `svg(tag, attributes, parent)` makes an SVG element; `seeded(seed)` gives a random sequence that's the same on every reload, as `next(a, b)`; `smooth(points, { digits, closed })` is a smooth path through points; `lerp(a, b, t)` and `ease(t)`. |
+| `haag.runs` | What the glance keeps of things that run and end. See [runs](#runs). |
 | `haag.colorOf(entity_id, on)` | A person's or calendar's color, as a CSS color readable at 4.5:1 on `'sky'` or `'home'` (the default), by day and by night. It follows the switch between them on its own. `null` for anything else. |
 | `haag.daylight` | Whether day colors are showing: the `theme` setting, or the sun when it's `auto`. |
 | `haag.easterEggs` | Whether easter eggs are on overall (the `easter_eggs` setting). A glance with easter eggs shows them only when this is on; its own setting can turn them off just for it. |
-| `haag.layout` | The shared geometry: the split's `angle` (the line runs through the center), and `on(stage)`, helpers for placing content (below). |
+| `haag.layout` | The shared geometry: the split's `angle` (the line runs through the center), `on(stage)`, helpers for placing content (below), and `css`, the styles for [blocks along the split](#blocks-along-the-split). |
 | `haag.icon(element, name)` | Draws a Home Assistant icon, filling the element. Fitting it to the text is up to the glance. |
 | `haag.alerts` | This glance's alerts: `set`, `delete` and `clear`. See [alerts](alerts.md#the-alerts-api). |
 | `haag.alertrow` | Whether the alert row shows, and where. |
@@ -262,15 +278,50 @@ Each mixes a night and a day value (`--n-sky`, `--d-sky`, …) by `--haag-daylig
 | Helper | Gives |
 |---|---|
 | `gap` | The space between content and the split, 2.5 units, in pixels. |
+| `px(length)` | A CSS length in pixels, such as `'var(--t2)'` or `'calc(2 * var(--u))'`. Measured once for each size of the stage. |
 | `capHeight(el)` | The height of a capital letter in `el`'s font. |
 | `baseline(el, last)` | The first line's baseline, or with `last` the last visible line's, in the page's coordinates (like `getBoundingClientRect`). |
+| `baselines(els)` | The first-line baseline of each element in a list, measured together. |
 | `corners(el)` | The corners of `el`'s visible pieces, from its top-left. |
-| `edges(el)` | `el`'s visible `top` and `bottom`, from its top: text from its cap height to its baseline, graphics by their box. `data-descender="0.5"` on a text counts that share of its descender. |
+| `edges(el)` | `el`'s visible `top` and `bottom`, from its top: text from its cap height to its baseline, graphics by their box. `data-descender="0.5"` on a text counts that share of its descender. Given a list of elements, each one's, measured together. |
 | `toSplit(el, y, distance)` | Where to put `el`, its top at `y`, so its nearest visible corner is `distance` from the split: negative on the upper side, positive on the lower. Kept inside the screen's margin. `{ x, left, clamped }`: `left` is its visible left edge, `clamped` that the margin stopped it short. |
 | `room(top, bottom, distance)` | How far a line spanning `top` to `bottom` may reach and stay `distance` from the split: rightward on the upper side, leftward on the lower. |
-| `pair(upper, lower, { stagger, clear })` | Two elements side by side across the split, each a gap from it, as Overview's are. Measures once and returns `at(shift)`, giving `{ upper, lower }`, each `{ x, y, left, clamped }` with `y` its top. Centered on the middle and moved up by `shift`, `stagger` pixels apart in height; while the alert row shows, slid apart along the split to clear it by `clear` (the gap if left out). |
+| `pair(upper, lower, { stagger, clear, edges })` | Two elements side by side across the split, each a gap from it, as Overview's are. Measures once and returns `at(shift)`, giving `{ upper, lower }`, each `{ x, y, left, clamped }` with `y` its top. Centered on the middle and moved up by `shift`, `stagger` pixels apart in height; while the alert row shows, slid apart along the split to clear it by `clear` (the gap if left out). `edges`: the two's, when already measured. |
+
+Measuring makes the browser lay the page out again, which is slow. Measure several elements in one call where a helper takes a list, and don't measure the same element twice.
+
+#### Blocks along the split
+
+Overview and Workshop place their content the same way: blocks in two stacks, one up from the split and one down from it, the first of each side by side across it. These helpers and styles do that for any glance.
+
+`haag.layout.css` holds the styles: the `.stage`, a block (`.cluster`), three text sizes (`.t1`, `.t2`, `.t3`), a row on one baseline (`.line`), and the clock's stand-in (`.time`, with AM/PM as `.ampm` inside it). Add it to the glance's shadow root, before the glance's own styles.
+
+| Helper | Does |
+|---|---|
+| `fitClock(time, own, block)` | Makes a clock stand-in as tall as `block` is, visible top to bottom, with AM/PM top-aligned to the numerals. `own` is the block holding the stand-in. Returns the edges of both, `[own, block]`. |
+| `starts(upper, lower, { cgap, margin, edges })` | Where the two stacks start: `up`, the visible bottom of the first upper block, and `down`, the visible top of the first lower one. With the alert row showing, `cgap` clear of it. Without it, side by side across the split: centered on the middle, or slid up just far enough for the upper block to keep `margin` (a share of the screen's shorter side) on its left. `null` when no height fits both. |
+| `stack(els, from, { up, above, cgap, known, stop })` | Places blocks one after another from `from`, `cgap` apart by what's visible of them: downward from their tops, or with `up` upward from their bottoms. Each goes a gap from the split, `above` it or below. `known` is a Map of edges already measured, by block. Returns each block's place (`placed`: `{ el, x, y, edges, clamped }`) and `end`, where the next would start. With `stop`, it stops at the first block the screen's margin stops short, and returns its index as `cut`. |
+| `clockIn(time, own, x, y)` | A clock stand-in's place for `haag.clock.place`, when `own`, the block holding it, has its top-left at (`x`, `y`). |
 
 These are a start, shaped by two glances, and may change as more are made.
+
+### Runs
+
+Some things run and end: a wash cycle, a print. `haag.runs` keeps a record of each in the browser, under the glance's name, so a reload or a restart of the display doesn't lose it.
+
+| | |
+|---|---|
+| `track(id, reading)` | Takes a reading and returns the record. `reading`: `state` (kept as `last`), `active` and `ended` (what it is now), `changed` (when the state last changed), and optionally `opened` (when its door last opened, if it's open) and `fresh()` (what a new run's record starts with). |
+| `get(id)` | The record, or nothing. |
+| `resting(record, rest, now)` | Whether it still shows after its end: for `rest` milliseconds, unless cleared. |
+| `clear(id)` | Its rest is over, as when its alert is dismissed. False if it wasn't resting. |
+| `keep(ids)` | Drops every other record, and stores the rest if anything changed. Call it after tracking. |
+
+A record holds `since` (when it started), `ended`, `cleared` (its rest is over) and `last`. The glance may add to it.
+
+- **Seen for the first time,** the state's last change stands in for now.
+- **A run first seen already over,** with no record of it (a new display, or Home Assistant restarted), isn't shown as just ended.
+- **A door opened after the end** ends the rest.
 
 ### Alert row
 

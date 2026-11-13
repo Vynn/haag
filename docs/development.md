@@ -30,6 +30,19 @@ The test page can preview square, portrait and landscape shapes, show a sample a
 
 It also loads the Test glance (`tools/glances/test/`), a stand-in second glance that isn't shipped. Turned on, it asks for the screen for 5 seconds, then lets go for 25.
 
+## Readings check
+
+The readings check runs Håg on a stand-in Home Assistant kept in the page: a small house, one machine for each appliance integration and one printer for each printer integration. It steps their states through a few cycles and compares what Håg shows, raises and keeps after each step with `tools/readings.json`.
+
+1. Start the local server, as above.
+2. Open `http://127.0.0.1:8117/tools/readings.html`. After about 15 seconds it says whether every reading matches, and lists those that don't.
+
+- It reaches no real Home Assistant, runs at one fixed moment, and keeps Håg's browser storage to itself.
+- After an intended change, look over the new readings (the box at the bottom of the page) and save them as `tools/readings.json`.
+- For layout work, `?size=450x800` runs it at another size, and `window.placements` holds where every block was put at each step, to compare before and after a change. Placements depend on the machine's fonts, so none are kept.
+
+It checks readings and wording, not drawing: look at the test page for that.
+
 ## Third-party code
 
 The plugin bundles one third-party file:

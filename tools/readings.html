@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Håg readings check</title>
+<!--
+  Håg dev tooling: a check of what Håg reads and shows.
+
+  Mounts Håg on a stand-in Home Assistant kept in this page: a small
+  house, one machine for each appliance integration and one printer for
+  each printer integration. It steps their states through a few cycles and
+  compares what Håg shows, raises and keeps after each step with
+  readings.json.
+
+  Run tools/dev-server.py, then open http://127.0.0.1:8117/tools/readings.html
+  After an intended change, look over the new readings (the box at the
+  bottom) and save them as readings.json.
+
+  For layout work: ?size=450x800 runs it at another size (readings are only
+  compared at the default one), and window.placements holds where every
+  block was put at each step, to compare before and after a change by
+  hand. Placements depend on the machine's fonts, so none are kept.
+
+  Nothing here reaches a real Home Assistant. Not part of the plugin install.
+-->
+<style>
+  body { margin: 0; padding: 16px; font: 14px/1.45 system-ui, sans-serif; color: #222; background: #f4f4f4; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 12px; }
+  #sum { margin: 10px 0; padding: 6px 10px; border-radius: 3px; background: #e8e8e8; }
+  #sum.ok { background: #dff0e4; }
+  #sum.err { background: #f6dede; }
+  table { border-collapse: collapse; font-size: 13px; }
+  td, th { text-align: left; padding: 3px 14px 3px 0; vertical-align: top; }
+  pre { margin: 0; white-space: pre-wrap; font: 12px/1.4 ui-monospace, monospace; }
+  textarea { width: min(100%, 800px); font: 12px/1.4 ui-monospace, monospace; }
+  .frame { width: 800px; height: 800px; border: 1px solid #222; margin-top: 16px; }
+  .frame haag-host { --haag-height: 100%; }
+</style>
+</head>
+<body>
+<h1>Håg readings check</h1>
+<div id="sum">Running…</div>
+<table id="out"></table>
+<div class="frame" id="frame"></div>
+<p>The readings from this run:</p>
+<textarea id="now" rows="8" readonly></textarea>
+
+<script>
+  // One fixed moment, and Håg's browser storage kept on this page only: a
+  // run repeats exactly, and nothing the test page saved is touched.
+  const NOW = Date.parse('2026-01-15T15:04:00Z');
+  const RealDate = Date;
+  window.Date = class extends RealDate {
+    constructor(...a) { if (a.length) super(...a); else super(NOW); }
+    static now() { return NOW; }
+  };
+  const kept = {};
+  const own = { getItem: k => kept[k] ?? null, setItem: (k, v) => { kept[k] = String(v); }, removeItem: k => { delete kept[k]; } };
+  for (const [name, fn] of Object.entries(own)) {
+    const real = Storage.prototype[name];
+    Storage.prototype[name] = function (k, ...rest) { return String(k).startsWith('haag-') ? fn(k, ...rest) : real.call(this, k, ...rest); };
+  }
+</script>
+<script type="module">
+  import './ha-icon-standin.js';
+  import '../dist/haag.js';
+
+  const MIN = 60e3, H = 3600e3;
+  const iso = ms => new RealDate(NOW + ms).toISOString();
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+
+  // ----- The stand-in Home Assistant -----
+
+  const reg = [], devices = [], states = {};
+  const floors = [{ floor_id: 'ext', name: 'Exterior', level: null }, { floor_id: 'main', name: 'Main Floor', level: 0 }, { floor_id: 'up', name: 'Upper Floor', level: 1 }];
+  const areas = [{ area_id: 'yard', floor_id: 'ext', name: 'Yard' }, { area_id: 'living', floor_id: 'main', name: 'Living Room' },
+    { area_id: 'bed', floor_id: 'up', name: 'Bedroom' }, { area_id: 'utility', floor_id: 'main', name: 'Utility Room' }];
+  const state = (id, value, attributes = {}, changed = -10 * MIN) =>
+    ({ entity_id: id, state: String(value), attributes, last_changed: iso(changed), last_updated: iso(changed), context: {} });
+  // An entity: in the registry (o: device, area, tk, uid, name, disabled) and, unless disabled, with a state.
+  const add = (id, platform, value, attributes = {}, o = {}) => {
+    reg.push({ entity_id: id, platform, device_id: o.device ?? null, area_id: o.area ?? null, config_entry_id: `e-${platform}`,
+      unique_id: o.uid ?? id, translation_key: o.tk ?? null, original_name: o.name ?? null, disabled_by: o.disabled ? 'integration' : null, hidden_by: null });
+    if (!o.disabled) states[id] = state(id, value, { friendly_name: o.name ?? id, ...attributes });
+  };
+  const device = (id, name, more = {}) => devices.push({ id, name, name_by_user: null, area_id: 'utility', via_device_id: null, model: null, ...more });
+  // A device's entities, by translation key: [key, domain, value, attributes, options].
+  const keyed = (dev, platform, rows) => rows.forEach(([key, domain, value, attributes, o]) =>
+    add(`${domain}.${dev.replace('-', '_')}_${key.replace(/\W+/g, '_').toLowerCase()}`, platform, value, attributes, { device: dev, tk: key, ...o }));
+  const of = (dev, key) => `${dev.replace('-', '_')}_${key.replace(/\W+/g, '_').toLowerCase()}`;
+
+  // The house.
+  const sensor = (id, area, dc, v, unit, dev) => add(`sensor.${id}`, 'standin', v, { device_class: dc, unit_of_measurement: unit, state_class: 'measurement' }, { area, device: dev });
+  sensor('out_temp', 'yard', 'temperature', 54.3, '°F'); sensor('out_hum', 'yard', 'humidity', 61, '%'); sensor('out_aqi', 'yard', 'aqi', 42, null);
+  for (const [f, area] of [['main', 'living'], ['up', 'bed']]) {
+    devices.push({ id: `mon-${f}`, area_id: area, name: `Monitor ${f}`, name_by_user: null, via_device_id: null, model: null });
+    sensor(`${f}_temp`, area, 'temperature', 70.2, '°F', `mon-${f}`); sensor(`${f}_hum`, area, 'humidity', 44, '%', `mon-${f}`);
+    sensor(`${f}_co2`, area, 'carbon_dioxide', 612, 'ppm', `mon-${f}`);
+    add(`climate.${f}`, 'standin', 'heat', { hvac_action: 'idle', current_temperature: 70 }, { area });
+  }
+  add('weather.home', 'standin', 'sunny', { wind_bearing: 270, temperature: 54 }, { area: 'yard' });
+  add('sun.sun', 'sun', 'above_horizon', { next_rising: iso(20 * H), next_noon: iso(2 * H), next_setting: iso(7 * H), next_midnight: iso(14 * H) });
+  add('sensor.moon_phase', 'moon', 'waxing_gibbous', { device_class: 'enum' });
+  add('device_tracker.alex_room', 'standin', 'Living Room');
+  add('person.alex', 'person', 'home', { device_trackers: ['device_tracker.alex_room'] }, { name: 'Alex' });
+  add('device_tracker.sam_phone', 'standin', 'not_home');
+  add('person.sam', 'person', 'not_home', { device_trackers: ['device_tracker.sam_phone'] }, { name: 'Sam' });
+  add('calendar.family', 'standin', 'off', {}, { name: 'Family' });
+  add('binary_sensor.front_door', 'standin', 'off', { device_class: 'door' }, { area: 'living', name: 'Front door' });
+  add('sensor.wx_alerts', 'weatheralerts', 0, { alerts: [] });
+  let events = [{ summary: 'Dentist', start: iso(3 * H), end: iso(4 * H), location: 'Main Street Dental' }, { summary: 'Dinner', start: iso(8 * H), end: iso(10 * H) }];
+
+  // One machine for each appliance integration.
+  device('d-st', 'SmartThings washer');
+  keyed('d-st', 'smartthings', [['washer_machine_state', 'sensor', 'stop'], ['washer_job_state', 'sensor', 'none'], ['completion_time', 'sensor', 'unknown'], ['door', 'binary_sensor', 'off']]);
+  device('d-wp', 'Whirlpool dryer');
+  keyed('d-wp', 'whirlpool', [['dryer_state', 'sensor', 'standby'], ['end_time', 'sensor', 'unknown']]);
+  add('binary_sensor.d_wp_door', 'whirlpool', 'off', {}, { device: 'd-wp', uid: 'wp-1-door' });
+  device('d-hc', 'Home Connect dishwasher');
+  keyed('d-hc', 'home_connect', [['operation_state', 'sensor', 'ready'], ['program_finish_time', 'sensor', 'unknown'], ['program_progress', 'sensor', 'unknown'],
+    ['salt_lack', 'binary_sensor', null, {}, { disabled: true }], ['door', 'sensor', 'closed']]);
+  device('d-mi', 'Miele washer', { model: 'Washing machine' });
+  keyed('d-mi', 'miele', [['status', 'sensor', 'off'], ['program_phase', 'sensor', 'not_running'], ['finish', 'sensor', 'unknown']]);
+  device('d-lg', 'LG dryer', { model: 'Dryer (DEVICE_DRYER)' });
+  keyed('d-lg', 'lg_thinq', [['current_state', 'sensor', 'power_off'], ['remain', 'sensor', 'unknown']]);
+  device('d-sq', 'SmartThinQ dishwasher', { model: 'Dishwasher (DISHWASHER)' });
+  add('sensor.d_sq_main', 'smartthinq_sensors', 'off', { run_completed: 'off', error_state: 'off', run_state: '-', remain_time: '0:00' }, { device: 'd-sq', uid: 'sq-1' });
+  add('binary_sensor.d_sq_done', 'smartthinq_sensors', 'off', {}, { device: 'd-sq', uid: 'sq-1-run_completed' });
+  device('d-sz', 'Sub-Zero dishwasher');
+  add('sensor.d_sz_wash', 'subzero', 'Idle', {}, { device: 'd-sz', name: 'Wash status' });
+  add('sensor.d_sz_end', 'subzero', 'unknown', {}, { device: 'd-sz', name: 'Wash cycle end' });
+
+  // One printer for each printer integration.
+  device('d-bl', 'Bambu Lab printer');
+  keyed('d-bl', 'bambu_lab', [['print_status', 'sensor', 'idle'], ['stage', 'sensor', 'idle'], ['current_layer', 'sensor', 0], ['total_layers', 'sensor', 0],
+    ['print_progress', 'sensor', 0], ['remaining_time', 'sensor', 0, { unit_of_measurement: 'min' }], ['subtask_name', 'sensor', ''],
+    ['nozzle_temp', 'sensor', 24], ['target_nozzle_temp', 'sensor', 0], ['bed_temp', 'sensor', 23], ['target_bed_temp', 'sensor', 0], ['chamber_temp', 'sensor', 25],
+    ['cooling_fan_speed', 'sensor', 0], ['active_tray', 'sensor', 'PLA', { color: '#1E88E5FF' }],
+    ['door_open', 'binary_sensor', 'off'], ['hms_errors', 'binary_sensor', 'off'], ['print_error', 'binary_sensor', 'off']]);
+  device('d-op', 'OctoPrint printer');
+  for (const [name, value] of [['Current State', 'operational'], ['Job Percentage', 0], ['Estimated Finish Time', 'unknown'], ['Current File', 'unknown'],
+    ['actual tool0 temp', 22], ['target tool0 temp', 0], ['actual bed temp', 21], ['target bed temp', 0]]) {
+    add(`sensor.${of('d-op', name)}`, 'octoprint', value, {}, { device: 'd-op', uid: `${name}-op1` });
+  }
+  device('d-pl', 'PrusaLink printer');
+  keyed('d-pl', 'prusalink', [['printer_state', 'sensor', 'idle'], ['progress', 'sensor', 'unknown'], ['print_finish', 'sensor', 'unknown'], ['filename', 'sensor', 'unknown'],
+    ['nozzle_temperature', 'sensor', 23], ['nozzle_target_temperature', 'sensor', 0], ['heatbed_temperature', 'sensor', 22], ['heatbed_target_temperature', 'sensor', 0]]);
+  device('d-dr', 'Dremel printer');
+  keyed('d-dr', 'dremel_3d_printer', [['job_phase', 'sensor', 'idle'], ['progress', 'sensor', 0], ['completion_time', 'sensor', 'unknown'], ['job_name', 'sensor', ''],
+    ['extruder', 'sensor', 24], ['platform_temperature', 'sensor', 23]]);
+  add('binary_sensor.d_dr_door', 'dremel_3d_printer', 'off', {}, { device: 'd-dr', uid: 'dr-1_door' });
+  device('d-mr', 'Moonraker printer');
+  for (const [key, domain, value, attributes] of [['print_state', 'sensor', 'standby'], ['progress', 'sensor', 0], ['current_layer', 'sensor', 0], ['total_layer', 'sensor', 0],
+    ['print_time_left', 'sensor', 0, { unit_of_measurement: 's' }], ['filename', 'sensor', ''], ['extruder_temp', 'sensor', 25], ['extruder_target', 'number', 0],
+    ['heater_bed_temp', 'sensor', 24], ['heater_bed_target', 'number', 0], ['fan_speed', 'sensor', 0]]) {
+    add(`${domain}.${of('d-mr', key)}`, 'moonraker', value, attributes, { device: 'd-mr', uid: `e-moonraker_${key}` });
+  }
+
+  const callWS = async m => {
+    if (m.type === 'config/entity_registry/list') return reg.map(e => ({ ...e }));
+    if (m.type === 'config/device_registry/list') return devices;
+    if (m.type === 'config/area_registry/list') return areas;
+    if (m.type === 'config/floor_registry/list') return floors;
+    if (m.type === 'manifest/list') return [{ domain: 'standin', iot_class: 'local_push' }];
+    if (m.type === 'call_service' && m.domain === 'calendar') return { response: { 'calendar.family': { events } } };
+    return {};
+  };
+  let now = states;
+  const hassOf = st => ({ states: st, config: { time_zone: 'America/New_York', unit_system: { temperature: '°F' }, latitude: 40, country: 'US', version: 'standin' },
+    locale: { language: 'en', time_format: '12', number_format: 'language' }, language: 'en', user: { name: 'Test', is_admin: true }, callWS, hassUrl: p => p });
+
+  // ----- The steps: each changes some states, as Home Assistant would -----
+
+  const m = (dev, key) => `sensor.${of(dev, key)}`, b = (dev, key) => `binary_sensor.${of(dev, key)}`;
+  const STEPS = [
+    ['Everything idle', {}],
+    ['Three machines and three printers start', {
+      'sensor.out_temp': 61.8,
+      [m('d-st', 'washer_machine_state')]: 'run', [m('d-st', 'washer_job_state')]: 'rinse', [m('d-st', 'completion_time')]: iso(42 * MIN),
+      [m('d-wp', 'dryer_state')]: 'running_maincycle', [m('d-wp', 'end_time')]: iso(25 * MIN),
+      [m('d-hc', 'operation_state')]: 'run', [m('d-hc', 'program_finish_time')]: iso(95 * MIN), [m('d-hc', 'program_progress')]: 20,
+      [m('d-bl', 'print_status')]: 'running', [m('d-bl', 'stage')]: 'printing', [m('d-bl', 'current_layer')]: 12, [m('d-bl', 'total_layers')]: 240,
+      [m('d-bl', 'print_progress')]: 31, [m('d-bl', 'remaining_time')]: 85, [m('d-bl', 'subtask_name')]: 'Bracket', [m('d-bl', 'nozzle_temp')]: 219,
+      [m('d-bl', 'target_nozzle_temp')]: 220, [m('d-bl', 'bed_temp')]: 60, [m('d-bl', 'target_bed_temp')]: 60, [m('d-bl', 'cooling_fan_speed')]: 80,
+      [m('d-op', 'Current State')]: 'printing', [m('d-op', 'Job Percentage')]: 42, [m('d-op', 'Estimated Finish Time')]: iso(130 * MIN),
+      [m('d-op', 'Current File')]: 'parts/gear.gcode', [m('d-op', 'actual tool0 temp')]: 180, [m('d-op', 'target tool0 temp')]: 210,
+      [m('d-pl', 'printer_state')]: 'printing', [m('d-pl', 'progress')]: 8, [m('d-pl', 'print_finish')]: iso(200 * MIN), [m('d-pl', 'filename')]: 'vase.bgcode',
+    }],
+    ['They end or stall; others start; a door opens, a weather alert comes', {
+      'climate.main': ['heat', { hvac_action: 'heating' }], 'device_tracker.alex_room': 'Bedroom', 'binary_sensor.front_door': ['on', {}, -10 * MIN],
+      'sensor.wx_alerts': [1, { alerts: [{ id: 'a1', event: 'Winter Storm Warning', severity: 'Severe', urgency: 'Expected', status: 'Actual', messageType: 'Alert', onset: iso(-H), ends: iso(5 * H) }] }],
+      [m('d-st', 'washer_machine_state')]: 'stop', [m('d-st', 'washer_job_state')]: 'finish',
+      [m('d-wp', 'dryer_state')]: 'complete', [m('d-hc', 'operation_state')]: 'finished',
+      [m('d-mi', 'status')]: 'in_use', [m('d-mi', 'program_phase')]: 'main_wash', [m('d-mi', 'finish')]: iso(50 * MIN),
+      [m('d-lg', 'current_state')]: 'drying', [m('d-lg', 'remain')]: iso(33 * MIN),
+      'sensor.d_sq_main': ['on', { run_state: 'rinsing', remain_time: '1:10' }],
+      [m('d-bl', 'print_status')]: 'finish', [m('d-bl', 'print_progress')]: 100, [m('d-bl', 'cooling_fan_speed')]: 0,
+      [m('d-op', 'Current State')]: 'operational', [m('d-op', 'Job Percentage')]: 100,
+      [m('d-pl', 'printer_state')]: 'attention',
+      [m('d-dr', 'job_phase')]: 'building', [m('d-dr', 'progress')]: 55, [m('d-dr', 'completion_time')]: iso(64 * MIN), [m('d-dr', 'job_name')]: 'Hook',
+      [m('d-mr', 'print_state')]: 'printing', [m('d-mr', 'progress')]: 73, [m('d-mr', 'current_layer')]: 88, [m('d-mr', 'total_layer')]: 120,
+      [m('d-mr', 'print_time_left')]: 1500, [m('d-mr', 'filename')]: 'clip.gcode', [m('d-mr', 'extruder_temp')]: 205, [`number.${of('d-mr', 'extruder_target')}`]: 205,
+      [m('d-mr', 'fan_speed')]: 100,
+    }],
+    ['Doors open after a cycle and a print; one print fails', {
+      'person.sam': 'home', 'binary_sensor.front_door': 'off', 'calendar.family': 'on',
+      [b('d-st', 'door')]: ['on', {}, 1000], 'sensor.d_sz_wash': 'Running', 'sensor.d_sz_end': iso(75 * MIN),
+      'sensor.d_sq_main': ['off', { run_completed: 'on', run_state: '-', remain_time: '0:00' }], 'binary_sensor.d_sq_done': 'on',
+      [b('d-bl', 'door_open')]: ['on', {}, 1000], [m('d-pl', 'printer_state')]: 'printing',
+      [m('d-dr', 'job_phase')]: 'completed', [m('d-mr', 'print_state')]: 'error',
+    }],
+    ['Printers are cleared; a machine pauses, another ends', {
+      'sensor.out_hum': 58, 'sensor.up_temp': 71.6, 'weather.home': 'rainy',
+      [m('d-mr', 'print_state')]: 'standby', [m('d-dr', 'job_phase')]: 'idle', 'binary_sensor.d_dr_door': ['on', {}, 1000],
+      [m('d-mi', 'status')]: 'pause', [m('d-lg', 'current_state')]: 'end', 'binary_sensor.d_wp_door': ['on', {}, 1000],
+    }],
+  ];
+  // New objects for what changed, and a new states object, as Home Assistant gives them.
+  const apply = changes => {
+    now = { ...now };
+    for (const [id, v] of Object.entries(changes)) {
+      const [value, attributes, changed = 0] = Array.isArray(v) ? v : [v];
+      if (!now[id]) throw new Error(`no stand-in entity ${id}`);
+      now[id] = state(id, value, { ...now[id].attributes, ...attributes }, changed);
+    }
+    if (changes['calendar.family']) events = [...events, { summary: 'Recycling', start: iso(26 * H), end: iso(27 * H) }];
+  };
+
+  // ----- What Håg shows, raises and keeps -----
+
+  const text = el => el.textContent.replace(/\s+/g, ' ').trim();
+  const texts = (root, sel) => [...root.querySelectorAll(sel)].map(text).filter(Boolean);
+  function read(host) {
+    const ov = host._running.get('sinnesro')?.el.shadowRoot, ap = host._running.get('vitvaror'), ws = host._running.get('verkstad');
+    return {
+      overview: ov ? texts(ov, '.cluster') : null,
+      floors: ov ? [...ov.querySelectorAll('.indoor .cluster')].map(c =>
+        `${c.querySelector('.ico[data-status]')?.dataset.status || '-'} · ${c.querySelectorAll('.person:not(.empty)').length} here`) : null,
+      away: ov ? ov.querySelectorAll('.people.away .person:not(.empty)').length : null,
+      weather: host._running.get('sinnesro')?.el._wx?.cond ?? null,
+      appliances: ap ? { asks: !!ap.wants, shows: texts(ap.el.shadowRoot, '.labels > div') } : null,
+      workshop: ws ? { asks: !!ws.wants, printers: ws.list.map(i => texts(i.el.shadowRoot, '.cluster')) } : null,
+      alerts: [...host._alerts.values()].map(a => `${a.level}: ${a.text}`).sort(),
+      // Each machine's and printer's kept run (the red sock is drawn by chance, so it's left out).
+      runs: Object.fromEntries(['haag-vitvaror', 'haag-verkstad'].map(k => [k, JSON.parse(kept[k] ?? '{}', (key, v) => key === 'sock' ? undefined : v)])),
+    };
+  }
+
+  // Where blocks were put: transforms, fitted sizes and each clock's place.
+  const round = v => typeof v === 'number' ? Math.round(v * 100) / 100 : v;
+  const nums = s => (String(s).match(/-?\d+(\.\d+)?/g) || []).map(Number).map(round);
+  function placed(host) {
+    const face = (root, clock) => ({
+      clusters: [...root.querySelectorAll('.cluster')].map(c => nums(c.style.transform)),
+      time: nums(root.querySelector('.time')?.style.fontSize), ampm: nums(root.querySelector('.ampm')?.style.top),
+      people: [...root.querySelectorAll('.people')].map(p => nums(p.style.transform)),
+      cut: [...root.querySelectorAll('.appt .text, .appt .where')].map(t => nums(t.style.maxWidth)),
+      clock: clock ? Object.fromEntries(Object.entries(clock).map(([k, v]) => [k, round(v)])) : null,
+    });
+    const ov = host._running.get('sinnesro'), ap = host._running.get('vitvaror'), ws = host._running.get('verkstad');
+    return {
+      overview: ov ? face(ov.el.shadowRoot, ov.clock) : null,
+      appliances: ap ? [...ap.el.shadowRoot.querySelectorAll('.labels > div')].map(d => nums(`${d.style.left} ${d.style.top} ${d.style.getPropertyValue('--size')}`)) : null,
+      workshop: ws ? ws.list.map(i => face(i.el.shadowRoot, i.clock)) : null,
+    };
+  }
+
+  const size = /^\?size=(\d+)x(\d+)$/.exec(location.search);
+  if (size) Object.assign(document.getElementById('frame').style, { width: `${size[1]}px`, height: `${size[2]}px` });
+
+  const Strategy = customElements.get('ll-strategy-dashboard-haag');
+  const options = { glances: { vitvaror: { enabled: true }, verkstad: { enabled: true } },
+    alerts: { core: { doors: { enabled: true } } } };
+  const dash = await Strategy.generate({ type: 'custom:haag', ...options }, hassOf(now));
+  const card = dash.views[0].cards[0];
+  const host = document.createElement(card.type.replace('custom:', ''));
+  host.setConfig(card);
+  host.hass = hassOf(now);
+  document.getElementById('frame').append(host);
+  await document.fonts.ready;
+  await wait(2500);
+
+  const readings = {}, placements = {};
+  for (const [name, changes] of STEPS) {
+    apply(changes);
+    host.hass = hassOf(now);
+    await wait(1500);
+    readings[name] = read(host);
+    placements[name] = placed(host);
+  }
+
+  // ----- Compare -----
+
+  const expected = size ? null : await fetch('./readings.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
+  const out = document.getElementById('out'), sum = document.getElementById('sum');
+  // As text, whatever order an object's keys are in.
+  const plain = v => JSON.stringify(v, (k, o) => o && typeof o === 'object' && !Array.isArray(o)
+    ? Object.fromEntries(Object.keys(o).sort().map(key => [key, o[key]])) : o);
+  let failed = 0, n = 0;
+  for (const [step, got] of Object.entries(readings)) for (const [part, value] of Object.entries(got)) {
+    const want = expected?.[step]?.[part], ok = plain(want) === plain(value);
+    n++;
+    if (ok) continue;
+    failed++;
+    const row = out.insertRow();
+    row.insertCell().textContent = `${step} · ${part}`;
+    for (const v of [want, value]) row.insertCell().appendChild(document.createElement('pre')).textContent = JSON.stringify(v, null, 1) ?? 'none';
+  }
+  if (failed) out.insertRow(0).innerHTML = '<th>Where</th><th>Expected</th><th>Now</th>';
+  sum.textContent = size ? 'Another size: readings not compared.' : !expected ? 'No readings.json to compare with.' : failed ? `${failed} of ${n} readings differ.` : `All ${n} readings match.`;
+  sum.className = expected && !failed ? 'ok' : 'err';
+  document.getElementById('now').value = JSON.stringify(readings, null, 1);
+  Object.assign(window, { readings, placements, host });
+</script>
+</body>
+</html>

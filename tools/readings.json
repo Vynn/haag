@@ -1,0 +1,587 @@
+{
+ "Everything idle": {
+  "overview": [
+   "10:04AM",
+   "Thursday, January 15",
+   "S 54° 61% AQI 42",
+   "6:04 PM Dinner1:04 PM Dentist",
+   "Main Floor 70°A 44%612 ppm",
+   "Upper Floor 70° 44%612 ppm"
+  ],
+  "floors": [
+   "idle · 1 here",
+   "idle · 0 here"
+  ],
+  "away": 1,
+  "weather": "sunny",
+  "appliances": {
+   "asks": false,
+   "shows": []
+  },
+  "workshop": {
+   "asks": false,
+   "printers": []
+  },
+  "alerts": [],
+  "runs": {
+   "haag-vitvaror": {
+    "d-st:washer": {
+     "last": "idle"
+    },
+    "d-wp:dryer": {
+     "last": "idle"
+    },
+    "d-hc:": {
+     "last": "idle"
+    },
+    "d-mi:": {
+     "last": "idle"
+    },
+    "d-lg:": {
+     "last": "idle"
+    },
+    "d-sq:": {
+     "last": "idle"
+    },
+    "d-sz:": {
+     "last": "idle"
+    }
+   },
+   "haag-verkstad": {
+    "d-bl": {
+     "last": "idle"
+    },
+    "d-op": {
+     "last": "idle"
+    },
+    "d-pl": {
+     "last": "idle"
+    },
+    "d-dr": {
+     "last": "idle"
+    },
+    "d-mr": {
+     "last": "idle"
+    }
+   }
+  }
+ },
+ "Three machines and three printers start": {
+  "overview": [
+   "10:04AM",
+   "Thursday, January 15",
+   "S 62° 61% AQI 42",
+   "6:04 PM Dinner1:04 PM Dentist",
+   "Main Floor 70°A 44%612 ppm",
+   "Upper Floor 70° 44%612 ppm"
+  ],
+  "floors": [
+   "idle · 1 here",
+   "idle · 0 here"
+  ],
+  "away": 1,
+  "weather": "sunny",
+  "appliances": {
+   "asks": true,
+   "shows": [
+    "Washer",
+    "Rinse · 42 min leftEnds at 10:46 AM",
+    "Dryer",
+    "Running · 25 min leftEnds at 10:29 AM",
+    "Dishwasher",
+    "Running · 95 min leftEnds at 11:39 AM"
+   ]
+  },
+  "workshop": {
+   "asks": true,
+   "printers": [
+    [
+     "10:04AM",
+     "Bambu Lab printer",
+     "Printing",
+     "2 idle",
+     "BracketLayer 12 of 240",
+     "1 h 25 min leftEnds 11:29 AM",
+     "Nozzle219°Bed60°Chamber25°",
+     "Part"
+    ],
+    [
+     "10:04AM",
+     "OctoPrint printer",
+     "Printing",
+     "2 idle",
+     "gear",
+     "2 h 10 min leftEnds 12:14 PM",
+     "Nozzle180°/ 210°Bed21°"
+    ],
+    [
+     "10:04AM",
+     "PrusaLink printer",
+     "Printing",
+     "2 idle",
+     "vase",
+     "3 h 20 min leftEnds 1:24 PM",
+     "Nozzle23°Bed22°"
+    ]
+   ]
+  },
+  "alerts": [],
+  "runs": {
+   "haag-vitvaror": {
+    "d-st:washer": {
+     "since": 1768489440000,
+     "phase": "rinse",
+     "last": "running"
+    },
+    "d-wp:dryer": {
+     "since": 1768489440000,
+     "phase": "dry",
+     "last": "running"
+    },
+    "d-hc:": {
+     "since": 1768489440000,
+     "phase": "wash",
+     "last": "running"
+    },
+    "d-mi:": {
+     "last": "idle"
+    },
+    "d-lg:": {
+     "last": "idle"
+    },
+    "d-sq:": {
+     "last": "idle"
+    },
+    "d-sz:": {
+     "last": "idle"
+    }
+   },
+   "haag-verkstad": {
+    "d-bl": {
+     "since": 1768489440000,
+     "last": "printing"
+    },
+    "d-op": {
+     "since": 1768489440000,
+     "last": "printing"
+    },
+    "d-pl": {
+     "since": 1768489440000,
+     "last": "printing"
+    },
+    "d-dr": {
+     "last": "idle"
+    },
+    "d-mr": {
+     "last": "idle"
+    }
+   }
+  }
+ },
+ "They end or stall; others start; a door opens, a weather alert comes": {
+  "overview": [
+   "10:04AM",
+   "Thursday, January 15",
+   "S 62° 61% AQI 42",
+   "6:04 PM Dinner1:04 PM Dentist",
+   "Main Floor 70° 44%612 ppm",
+   "Upper Floor 70°A 44%612 ppm"
+  ],
+  "floors": [
+   "heat · 0 here",
+   "idle · 1 here"
+  ],
+  "away": 1,
+  "weather": "sunny",
+  "appliances": {
+   "asks": true,
+   "shows": [
+    "Washer",
+    "Cycle endedJust now",
+    "Dryer",
+    "Cycle endedJust now",
+    "Dishwasher",
+    "Cycle endedJust now"
+   ]
+  },
+  "workshop": {
+   "asks": true,
+   "printers": [
+    [
+     "10:04AM",
+     "PrusaLink printer",
+     "Paused",
+     "2 more printing",
+     "vase",
+     "3 h 20 min leftEnds 1:24 PM",
+     "Nozzle23°Bed22°"
+    ],
+    [
+     "10:04AM",
+     "Bambu Lab printer",
+     "Finished",
+     "2 more printing",
+     "BracketLayer 12 of 240",
+     "Ended 10:04 AM",
+     "Nozzle219°Bed60°Chamber25°",
+     "Part"
+    ],
+    [
+     "10:04AM",
+     "OctoPrint printer",
+     "Finished",
+     "2 more printing",
+     "gear",
+     "Ended 10:04 AM",
+     "Nozzle180°/ 210°Bed21°"
+    ]
+   ]
+  },
+  "alerts": [
+   "info: Bambu Lab printer finished",
+   "info: Home Connect dishwasher cycle ended",
+   "info: Living Room door open",
+   "info: OctoPrint printer finished",
+   "info: SmartThings washer cycle ended",
+   "info: Whirlpool dryer cycle ended",
+   "warning: PrusaLink printer needs attention",
+   "warning: Winter Storm Warning until 3:04 PM"
+  ],
+  "runs": {
+   "haag-vitvaror": {
+    "d-st:washer": {
+     "since": 1768489440000,
+     "phase": "rinse",
+     "last": "done",
+     "ended": 1768489440000
+    },
+    "d-wp:dryer": {
+     "since": 1768489440000,
+     "phase": "dry",
+     "last": "done",
+     "ended": 1768489440000
+    },
+    "d-hc:": {
+     "since": 1768489440000,
+     "phase": "wash",
+     "last": "done",
+     "ended": 1768489440000
+    },
+    "d-mi:": {
+     "since": 1768489440000,
+     "phase": "wash",
+     "last": "running"
+    },
+    "d-lg:": {
+     "since": 1768489440000,
+     "phase": "dry",
+     "last": "running"
+    },
+    "d-sq:": {
+     "since": 1768489440000,
+     "phase": "rinse",
+     "last": "running"
+    },
+    "d-sz:": {
+     "last": "idle"
+    }
+   },
+   "haag-verkstad": {
+    "d-bl": {
+     "since": 1768489440000,
+     "last": "finished",
+     "ended": 1768489440000
+    },
+    "d-op": {
+     "since": 1768489440000,
+     "last": "finished",
+     "ended": 1768489440000
+    },
+    "d-pl": {
+     "since": 1768489440000,
+     "last": "paused"
+    },
+    "d-dr": {
+     "since": 1768489440000,
+     "last": "printing"
+    },
+    "d-mr": {
+     "since": 1768489440000,
+     "last": "printing"
+    }
+   }
+  }
+ },
+ "Doors open after a cycle and a print; one print fails": {
+  "overview": [
+   "10:04AM",
+   "Thursday, January 15",
+   "62° 61% AQI 42",
+   "Fri 12:04 PM Recycling6:04 PM Dinner1:04 PM Dentist",
+   "Main Floor 70° 44%612 ppm",
+   "Upper Floor 70°A 44%612 ppm"
+  ],
+  "floors": [
+   "heat · 0 here",
+   "idle · 1 here"
+  ],
+  "away": 0,
+  "weather": "sunny",
+  "appliances": {
+   "asks": true,
+   "shows": [
+    "Washer",
+    "Main wash · 50 min leftEnds at 10:54 AM",
+    "Dryer",
+    "Cycle endedJust now",
+    "Dishwasher",
+    "Cycle endedJust now"
+   ]
+  },
+  "workshop": {
+   "asks": true,
+   "printers": [
+    [
+     "10:04AM",
+     "Moonraker printer",
+     "Failed",
+     "1 more printing · 1 idle",
+     "clipLayer 88 of 120",
+     "Stopped 10:04 AM",
+     "Nozzle205°Bed24°",
+     "Part"
+    ],
+    [
+     "10:04AM",
+     "OctoPrint printer",
+     "Finished",
+     "1 more printing · 1 idle",
+     "gear",
+     "Ended 10:04 AM",
+     "Nozzle180°/ 210°Bed21°"
+    ],
+    [
+     "10:04AM",
+     "Dremel printer",
+     "Finished",
+     "1 more printing · 1 idle",
+     "Hook",
+     "Ended 10:04 AM",
+     "Nozzle24°Bed23°"
+    ]
+   ]
+  },
+  "alerts": [
+   "info: Dremel printer finished",
+   "info: Home Connect dishwasher cycle ended",
+   "info: OctoPrint printer finished",
+   "info: SmartThinQ dishwasher cycle ended",
+   "info: Whirlpool dryer cycle ended",
+   "warning: Moonraker printer failed",
+   "warning: Winter Storm Warning until 3:04 PM"
+  ],
+  "runs": {
+   "haag-vitvaror": {
+    "d-st:washer": {
+     "since": 1768489440000,
+     "phase": "rinse",
+     "last": "done",
+     "ended": 1768489440000,
+     "cleared": true
+    },
+    "d-wp:dryer": {
+     "since": 1768489440000,
+     "phase": "dry",
+     "last": "done",
+     "ended": 1768489440000
+    },
+    "d-hc:": {
+     "since": 1768489440000,
+     "phase": "wash",
+     "last": "done",
+     "ended": 1768489440000
+    },
+    "d-mi:": {
+     "since": 1768489440000,
+     "phase": "wash",
+     "last": "running"
+    },
+    "d-lg:": {
+     "since": 1768489440000,
+     "phase": "dry",
+     "last": "running"
+    },
+    "d-sq:": {
+     "since": 1768489440000,
+     "phase": "rinse",
+     "last": "done",
+     "ended": 1768489440000
+    },
+    "d-sz:": {
+     "since": 1768489440000,
+     "phase": "wash",
+     "last": "running"
+    }
+   },
+   "haag-verkstad": {
+    "d-bl": {
+     "since": 1768489440000,
+     "last": "finished",
+     "ended": 1768489440000,
+     "cleared": true
+    },
+    "d-op": {
+     "since": 1768489440000,
+     "last": "finished",
+     "ended": 1768489440000
+    },
+    "d-pl": {
+     "since": 1768489440000,
+     "last": "printing"
+    },
+    "d-dr": {
+     "since": 1768489440000,
+     "last": "finished",
+     "ended": 1768489440000
+    },
+    "d-mr": {
+     "since": 1768489440000,
+     "last": "failed",
+     "ended": 1768489440000
+    }
+   }
+  }
+ },
+ "Printers are cleared; a machine pauses, another ends": {
+  "overview": [
+   "10:04AM",
+   "Thursday, January 15",
+   "62° 58% AQI 42",
+   "Fri 12:04 PM Recycling6:04 PM Dinner1:04 PM Dentist",
+   "Main Floor 70° 44%612 ppm",
+   "Upper Floor 72°A 44%612 ppm"
+  ],
+  "floors": [
+   "heat · 0 here",
+   "idle · 1 here"
+  ],
+  "away": 0,
+  "weather": "rainy",
+  "appliances": {
+   "asks": true,
+   "shows": [
+    "Washer",
+    "Paused · 50 min left",
+    "Dryer",
+    "Cycle endedJust now",
+    "Dishwasher",
+    "Cycle endedJust now"
+   ]
+  },
+  "workshop": {
+   "asks": true,
+   "printers": [
+    [
+     "10:04AM",
+     "OctoPrint printer",
+     "Finished",
+     "3 idle",
+     "gear",
+     "Ended 10:04 AM",
+     "Nozzle180°/ 210°Bed21°"
+    ],
+    [
+     "10:04AM",
+     "PrusaLink printer",
+     "Printing",
+     "3 idle",
+     "vase",
+     "3 h 20 min leftEnds 1:24 PM",
+     "Nozzle23°Bed22°"
+    ]
+   ]
+  },
+  "alerts": [
+   "info: Home Connect dishwasher cycle ended",
+   "info: LG dryer cycle ended",
+   "info: OctoPrint printer finished",
+   "info: SmartThinQ dishwasher cycle ended",
+   "warning: Winter Storm Warning until 3:04 PM"
+  ],
+  "runs": {
+   "haag-vitvaror": {
+    "d-st:washer": {
+     "since": 1768489440000,
+     "phase": "rinse",
+     "last": "done",
+     "ended": 1768489440000,
+     "cleared": true
+    },
+    "d-wp:dryer": {
+     "since": 1768489440000,
+     "phase": "dry",
+     "last": "done",
+     "ended": 1768489440000,
+     "cleared": true
+    },
+    "d-hc:": {
+     "since": 1768489440000,
+     "phase": "wash",
+     "last": "done",
+     "ended": 1768489440000
+    },
+    "d-mi:": {
+     "since": 1768489440000,
+     "phase": "wash",
+     "last": "paused"
+    },
+    "d-lg:": {
+     "since": 1768489440000,
+     "phase": "dry",
+     "last": "done",
+     "ended": 1768489440000
+    },
+    "d-sq:": {
+     "since": 1768489440000,
+     "phase": "rinse",
+     "last": "done",
+     "ended": 1768489440000
+    },
+    "d-sz:": {
+     "since": 1768489440000,
+     "phase": "wash",
+     "last": "running"
+    }
+   },
+   "haag-verkstad": {
+    "d-bl": {
+     "since": 1768489440000,
+     "last": "finished",
+     "ended": 1768489440000,
+     "cleared": true
+    },
+    "d-op": {
+     "since": 1768489440000,
+     "last": "finished",
+     "ended": 1768489440000
+    },
+    "d-pl": {
+     "since": 1768489440000,
+     "last": "printing"
+    },
+    "d-dr": {
+     "since": 1768489440000,
+     "last": "idle",
+     "ended": 1768489440000,
+     "cleared": true
+    },
+    "d-mr": {
+     "since": 1768489440000,
+     "last": "idle",
+     "ended": 1768489440000,
+     "cleared": true
+    }
+   }
+  }
+ }
+}

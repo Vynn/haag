@@ -10,16 +10,12 @@
   License: GPL-3.0
 */
 
-const NS = 'http://www.w3.org/2000/svg';
-const svgEl = (tag, attrs = {}, parent) => {
-  const el = document.createElementNS(NS, tag);
-  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
-  parent?.append(el);
-  return el;
-};
+// Håg's drawing helpers (haag.draw), handed over by the glance before
+// anything is drawn.
+let svgEl, lerp, ease, seeded, smooth;
+export const use = draw => { ({ svg: svgEl, lerp, ease, seeded, smooth } = draw); };
 const rad = d => d * Math.PI / 180;
-const lerp = (a, b, e) => a + (b - a) * e;
-const ease = u => u < .5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2;   // in and out
+const FRAME = 1000 / 30 - 2;   // ms between steps: loads move at 30 frames a second at most
 const reduce = matchMedia('(prefers-reduced-motion: reduce)');
 let clips = 0;   // clip path IDs, unique on the page
 
@@ -114,21 +110,6 @@ function arcPath(cx, cy, r, from, to) {
   const p = a => `${cx + r * Math.cos(rad(a))} ${cy + r * Math.sin(rad(a))}`;
   return `M${p(from)}A${r} ${r} 0 ${to - from > 180 ? 1 : 0} 1 ${p(to)}`;
 }
-
-// A steady random sequence, so a part looks the same each time it's drawn.
-const seeded = seed => () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-
-// A smooth closed outline through points (Catmull-Rom as cubic curves).
-const smooth = pts => {
-  const n = pts.length, P = i => pts[(i + n) % n];
-  let d = `M${P(0)[0].toFixed(1)} ${P(0)[1].toFixed(1)}`;
-  for (let i = 0; i < n; i++) {
-    const [p0, p1, p2, p3] = [P(i - 1), P(i), P(i + 1), P(i + 2)];
-    d += `C${(p1[0] + (p2[0] - p0[0]) / 6).toFixed(1)} ${(p1[1] + (p2[1] - p0[1]) / 6).toFixed(1)} ` +
-      `${(p2[0] - (p3[0] - p1[0]) / 6).toFixed(1)} ${(p2[1] - (p3[1] - p1[1]) / 6).toFixed(1)} ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
-  }
-  return d + 'Z';
-};
 
 // ---------- Laundry ----------
 
@@ -316,9 +297,10 @@ function step(s, dt) {
 function water(g, cx, cy, R, phase, ended) {
   if (phase === 'spin' || phase === 'dry' || phase === 'cool') return null;
   const wv = { level: cy + (ended ? R * .66 : phase === 'rinse' ? R * .3 : R * .36), tilt: 0 };
-  const w = svgEl('g', { class: 'water' }, g);
-  wv.body = svgEl('path', {}, w);
-  wv.foam = svgEl('path', { fill: 'none', stroke: 'color-mix(in oklab, var(--wash, var(--in-water)), #fff 35%)', 'stroke-width': R * .022, 'stroke-linejoin': 'round' }, w);
+  // One path: the body, and the foam as its outline (its sides and
+  // bottom are outside the drum).
+  wv.body = svgEl('path', { stroke: 'color-mix(in oklab, var(--wash, var(--in-water)), #fff 35%)', 'stroke-width': R * .022, 'stroke-linejoin': 'round' },
+    svgEl('g', { class: 'water' }, g));
   if (!ended) for (let i = 0; i < 6; i++) {
     svgEl('circle', { class: 'bubble', cx: cx + (i - 2.5) * R * .25, cy: wv.level + R * .4, r: R * (.022 + (i % 3) * .01), 'stroke-width': R * .011,
       style: `--rise:${-R * .35}px; animation-delay:${-i * .5}s` }, g);
@@ -328,13 +310,12 @@ function water(g, cx, cy, R, phase, ended) {
 }
 
 function drawWater({ cx, cy, R }, wv, t) {
-  const x0 = cx - R * 1.05, x1 = cx + R * 1.05, n = 48, dir = wv.tilt >= 0 ? 1 : -1;   // waves travel with the drag
+  const x0 = cx - R * 1.05, x1 = cx + R * 1.05, n = 32, dir = wv.tilt >= 0 ? 1 : -1;   // waves travel with the drag
   const surface = x => wv.level + wv.tilt * (x - cx)
     + R * .022 * Math.sin((x - cx) / R * 7 - t * 2.6 * dir) + R * .01 * Math.sin((x - cx) / R * 15 + t * 3.3);
   let line = '';
   for (let i = 0; i <= n; i++) { const x = x0 + (x1 - x0) * i / n; line += `${i ? 'L' : 'M'}${x.toFixed(1)} ${surface(x).toFixed(1)}`; }
   wv.body.setAttribute('d', `${line}L${x1} ${cy + R * 1.2}L${x0} ${cy + R * 1.2}Z`);
-  wv.foam.setAttribute('d', line);
 }
 
 // ---------- Dishes ----------
@@ -503,19 +484,9 @@ const lookOf = m => `${drawn(m)} ${m.status} ${m.phase} ${m.kind === 'dishwasher
 
 // Distance between a segment and a box [left, top, right, bottom]; 0 where they cross.
 function segBox(x0, y0, x1, y1, [l, t, r, b]) {
-  const dx = x1 - x0, dy = y1 - y0;
-  let lo = 0, hi = 1;
-  for (const [p, q] of [[-dx, x0 - l], [dx, r - x0], [-dy, y0 - t], [dy, b - y0]]) {
-    if (!p) { if (q < 0) { lo = 2; break; } continue; }
-    if (p < 0) lo = Math.max(lo, q / p); else hi = Math.min(hi, q / p);
-  }
-  if (lo <= hi) return 0;
-  const toBox = (x, y) => Math.hypot(Math.max(l - x, 0, x - r), Math.max(t - y, 0, y - b));
-  const toSeg = (x, y) => {
-    const u = Math.max(0, Math.min(1, ((x - x0) * dx + (y - y0) * dy) / (dx * dx + dy * dy)));
-    return Math.hypot(x0 + u * dx - x, y0 + u * dy - y);
-  };
-  return Math.min(toBox(x0, y0), toBox(x1, y1), toSeg(l, t), toSeg(r, t), toSeg(l, b), toSeg(r, b));
+  const a = [x0, y0], e = [x1, y1], corners = [[l, t], [r, t], [r, b], [l, b]];
+  if ([a, e].some(([x, y]) => x >= l && x <= r && y >= t && y <= b)) return 0;
+  return Math.min(...corners.map((c, i) => segDist(a, e, c, corners[(i + 1) % 4])));
 }
 
 // ---------- The drum ----------
@@ -585,13 +556,20 @@ export class Drum {
     if (i >= 0) this.sims.splice(i, 1);
   }
 
+  // The loads' motion: FRAME apart at least, and only while one moves (a
+  // new load starts it again).
   run() {
-    if (this.frame || !this.visible) return;
+    if (this.frame || !this.visible || this.sims.every(s => s.still)) return;
     let last = performance.now();
     const frame = now => {
-      const dt = Math.min(.05, (now - last) / 1000);
-      last = now;
-      for (const s of this.sims) if (!s.still) step(s, dt);
+      this.frame = null;
+      const moving = this.sims.filter(s => !s.still);
+      if (!moving.length) return;
+      if (now - last >= FRAME) {
+        const dt = Math.min(.05, (now - last) / 1000);
+        last = now;
+        for (const s of moving) step(s, dt);
+      }
       this.frame = requestAnimationFrame(frame);
     };
     this.frame = requestAnimationFrame(frame);
@@ -722,6 +700,7 @@ export class Drum {
       if (r.sim) {
         if (old) carry(old, r.sim);
         this.sims.push(r.sim);
+        this.run();
       }
     }
     svgEl('circle', { class: 'veil', cx, cy, r: R }, r.g);

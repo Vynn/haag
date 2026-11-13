@@ -8,11 +8,10 @@
 // The drum, loaded with this file's cache tag (a relative import would drop it).
 const drumUrl = new URL('./drum.js', import.meta.url);
 drumUrl.search = new URL(import.meta.url).search;
-const { Drum, DRUM_STYLE, KINDS } = await import(drumUrl.href);
+const { Drum, DRUM_STYLE, KINDS, use } = await import(drumUrl.href);
 
 const MINUTE = 60 * 1000;
 const REST = 7200;   // seconds a machine rests after its cycle ends (setting `rest`)
-const RUNS = 'haag-vitvaror';   // browser storage: each machine's run
 const SHOWN = 3;     // machines at once; the others wait for a free part
 const SOCK_ODDS = 1 / 25;
 
@@ -237,54 +236,12 @@ const pinkness = m => m.status === 'ended' || ['dry', 'cool'].includes(m.phase) 
   : m.progress != null ? Math.min(1, m.progress / (m.kind === 'washer_dryer' ? .5 : 1))
   : { wash: .3, rinse: .6, spin: .85 }[m.phase] ?? 0;
 
-/*
-  A machine's run, kept in the browser: when it started (`since`), when
-  its cycle ended (`ended`), whether its rest is over (`cleared`), its
-  red sock, what it last drew (`phase`) and the state last seen. A cycle
-  ends on the integration's finished state, or when a running machine
-  goes idle or off. Seen for the first time, the state's last change
-  stands in for now. A cycle first seen already finished, with no record
-  of it (a new display, or Home Assistant restarted), isn't shown as just
-  ended.
-*/
-function track(rec, r, phase, now) {
-  const at = rec.last === undefined ? r.changed : now;
-  if (['running', 'paused', 'error'].includes(r.state)) {
-    if (!rec.since || rec.ended) {
-      for (const k in rec) delete rec[k];
-      Object.assign(rec, { since: at, sock: Math.random() < SOCK_ODDS });
-    }
-    rec.phase = phase;
-  } else if (r.state === 'done') {
-    if (!rec.since) rec.cleared = true;
-    rec.ended ??= at;
-    rec.since ??= at;
-  } else if (['running', 'paused'].includes(rec.last) && !rec.ended) rec.ended = at;
-  rec.last = r.state;
-}
-
-const loadRuns = () => { try { return JSON.parse(localStorage.getItem(RUNS)) || {}; } catch { return {}; } };
-
-// Times follow HA's time format and zone, with the weekday when it isn't today.
-function formatTime(hass, t, now = Date.now()) {
-  const timeZone = hass?.config?.time_zone, style = hass?.locale?.time_format;
-  const locale = style === 'system' ? undefined : hass?.locale?.language || hass?.language;
-  const day = d => new Intl.DateTimeFormat('en-CA', { timeZone }).format(d);   // YYYY-MM-DD
-  const options = { hour: 'numeric', minute: '2-digit', ...{ 12: { hour12: true }, 24: { hourCycle: 'h23' } }[style], timeZone };
-  if (day(t) !== day(now)) options.weekday = 'short';
-  return new Intl.DateTimeFormat(locale, options).format(t);
-}
-// "3 min", "2 h", rounded down.
-const duration = ms => { const m = Math.floor(ms / MINUTE); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h`; };
-const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
-
 class ApplianceGlance extends HTMLElement {
   constructor() {
     super();
     const root = this.attachShadow({ mode: 'open' });
     root.innerHTML = `<style>${DRUM_STYLE}</style><div class="stage"><svg aria-hidden="true"></svg><div class="labels"></div></div>`;
     this._stage = root.querySelector('.stage');
-    this._runs = loadRuns();
     this._drum = new Drum(this._stage, {
       band: () => this._haag?.alertrow ?? { showing: false, top: 0, bottom: 0 },
       gap: () => (this._lay ??= this._haag.layout.on(this._stage)).gap,
@@ -295,11 +252,8 @@ class ApplianceGlance extends HTMLElement {
     this.addEventListener('haag-alertrow', () => this._drum.setRow(this._haag.alertrow.showing));
     // A dismissed "cycle ended" ends that machine's rest.
     this.addEventListener('haag-dismissed', e => {
-      const [alert, ...id] = e.detail.key.split(':'), rec = this._runs[id.join(':')];
-      if (alert !== 'ended' || !rec) return;
-      rec.cleared = true;
-      this._save();
-      this._update();
+      const [alert, ...id] = e.detail.key.split(':');
+      if (alert === 'ended' && this._haag.runs.clear(id.join(':'))) this._update();
     });
   }
 
@@ -311,19 +265,32 @@ class ApplianceGlance extends HTMLElement {
 
   setConfig(settings) {
     this._settings = settings;
+    this._watch();
     this._update();
   }
 
   set haag(haag) {
     this._haag = haag;
+    use(haag.draw);
     this._drum.setVisible(haag.visible);
     this._update();
   }
 
   set hass(hass) {
     this._hass = hass;
-    if (!this._finding) this._finding = this._find();
+    if (!this._machines) {
+      // The machines, from Håg's registries.
+      const { entities, devices } = this._haag.registry;
+      this._machines = findMachines(hass, entities, devices);
+      this._watch();
+    }
     this._update();
+  }
+
+  // What's read from then on: the machines' entities and their doors.
+  _watch() {
+    if (!this._machines || !this._haag) return;
+    this._haag.watch([...this._machines.flatMap(m => [...Object.values(m.entities), m.door]), ...Object.values(this._settings?.doors ?? {})]);
   }
 
   connectedCallback() {
@@ -339,19 +306,6 @@ class ApplianceGlance extends HTMLElement {
     this._drum.setVisible(false);
   }
 
-  // Registries once, as the core reads them (any logged-in user can).
-  async _find() {
-    try {
-      const [entities, devices] = await Promise.all(['entity', 'device']
-        .map(t => this._hass.callWS({ type: `config/${t}_registry/list` })));
-      this._machines = findMachines(this._hass, entities, devices);
-    } catch (err) {
-      console.error("Håg: the Appliances glance couldn't read Home Assistant's setup", err);
-      this._machines = [];
-    }
-    this._update();
-  }
-
   // On overall (haag.easterEggs) and not turned off here.
   _eggs() {
     return this._haag?.easterEggs !== false && this._settings?.easter_eggs !== false;
@@ -359,23 +313,24 @@ class ApplianceGlance extends HTMLElement {
 
   // What each machine shows: running, paused or an error while it lasts;
   // after its cycle ends, a rest of `rest` seconds. Up to three at once,
-  // the first to start.
+  // the first to start. Each machine's run is kept by Håg (haag.runs),
+  // with its red sock and what it last drew (`phase`). A cycle ends on
+  // the integration's finished state, or when a running machine goes idle
+  // or off; the door opening after that ends the rest.
   _update() {
     if (!this._machines || !this._hass || !this._haag) return;
-    const now = Date.now(), rest = (this._settings?.rest ?? REST) * 1000;
-    const before = JSON.stringify(this._runs), shown = [];
+    const now = Date.now(), rest = (this._settings?.rest ?? REST) * 1000, runs = this._haag.runs, shown = [];
     for (const mc of this._machines) {
-      const r = readMachine(this._hass, mc), rec = this._runs[mc.id] ??= {};
-      track(rec, r, drawPhase(mc.kind, r.phase), now);
-      // The door opening after the cycle ends ends the rest.
-      const door = this._door(mc);
-      if (rec.ended && !rec.cleared && ['on', 'open'].includes(door?.state) && Date.parse(door.last_changed) > rec.ended) rec.cleared = true;
-      const status = ['running', 'paused', 'error'].includes(r.state) ? r.state
-        : rec.ended && !rec.cleared && now < rec.ended + rest ? 'ended' : null;
+      const r = readMachine(this._hass, mc), door = this._door(mc), active = ['running', 'paused', 'error'].includes(r.state);
+      const rec = runs.track(mc.id, { state: r.state, active, changed: r.changed, now,
+        ended: r.state === 'done' || ['running', 'paused'].includes(runs.get(mc.id)?.last),
+        opened: ['on', 'open'].includes(door?.state) ? Date.parse(door.last_changed) : null,
+        fresh: () => ({ sock: Math.random() < SOCK_ODDS }) });
+      if (active) rec.phase = drawPhase(mc.kind, r.phase);
+      const status = active ? r.state : runs.resting(rec, rest, now) ? 'ended' : null;
       if (status) shown.push({ mc, r, rec, status });
     }
-    for (const id in this._runs) if (!this._machines.some(m => m.id === id)) delete this._runs[id];
-    if (JSON.stringify(this._runs) !== before) this._save();
+    runs.keep(this._machines.map(m => m.id));
     this._alert(shown);
 
     shown.sort((a, b) => a.rec.since - b.rec.since);
@@ -404,10 +359,6 @@ class ApplianceGlance extends HTMLElement {
     return id ? this._hass.states[id] : null;
   }
 
-  _save() {
-    try { localStorage.setItem(RUNS, JSON.stringify(this._runs)); } catch {}
-  }
-
   // Alerts: a cycle ended (a tap dismisses it, ending the rest) and
   // errors, for every machine, shown or waiting. Named by kind, or by
   // device for two of a kind.
@@ -426,13 +377,14 @@ class ApplianceGlance extends HTMLElement {
   // A machine as the drum takes it.
   _machine({ mc, r, rec, status }, now) {
     const kind = mc.kind, phase = status === 'ended' ? rec.phase ?? DRAWN[kind][0] : drawPhase(kind, r.phase);
+    const { time, duration, cap } = this._haag.format;
     const running = status === 'running' || status === 'paused';
     const m = { key: mc.id, kind, name: mc.name, since: rec.since, status, phase,
       progress: running && r.progress != null ? r.progress / 100 : null };
     m.pink = this._eggs() && rec.sock && (kind === 'washer' || kind === 'washer_dryer') ? pinkness(m) : null;
     const left = running && r.ends ? ` · ${Math.max(0, Math.round((r.ends - now) / MINUTE))} min left` : '';
     m.lines = {
-      running: [`${r.phase ? cap(String(r.phase).replace(/_/g, ' ')) : 'Running'}${left}`, r.ends ? `Ends at ${formatTime(this._hass, r.ends, now)}` : ''],
+      running: [`${r.phase ? cap(String(r.phase).replace(/_/g, ' ')) : 'Running'}${left}`, r.ends ? `Ends at ${time(r.ends, now)}` : ''],
       paused: [`Paused${left}`, ''],
       ended: ['Cycle ended', now - rec.ended < MINUTE ? 'Just now' : `${duration(now - rec.ended)} ago`],
       error: ['Error', 'Check the machine'],

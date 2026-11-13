@@ -6,7 +6,7 @@ const manifest = {
   name: 'vitvaror',
   element: 'haag-vitvaror',
   title: 'Appliances',
-  version: '0.6.4',
+  version: '0.7.0',
   settings: [
     { key: 'rest', type: 'seconds', default: 7200, min: 60, max: 86400, label: 'Rest',
       help: 'How long a machine stays after its cycle ends, unless its door opens or the alert is dismissed' },
