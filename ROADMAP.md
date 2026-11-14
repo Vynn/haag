@@ -106,12 +106,12 @@ The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 
 ## 0.7 · Code review and refactor, part 1
 
-- [ ] Layout measures in batches; Workshop lays out only when a readout's shape changes
-- [ ] State changes passed on at most twice a second, and only to the parts that read what changed
-- [ ] The drum stops when nothing moves, and moves at 30 frames a second at most
-- [ ] The weather builds a layer when a condition first needs it
-- [ ] One copy of shared code, in the core: formats, drawing helpers, registries, kept runs, the split layout
-- [ ] A readings check on a stand-in Home Assistant
+- [x] Layout measures in batches; Workshop lays out only when a readout's shape changes
+- [x] State changes passed on at most twice a second, and only to the parts that read what changed
+- [x] The drum stops when nothing moves, and moves at 30 frames a second at most
+- [x] The weather builds a layer when a condition first needs it
+- [x] One copy of shared code, in the core: formats, drawing helpers, registries, kept runs, the split layout
+- [x] A readings check on a stand-in Home Assistant
 
 ## 0.7.1 · Code review and refactor, part 2
 
