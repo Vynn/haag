@@ -2,9 +2,9 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
-## 0.7.0 · unreleased
+## 0.7.0 · 2026-11-13
 
-The first part of a code review and refactor. Håg does much less work to show the same things, and its glances share more of the core. Nothing should look or read differently, except as noted under Changed.
+The first part of a code review and refactor. Håg does much less work to show the same things, and its glances share more of the core. Nothing should look or read differently, except as noted under Changed. A pre-release.
 
 ### Added
 
@@ -27,6 +27,7 @@ The first part of a code review and refactor. Håg does much less work to show t
 ### Known issues
 
 - On a narrow portrait screen, the Workshop glance's clock can come out about a pixel different in size and place from one layout to the next. Found in this review; 0.6.4 does the same.
+- The timings behind this release were taken on a desktop computer. Frame rates on a wall display or a Raspberry Pi haven't been measured yet.
 
 ## 0.6.4 · 2026-11-12
 

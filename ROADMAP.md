@@ -104,7 +104,7 @@ The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 - [x] A printer that reports a problem during a print raises one warning, "… needs attention"
 - [x] A printer that goes idle during its rest leaves the glance
 
-## 0.7 · Code review and refactor, part 1
+## 0.7 · Code review and refactor, part 1 · released
 
 - [x] Layout measures in batches; Workshop lays out only when a readout's shape changes
 - [x] State changes passed on at most twice a second, and only to the parts that read what changed
