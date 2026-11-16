@@ -2,6 +2,23 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
+## 0.7.1 · unreleased
+
+The second part of the code review and refactor: an update fetches only what changed.
+
+### Added
+
+- For development, a check that a file with a tag of its own gets a new tag when it changes. See [development](docs/development.md#file-tags).
+
+### Changed
+
+- An update no longer fetches the typeface again. Every file carried the update's tag, so each update downloaded all of Håg: 663 KB, 520 KB of it the typeface. The typeface now has a tag of its own, and an update fetches about 140 KB.
+- The core's color math and its weather alert sources are in files of their own, in `dist/core/`, each fetched again only when it changes. Nothing reads or looks different.
+
+### Known issues
+
+- Not yet seen on an install that a reload takes these files from the browser's cache.
+
 ## 0.7.0 · 2026-11-13
 
 The first part of a code review and refactor. Håg does much less work to show the same things, and its glances share more of the core. Nothing should look or read differently, except as noted under Changed. A pre-release.

@@ -14,7 +14,13 @@
   from it, and never import it.
 */
 
-const VERSION = '0.7.0';
+// Parts of the core in files of their own. Each has its own tag, raised
+// when that file changes (tools/tags.py checks), so an update fetches only
+// what changed. They import nothing: the core hands them what they need.
+import { GROUNDS, HEX, ON, PEOPLE_PALETTE, discoverColors, tint } from './core/colors.js?v=1';
+import { WX_REFRESH, WX_SOURCES, discoverWeather, readWeather, weatherAlerts } from './core/weather-alerts.js?v=1';
+
+const VERSION = '0.7.1';
 const MANIFEST = 'haag/v1';   // config format marker
 
 /* ------------------------------------------------------------------------
@@ -35,13 +41,12 @@ for (const prop of [
 // License 1.1, in assets/OFL.txt). Font rules inside shadow DOM aren't used
 // by Chromium, so the font is registered on the document. It has its own
 // family name so it can't clash with an Open Sans installed on the device.
-// The file URL keeps this module's query string (the cache tag HACS or the
-// Marketplace adds), so an update also refreshes the font.
+// The file has a tag of its own, raised only if the font changes, so an
+// update doesn't fetch it again.
 const FONT_FAMILY = 'Haag Open Sans';
 (() => {
   try {
-    const url = new URL('./assets/open-sans.ttf', import.meta.url);
-    url.search = new URL(import.meta.url).search;
+    const url = new URL('./assets/open-sans.ttf?v=1', import.meta.url);
     const face = new FontFace(FONT_FAMILY, `url("${url}")`, { weight: '300 800', stretch: '75% 100%', display: 'swap' });
     document.fonts.add(face);
     return face.load().catch(err => notice('info', "Typeface didn't load · using the system font", err));
@@ -451,134 +456,6 @@ function discoverCalendars(hass, reg, overrides = {}) {
 }
 
 /* ------------------------------------------------------------------------
-   People and calendar colors
-   Each person and calendar has a color: one set in settings
-   (`providers.people.colors: { entity_id: "#hex" }`), else its calendar's
-   from HA, else one from Håg's palette. A person and their calendar
-   share: either's setting, then the calendar's own.
-   People match calendars by name (person.alex ↔ calendar.alex), or by
-   `providers.people.calendars: { person_id: calendar_id }`; false there
-   gives them none.
-   Drawn colors keep their hue and shift in lightness until they reach
-   4.5:1 on what they're drawn on, by day and by night, so text can take
-   them too.
-   ------------------------------------------------------------------------ */
-
-// Backgrounds by night and day: the outdoor sky and its glow, and the
-// indoor base. The stage's palette uses them; colors are checked on them.
-const GROUNDS = {
-  sky:     { night: '#10162A', day: '#7CC8F2' },
-  horizon: { night: '#1D3442', day: '#FFD6E7' },
-  home:    { night: '#1E2433', day: '#F6FAFF' },
-};
-const ON = { sky: ['sky', 'horizon'], home: ['home'] };
-
-// For people and calendars without a color, in turn: each value is
-// 4.5:1 or better on every ground (design/palette-people.html).
-const PEOPLE_PALETTE = [
-  { night: '#ED914C', day: '#7A3C00' },   // ember
-  { night: '#8DBC58', day: '#365501' },   // fern
-  { night: '#10C4BC', day: '#025653' },   // lagoon
-  { night: '#54B3FD', day: '#025081' },   // azure
-  { night: '#B298F9', day: '#5B369E' },   // violet
-  { night: '#E486C6', day: '#87216E' },   // orchid
-];
-const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
-const READABLE = 4.5;
-
-// Colors as linear sRGB, OKLab, and WCAG contrast.
-const toLinear = c => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-const toGamma = c => c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055;
-const rgbOf = hex => {
-  const h = hex.length === 4 ? hex.replace(/\w/g, '$&$&') : hex;
-  return [1, 3, 5].map(i => toLinear(parseInt(h.slice(i, i + 2), 16) / 255));
-};
-const hexOf = rgb => '#' + rgb.map(c => Math.round(255 * toGamma(Math.min(1, Math.max(0, c)))).toString(16).padStart(2, '0')).join('');
-const luminance = ([r, g, b]) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
-const contrast = (a, b) => {
-  const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p);
-  return (x + 0.05) / (y + 0.05);
-};
-function oklab([r, g, b]) {
-  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
-  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
-  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
-  return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
-    1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
-    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s];
-}
-function linearOf([L, a, b]) {   // may fall outside sRGB
-  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
-  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
-  const s = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3;
-  return [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-    -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s];
-}
-
-// A color stepped in lightness, away from the grounds, until it's
-// readable on all of them. The hue stays; chroma eases off only where
-// the hue runs out of sRGB.
-function readableOn(hex, grounds) {
-  const passes = rgb => grounds.every(g => contrast(rgb, g) >= READABLE);
-  if (passes(rgbOf(hex))) return hex;
-  const [L0, a, b] = oklab(rgbOf(hex));
-  const step = luminance(grounds[0]) > 0.18 ? -0.005 : 0.005;
-  for (let L = L0 + step; L > 0 && L < 1; L += step) {
-    for (let k = 1; k >= 0; k -= 0.05) {
-      const c = linearOf([L, a * k, b * k]);
-      if (!c.every(v => v > -1e-4 && v < 1 + 1e-4)) continue;
-      const out = hexOf(c);
-      if (passes(rgbOf(out))) return out;
-      break;
-    }
-  }
-  return step < 0 ? '#000000' : '#ffffff';
-}
-
-// What a person or calendar looks like on the sky or indoors: its day
-// and night values, mixed with the rest of the palette.
-function tint(color, on = 'home') {
-  const at = time => readableOn(color, ON[on].map(k => rgbOf(GROUNDS[k][time])));
-  const { day, night } = typeof color === 'number' ? PEOPLE_PALETTE[color] : { day: at('day'), night: at('night') };
-  return `color-mix(in oklab, ${day} var(--day-mix), ${night})`;
-}
-
-/**
- * Each person's calendar, and every person's and calendar's color:
- * { calendars: { person_id: calendar_id }, colors: { entity_id: hex |
- * palette index } }. Palette colors go in turn, people first; a person
- * and their calendar share one.
- */
-function discoverColors(hass, reg, people, calendars, settings = {}) {
-  const set = settings.colors || {};
-  const name = id => (hass.states[id]?.attributes?.friendly_name || '').trim().toLowerCase();
-  const all = Object.keys(hass.states).filter(id => id.startsWith('calendar.'));
-  const cal = {};
-  for (const p of people.ids) {
-    // A calendar set for them, false for none, else one matching by name.
-    const c = settings.calendars?.[p]
-      ?? all.find(c => c.split('.')[1] === p.split('.')[1])
-      ?? all.find(c => name(c) && name(c) === name(p));
-    if (c) cal[p] = c;
-  }
-  const fromHa = id => reg.entities.find(e => e.entity_id === id)?.options?.calendar?.color;
-  // A calendar's own color in settings, else its person's (the first, if
-  // several share it), else HA's.
-  const owner = c => Object.keys(cal).sort().map(p => cal[p] === c && set[p]).find(Boolean);
-  const calendarColor = c => set[c] ?? owner(c) ?? (HEX.test(fromHa(c) ?? '') ? fromHa(c) : null);
-  const slots = new Map();
-  const slot = key => {
-    if (!slots.has(key)) slots.set(key, slots.size % PEOPLE_PALETTE.length);
-    return slots.get(key);
-  };
-  const colors = {};
-  for (const p of [...people.ids].sort()) colors[p] = set[p] ?? (cal[p] && calendarColor(cal[p])) ?? slot(cal[p] ?? p);
-  for (const c of [...new Set([...calendars, ...Object.values(cal)])].sort()) colors[c] = calendarColor(c) ?? slot(c);
-  return { calendars: cal, colors };
-}
-
-/* ------------------------------------------------------------------------
    Household alerts
    Built-in alerts for things without a glance of their own: hazards,
    leaks, things left open or unlocked, and air quality. Sensors are found
@@ -898,174 +775,6 @@ function householdAlerts(hass, watch, seen, fits, now = Date.now()) {
     }
     alerts.push({ key, level, text, hold, since: Math.max(...members.map(m => m.since)) });
   }
-  return { alerts, next };
-}
-
-/* ------------------------------------------------------------------------
-   Weather alerts
-   From HA's alert integrations, one source at a time. Each source's
-   adapter reads its entities, or calls its action, into one shape:
-   { key, event, severity or level, start, end, urgency, status, type }.
-   ------------------------------------------------------------------------ */
-
-const WX_AHEAD = 24 * 60 * MINUTE;   // upcoming alerts show from this long before they start
-const WX_REFRESH = 15 * MINUTE;      // actions are called again at least this often
-const CAP_LEVELS = { extreme: 'critical', severe: 'warning', moderate: 'info' };   // minor, unknown: hidden
-const DWD_LEVELS = { 2: 'info', 3: 'warning', 4: 'critical' };                     // 1 (yellow): hidden
-const ECCC_LEVELS = { yellow: 'info', orange: 'warning', red: 'critical' };        // no colour: hidden
-const ECCC_SHOWN = ['warnings', 'watches', 'advisories'];   // not statements or endings
-const METEOALARM = 'Information provided by MeteoAlarm';
-const AMTLICH = /^Amtliche\s+\S*WARNUNG\s+vor\s+/i;   // NINA headline lead, dropped so the time fits
-
-// Sources in the order they're used (core, then custom), with their names.
-const WX_SOURCES = {
-  nina: 'NINA', environment_canada: 'Environment Canada', dwd_weather_warnings: 'DWD', meteoalarm: 'MeteoAlarm',
-  cap_alerts: 'CAP Alerts', nws_alerts: 'NWS Alerts', weatheralerts: 'Weather Alerts',
-};
-
-/**
- * The weather alert source: the one chosen in settings, else the first
- * installed, in WX_SOURCES order. None when weather alerts are off.
- * Returns { platform, entities, ... } or null.
- */
-function discoverWeather(hass, reg, settings) {
-  if (!settings.enabled) return null;
-  const on = reg.entities.filter(e => !e.disabled_by && hass.states[e.entity_id]);
-  const of = (platform, test = () => true) => on.filter(e => e.platform === platform && test(e));
-  const ids = list => list.map(e => e.entity_id);
-  const order = Object.keys(WX_SOURCES).sort((a, b) => (b === settings.source) - (a === settings.source));
-  for (const platform of order) {
-    let src = { platform, entities: [] };
-    if (platform === 'nina') {
-      // Each slot's warning sensor, with its headline and severity sensors.
-      const byUid = Object.fromEntries(of(platform).map(e => [e.unique_id, e.entity_id]));
-      const slots = of(platform, e => e.entity_id.startsWith('binary_sensor.'));
-      src.entities = ids(slots);
-      src.slots = Object.fromEntries(slots.map(e =>
-        [e.entity_id, { headline: byUid[`${e.unique_id}-headline`], severity: byUid[`${e.unique_id}-severity`] }]));
-    } else if (platform === 'environment_canada') {
-      // Its alert sensors say when to call get_alerts again.
-      const alerts = of(platform, e => [...ECCC_SHOWN, 'statements', 'endings'].includes(e.translation_key));
-      src.entities = ids(alerts);
-      src.entries = [...new Set(alerts.map(e => e.config_entry_id))];
-    } else if (platform === 'dwd_weather_warnings') {
-      src.entities = ids(of(platform, e => /warning_level$/.test(e.translation_key || '')));
-    } else if (platform === 'meteoalarm') {
-      // Set up in YAML, so not in the registry: found by its attribution.
-      src.entities = Object.keys(hass.states).filter(id =>
-        id.startsWith('binary_sensor.') && hass.states[id].attributes.attribution === METEOALARM);
-    } else if (platform === 'cap_alerts') {
-      // One sensor per alert, coming and going: found on each update.
-      if (of(platform).length) return src;
-    } else {
-      src.entities = ids(of(platform, e => e.entity_id.startsWith('sensor.')));
-    }
-    if (src.entities.length) return src;
-    if (platform === settings.source) notice('info', `Weather alert source "${WX_SOURCES[platform]}" isn't installed`);
-  }
-  return null;
-}
-
-const when = v => (v === null || v === undefined || v === 'null' || v === '') ? null : Date.parse(v) || null;
-const given = v => v === 'null' || v === '' ? null : v ?? null;   // Weather Alerts writes "null"
-
-/**
- * The source's alerts, in one shape. `fetched` holds action results
- * (Environment Canada's by config entry, NINA's by slot).
- */
-function readWeather(hass, src, fetched) {
-  const attrs = id => hass.states[id]?.attributes || {};
-  const on = id => hass.states[id]?.state === 'on';
-  const out = new Map();   // by key; DWD can list a warning twice
-  const add = a => out.set(a.key, { ...a, event: given(a.event), start: when(a.start), end: when(a.end) });
-  switch (src.platform) {
-    case 'nina':
-      for (const id of src.entities.filter(on)) {
-        const { headline, severity } = src.slots[id] || {};
-        const d = fetched.get(id) || {};
-        add({ key: `${id}|${attrs(id).id}`, event: (hass.states[headline]?.state ?? d.headline)?.replace(AMTLICH, ''),
-          severity: hass.states[severity]?.state ?? d.severity, start: d.start, end: d.expires });
-      }
-      break;
-    case 'environment_canada':
-      for (const entry of src.entries) {
-        const data = fetched.get(entry) || {};
-        for (const cat of ECCC_SHOWN) for (const a of data[cat] || []) {
-          add({ key: `${a.title}|${a.date}`, event: a.title,
-            level: ECCC_LEVELS[String(a.alert_colour_level).toLowerCase()] ?? null, end: a.expiry_time });
-        }
-      }
-      break;
-    case 'dwd_weather_warnings':
-      for (const id of src.entities) {
-        const a = attrs(id), w = (i, k) => a[`warning_${i}_${k}`];
-        for (let i = 1; i <= (a.warning_count || 0); i++) {
-          add({ key: `${w(i, 'headline')}|${w(i, 'start')}`, event: w(i, 'name') || w(i, 'headline'),
-            level: DWD_LEVELS[w(i, 'level')] ?? null, start: w(i, 'start'), end: w(i, 'end') });
-        }
-      }
-      break;
-    case 'meteoalarm':
-      for (const id of src.entities.filter(on)) {
-        const a = attrs(id);
-        add({ key: `${id}|${a.identifier ?? a.event}`, event: a.event || a.headline, severity: a.severity,
-          urgency: a.urgency, start: a.onset, end: a.expires });
-      }
-      break;
-    case 'cap_alerts':
-      for (const id in hass.states) {
-        const st = hass.states[id], a = st.attributes;
-        if (!a.incident_platform_version || ['cancel', 'expired'].includes(a.phase)) continue;   // stale ones stay
-        add({ key: a.id || id, event: a.event || a.friendly_name, severity: a.severity_normalized || st.state,
-          urgency: a.urgency, status: a.status, type: a.msg_type, start: a.onset, end: a.ends || a.expires });
-      }
-      break;
-    case 'nws_alerts':
-      for (const id of src.entities) for (const a of attrs(id).Alerts || []) {
-        add({ key: a.ID, event: a.Event, severity: a.Severity, status: a.Status, type: a.Type,
-          start: a.Onset, end: a.Ends || a.Expires });
-      }
-      break;
-    case 'weatheralerts':
-      for (const id of src.entities) for (const a of attrs(id).alerts || []) {
-        add({ key: a.id, event: a.event, severity: a.severity, urgency: a.urgency, status: a.status,
-          type: a.messageType, start: a.onset, end: given(a.ends) ?? a.expires });
-      }
-      break;
-  }
-  return [...out.values()];
-}
-
-/**
- * Weather alerts for the row: [{ key, level, text, hold }], and when to
- * look again (ms time, or Infinity). Ended, cancelled, past, test and
- * exercise alerts are dropped. One that hasn't started shows as
- * information from a day ahead; Extreme ones hold the row.
- */
-function weatherAlerts(hass, list, now = Date.now()) {
-  let next = Infinity;
-  const later = t => { if (t > now) next = Math.min(next, t); };
-  const lower = v => String(v ?? '').toLowerCase();
-  const alerts = [];
-  for (const a of list) {
-    if (lower(a.type) === 'cancel' || (a.status && lower(a.status) !== 'actual') || lower(a.urgency) === 'past') continue;
-    if (a.end !== null && a.end <= now) continue;
-    const level = 'level' in a ? a.level : CAP_LEVELS[lower(a.severity)];
-    if (!level || !a.event) continue;
-    if (a.end !== null) later(a.end);
-    if (a.start !== null && a.start > now) {
-      if (a.start - now > WX_AHEAD) {
-        later(a.start - WX_AHEAD);
-        continue;
-      }
-      later(a.start);
-      alerts.push({ key: a.key, level: 'info', text: `${a.event} from ${formatTime(hass, a.start, now)}` });
-    } else {
-      const text = a.end === null ? a.event : `${a.event} until ${formatTime(hass, a.end, now)}`;
-      alerts.push({ key: a.key, level, text, hold: level === 'critical' });
-    }
-  }
-  if (alerts.length) later(now - now % (60 * MINUTE) + 60 * MINUTE);   // weekdays change at midnight
   return { alerts, next };
 }
 
@@ -2236,7 +1945,7 @@ class HaagHost extends HTMLElement {
     // What the alerts read: the watched sensors, and the sun for warning hours.
     this._homeWatch = [...(this._watch ?? []).map(w => w.entity), sunOf(hass)].filter(Boolean);
     this._household();
-    const wx = this._wxSource = discoverWeather(hass, reg, this._settings.alerts.weather);
+    const wx = this._wxSource = discoverWeather(hass, reg, this._settings.alerts.weather, notice);
     // CAP Alerts' sensors come and go, so every state is looked at.
     this._wxWatch = wx && wx.platform !== 'cap_alerts'
       ? [...wx.entities, ...Object.values(wx.slots ?? {}).flatMap(s => [s.headline, s.severity])].filter(Boolean) : null;
@@ -2953,7 +2662,7 @@ class HaagHost extends HTMLElement {
       notice('info', `Couldn't read weather alerts from ${WX_SOURCES[src.platform]}`);
     }
     const due = this._callWeather(src);
-    const { alerts, next } = weatherAlerts(hass, readWeather(hass, src, this._wxFetched));
+    const { alerts, next } = weatherAlerts(readWeather(hass, src, this._wxFetched), (t, now) => formatTime(hass, t, now));
     this._weather.replace(alerts);
     const at = Math.min(next, due);
     this._wxTimer = at < Infinity ? setTimeout(() => this._weatherAlerts(), Math.max(1000, at - Date.now())) : null;

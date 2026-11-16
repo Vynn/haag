@@ -115,9 +115,8 @@ The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 
 ## 0.7.1 · Code review and refactor, part 2
 
-Planned, and may change.
-
-- [ ] The core's settled parts in files of their own, each fetched again only when it changes
+- [ ] The typeface, the color math and the weather alert sources each have a tag of their own, so an update fetches them again only when they change
+- [ ] A check that a changed file gets a new tag
 
 ## 0.8 · Irrigation glance
 
@@ -167,6 +166,7 @@ Planned, and may change.
 
 ## Candidates (not scheduled)
 
+- **More of the core in files of their own** (before 1.0): each part as it settles. With more of them, their tags may be written from the files' contents by a script.
 - **Now playing** (after 1.0): what's playing in which room, with artwork.
 - **Robot vacuum** (after 1.0): cleaning now and where, the map, stuck or in error, the dock needing attention.
 - **Repetier-Server printers**: its integration is set up in YAML and registers no devices, so its printers can't be told apart on their own. Possible with a setting naming each printer's entities.

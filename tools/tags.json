@@ -1,0 +1,14 @@
+{
+ "dist/assets/open-sans.ttf": {
+  "sha256": "36643644f318a812aab2d2ed3bb98f8cf0872527f835fe9398d95fe6b9adb878",
+  "tag": "1"
+ },
+ "dist/core/colors.js": {
+  "sha256": "cf765c10fa82fadb799924e055b344c8c71d163cd1a73dd401e4929903ace4f2",
+  "tag": "1"
+ },
+ "dist/core/weather-alerts.js": {
+  "sha256": "8d99cf6bdaaa4cdcee5749ca9c1072ddc0fdedfd352d754a4f5e58ac84ab39fb",
+  "tag": "1"
+ }
+}

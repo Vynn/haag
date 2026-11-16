@@ -6,7 +6,7 @@ Håg has no build step. The plugin is plain JavaScript, CSS and HTML in `dist/`,
 
 | Folder | Contents | Installed? |
 |---|---|---|
-| `dist/` | The plugin: `haag.js`, its glances and assets | Yes |
+| `dist/` | The plugin: `haag.js`, parts of the core in `core/`, its glances and assets | Yes |
 | `design/` | Design studies | No |
 | `tools/` | Local development tools | No |
 | `docs/` | Documentation | No |
@@ -29,6 +29,24 @@ The URL and token are stored only in that browser, and **Forget** removes them. 
 The test page can preview square, portrait and landscape shapes, show a sample alert, pick a weather condition, pick sample weather alerts in each supported source's shape, and try settings as JSON. The weather and alert picks apply on the test page only. Håg's version shows small at the bottom center, for testing.
 
 It also loads the Test glance (`tools/glances/test/`), a stand-in second glance that isn't shipped. Turned on, it asks for the screen for 5 seconds, then lets go for 25.
+
+## File tags
+
+Home Assistant tells browsers to keep each of Håg's files for a month under an unchanged address. The installer gives `haag.js` a new tag (`?v=…`) with every update, and files loaded with that tag are all fetched again each time.
+
+Some files change rarely, so they have a tag of their own, written where they're loaded:
+
+```js
+import { tint } from './core/colors.js?v=1';
+new URL('./assets/open-sans.ttf?v=1', import.meta.url);
+```
+
+An update then fetches them again only when their tag changes. Today these are the typeface and two parts of the core in `dist/core/`: the people and calendar colors, and the weather alert sources.
+
+- **When a tagged file changes, raise its number** in the line that loads it. Never reuse an old one. Otherwise displays keep the old file for up to a month.
+- **The check:** `python3 tools/tags.py` compares every tagged file with `tools/tags.json` and fails when a file changed and its tag didn't. Run it before every commit, with the readings check. After raising a tag or adding a file, `python3 tools/tags.py --update` records it.
+- **A part of the core in a file of its own imports nothing.** The core hands it what it needs, as arguments. A tagged file that loaded another would have to repeat its exact address, and a change in one would change both.
+- **A part moves out of `haag.js` once it has settled,** so its tag rarely changes.
 
 ## Readings check
 
