@@ -115,8 +115,8 @@ The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 
 ## 0.7.1 · Code review and refactor, part 2
 
-- [ ] The typeface, the color math and the weather alert sources each have a tag of their own, so an update fetches them again only when they change
-- [ ] A check that a changed file gets a new tag
+- [x] The typeface, the color math and the weather alert sources each have a tag of their own, so an update fetches them again only when they change
+- [x] A check that a changed file gets a new tag
 
 ## 0.8 · Irrigation glance
 
