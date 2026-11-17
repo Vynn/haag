@@ -2,9 +2,9 @@
 
 All notable changes, by version. Versions follow the [roadmap](ROADMAP.md): a minor version per milestone, and until 1.0 patch versions for the builds between them.
 
-## 0.7.1 · unreleased
+## 0.7.1 · 2026-11-16
 
-The second part of the code review and refactor: an update fetches only what changed.
+The second part of the code review and refactor: an update fetches only what changed. A pre-release.
 
 ### Added
 
@@ -17,7 +17,7 @@ The second part of the code review and refactor: an update fetches only what cha
 
 ### Known issues
 
-- Not yet seen on an install that a reload takes these files from the browser's cache.
+- Not yet seen on an install that the next update leaves the typeface and the core's own files in the browser's cache. A reload does take them from the cache.
 
 ## 0.7.0 · 2026-11-13
 

@@ -113,7 +113,7 @@ The first glance after Overview: washers, dryers, washer-dryers and dishwashers.
 - [x] One copy of shared code, in the core: formats, drawing helpers, registries, kept runs, the split layout
 - [x] A readings check on a stand-in Home Assistant
 
-## 0.7.1 · Code review and refactor, part 2
+## 0.7.1 · Code review and refactor, part 2 · released
 
 - [x] The typeface, the color math and the weather alert sources each have a tag of their own, so an update fetches them again only when they change
 - [x] A check that a changed file gets a new tag
